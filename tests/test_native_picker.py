@@ -58,6 +58,41 @@ class NativeDialogTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 choose_local_source("psd", multiple=True)
 
+    def test_mac_finder_byte_output_preserves_cr_inside_name_and_nfd(self):
+        with tempfile.TemporaryDirectory() as temp:
+            first = Path(temp) / "あんこもん た\u3099\r声.wav"
+            second = Path(temp) / "line\nnext.wav"
+            first.write_bytes(b"synthetic")
+            second.write_bytes(b"synthetic")
+            output = (str(first) + "\0" + str(second) + "\n").encode("utf-8")
+            with patch("tachie_motion.web.native_picker.sys.platform", "darwin"), patch(
+                "tachie_motion.web.native_picker.subprocess.run",
+                return_value=subprocess.CompletedProcess(
+                    ["osascript"], 0, stdout=output, stderr=b"",
+                ),
+            ) as invocation:
+                result = choose_local_source("wav", multiple=True)
+            self.assertEqual(result, {"status": "selected", "paths": [str(first), str(second)]})
+            self.assertIs(invocation.call_args.kwargs["text"], False)
+            self.assertEqual(first.read_bytes(), b"synthetic")
+
+    def test_mac_finder_byte_error_handles_cancel_without_path_leak(self):
+        with patch("tachie_motion.web.native_picker.sys.platform", "darwin"), patch(
+            "tachie_motion.web.native_picker.subprocess.run",
+            return_value=subprocess.CompletedProcess(
+                ["osascript"], 1, stdout=b"", stderr=b"User canceled. (-128)",
+            ),
+        ):
+            self.assertEqual(choose_local_source("wav", multiple=True), {"status": "cancelled"})
+        with patch("tachie_motion.web.native_picker.sys.platform", "darwin"), patch(
+            "tachie_motion.web.native_picker.subprocess.run",
+            return_value=subprocess.CompletedProcess(
+                ["osascript"], 0, stdout=b"\xff", stderr=b"",
+            ),
+        ):
+            with self.assertRaisesRegex(PickerUnavailable, "UTF-8"):
+                choose_local_source("wav", multiple=True)
+
     def test_start_folder_is_an_argument_and_never_script_source(self):
         with tempfile.TemporaryDirectory() as temp:
             location = Path(temp) / "立ち絵 空白 た\u3099"
