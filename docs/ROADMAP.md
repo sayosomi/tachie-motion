@@ -22,6 +22,16 @@
 - [x] ProResの同一保持フレームを圧縮済みパケットで再利用する**明示的オプトイン**。不適用時は従来経路へ戻し、全フレーム品質検査を維持 — Issue #8（旧Private開発履歴） / PR #9（旧Private開発履歴）。
 - [ ] エンドツーエンドで残る処理時間の継続調査・優先順位整理 — 性能調査Issue #3（旧Private開発履歴）（OPEN）。既存の最適化成果と今後の調査を区別する。
 
+### Public Issue #2 — PCM内包セリフMOV（Draft PR段階・Resolve未検証）
+
+- [x] 既存の単一WAV/キャラクターMOV書き出しに、映像ストリームをコピーしたPCM内包処理を追加（試験実装）。
+- [x] 合成PCM（8/16/24/32-bit、mono/stereo）の復号サンプル一致、映像パケット一致、映像の端数丸めと音声サンプル長の独立性を検証する自動テストを追加。
+- [ ] Mac DaVinci Resolveで**単独MOV取り込み**の音声再生を確認。
+- [ ] Mac DaVinci Resolveで**個別OTIO取り込み**の音声トラック、音声欠落・二重再生なしを確認。
+- [ ] 実証結果と利用者の確定判断に基づき `PRODUCT_SPEC.md` §6 / `DECISIONS.md` D16・D17の変更要否を確定。旧WAVコピー仕様を黙って削除しない。
+
+上記は製品仕様の変更が承認・実機検証されたという意味ではありません。対応する契約は [Issue #2](https://github.com/sayosomi/tachie-motion/issues/2) を参照。
+
 ## Phase 1 — first usable single-character tool：CLI・Web UI初期版をmainに統合済み
 
 - [x] WAV PCMの音量解析と決定論的な開閉フレーム列JSON CLI — Issue #12（旧Private開発履歴）（Phase 1 Slice 1。PSD・MOV・OTIO接続は未実装）。
