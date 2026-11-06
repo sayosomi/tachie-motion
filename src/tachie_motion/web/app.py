@@ -219,7 +219,11 @@ def preset_utterance_destination(payload: DestinationRequest):
         folder = Path(payload.output_dir).expanduser()
         if not folder.is_absolute() or not folder.is_dir():
             raise ValueError("Output folder must already exist")
-        return destination_info(folder.resolve(strict=True), payload.basename)
+        canonical = folder.resolve(strict=True)
+        return {
+            **destination_info(canonical, payload.basename),
+            "canonical_output_dir": str(canonical),
+        }
     except (ValueError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 
