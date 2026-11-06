@@ -192,6 +192,26 @@ def wav_info(payload: FileRequest):
         raise bad_request(exc) from exc
 
 
+@app.post("/api/wav-playback")
+def wav_playback(payload: FileRequest):
+    """Serve only an explicitly requested bounded local WAV for browser listening.
+
+    JSON POST keeps arbitrary file paths out of URL history and uses the
+    existing same-origin request guard. Source media is never modified.
+    """
+    try:
+        wav = local_file(payload.path, ".wav")
+        size = wav.stat().st_size
+        if not 0 < size <= 128 * 1024 * 1024:
+            raise ValueError("WAV playback requires a file between 1 byte and 128 MiB")
+        return FileResponse(
+            wav, media_type="audio/wav",
+            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        )
+    except (ValueError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
 @app.post("/api/preset-utterance-destination")
 def preset_utterance_destination(payload: DestinationRequest):
     try:
