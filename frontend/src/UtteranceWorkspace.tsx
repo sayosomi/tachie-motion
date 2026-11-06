@@ -228,9 +228,9 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
       onRemove={removeItem} />
     <div className="utterance-columns">
       <section className="panel">
-        <h2>選択中のセリフ</h2>
+        <h2>選択中のWAV</h2>
+        <p className="hint">PSD: {draft?.path ?? "読み込み中…"}</p>
         {!current ? <p className="hint">一覧からセリフを選択してください。</p> : <>
-          <p className="hint">PSD: {draft?.path ?? "読み込み中…"}</p>
           <p className="hint" title={current.wavPath}>WAV: {current.wavPath}</p>
           <p className="meta">長さ {current.wav.duration_seconds.toFixed(2)}秒 ／ {current.wav.sample_rate}Hz</p>
           <label htmlFor="speech-preset">プリセット</label>
@@ -250,14 +250,17 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
             <option value="aiueo" disabled>aiueo（後続対応）</option>
           </select>
           {current.mode === "open" && !openMouthReady(selected) &&
-            <p className="hint warning">このプリセットの「口パク（open）」で閉口・開口を指定してください。</p>}
+            <p className="hint warning">このプリセットの「口パク（open）」で、異なる閉口・開口のレイヤー表示状態を設定してください。</p>}
           {selected?.blinkEnabled &&
             <p className="hint warning">このプリセットは瞬きが有効です。瞬きの書き出しは未実装です。</p>}
         </>}
       </section>
       <section className="panel">
         <h2>個別書き出し</h2>
-        {!current ? <p className="hint">セリフを選択すると書き出し設定を編集できます。</p> : <>
+        {!current ? <>
+          <p className="hint">セリフを選択すると書き出し設定を編集できます。</p>
+          <button type="button" className="primary" disabled>MOVとOTIOを書き出す</button>
+        </> : <>
           <label htmlFor="speech-fps">フレームレート</label>
           <select id="speech-fps" value={current.fps}
             disabled={exportingId === current.id}
