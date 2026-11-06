@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Layer } from "./LayerTree";
 import NativeFilePicker from "./NativeFilePicker";
 import UtteranceList from "./UtteranceList";
+import WavPlayback from "./WavPlayback";
 import type { UnifiedPreset } from "./presetModel";
 import { matchesSource, readPresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
@@ -240,6 +241,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
       onReorder={(from, to, after) => setItems((previous) =>
         reorderUtterances(previous, from, to, after))}
       onRemove={removeItem} />
+    <WavPlayback items={items} selectedId={activeId} />
     <div className="utterance-columns">
       <section className="panel">
         <h2>選択中のWAV</h2>
