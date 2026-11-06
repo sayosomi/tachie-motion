@@ -28,7 +28,7 @@ export default function UtteranceList({
       value={pendingPath} disabled={disabled}
       onChange={onPathChange}
       onSelected={onAdd}
-      onApply={() => onAdd(pendingPath)} applyLabel="WAVを確認" />
+      onApply={async () => { await onAdd(pendingPath); }} applyLabel="WAVを確認" />
     <p className="hint">同じWAVも別のセリフ項目として追加できます。削除しても元ファイルは残ります。</p>
     {addingCount > 0 && <p className="hint" role="status">WAVを解析中…（{addingCount}件）</p>}
     {addError && <p className="hint warning" role="alert">{addError}</p>}
