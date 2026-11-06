@@ -7,6 +7,8 @@ type Props = {
   label: string;
   value: string;
   disabled?: boolean;
+  multiple?: boolean;
+  onSelectedMany?: (paths: string[]) => void | boolean | Promise<void | boolean>;
   onChange: (path: string) => void;
   onSelected: (path: string) => void | boolean | Promise<void | boolean>;
   applyLabel?: string;
@@ -38,8 +40,8 @@ const localEditor = (location.hostname === "127.0.0.1" || location.hostname === 
   location.protocol === "http:" && location.port === "8765";
 
 export default function NativeFilePicker({
-  id, kind, label, value, disabled = false, onChange, onSelected,
-  applyLabel, onApply,
+  id, kind, label, value, disabled = false, multiple = false,
+  onSelectedMany, onChange, onSelected, applyLabel, onApply,
 }: Props) {
   const [available, setAvailable] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -66,22 +68,32 @@ export default function NativeFilePicker({
       const response = await fetch(PICKER + "/pick", {
         method: "POST", mode: "cors",
         headers: { "Content-Type": "application/json", "X-Tachie-Picker": "1" },
-        body: JSON.stringify({ kind, initial_dir: lastDirectory(kind) }),
+        body: JSON.stringify({ kind, initial_dir: lastDirectory(kind), ...(multiple ? { multiple: true } : {}) }),
       });
       const answer = await response.json() as {
-        status?: "selected" | "cancelled"; path?: string; detail?: string;
+        status?: "selected" | "cancelled"; path?: string; paths?: string[]; detail?: string;
       };
       if (!response.ok) throw new Error(answer.detail || "Finderを開けませんでした");
       if (answer.status === "cancelled") return;
-      if (answer.status !== "selected" || !answer.path) {
+      if (answer.status !== "selected") {
         throw new Error("ファイル選択の応答が不正です");
       }
-      // The caller commits an accepted selection. A rejected PSD switch
-      // (cancel, stale source, failed analysis) must retain both the loaded
-      // PSD and the previously remembered Finder directory.
-      const accepted = await onSelected(answer.path);
-      if (accepted === false) return;
-      rememberDirectory(kind, answer.path);
+      if (multiple) {
+        const paths = answer.paths;
+        if (!onSelectedMany || !Array.isArray(paths) || paths.length === 0 ||
+            paths.length > 256 || paths.some((path) => typeof path !== "string" || !path.startsWith("/"))) {
+          throw new Error("複数ファイルの選択結果が不正です");
+        }
+        const accepted = await onSelectedMany(paths);
+        if (accepted === false) return;
+        rememberDirectory(kind, paths[0]);
+      } else {
+        if (!answer.path) throw new Error("ファイル選択の応答が不正です");
+        // Rejected PSD switches must retain the previously remembered directory.
+        const accepted = await onSelected(answer.path);
+        if (accepted === false) return;
+        rememberDirectory(kind, answer.path);
+      }
     } catch (err) {
       setPickerError(err instanceof Error ? err.message : String(err));
     } finally {
