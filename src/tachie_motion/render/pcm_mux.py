@@ -37,26 +37,39 @@ def _streams(path: Path, ffprobe: str) -> list[dict]:
     return json.loads(data)["streams"]
 
 
-def _video_packets(path: Path, ffprobe: str) -> list[str]:
+def _video_packets(path: Path, ffprobe: str) -> list[tuple[str, int, int, int]]:
+    """Compare every packet's bytes AND exact decode/presentation timeline."""
     data = _command([
         ffprobe, "-v", "error", "-select_streams", "v:0",
         "-show_packets", "-show_data_hash", "sha256",
-        "-show_entries", "packet=data_hash", "-of", "json", str(path),
+        "-show_entries", "packet=data_hash,pts,dts,duration",
+        "-of", "json", str(path),
     ])
-    return [item["data_hash"] for item in json.loads(data)["packets"]]
+    packets = json.loads(data)["packets"]
+    try:
+        return [
+            (packet["data_hash"], int(packet["pts"]), int(packet["dts"]),
+             int(packet["duration"]))
+            for packet in packets
+        ]
+    except (KeyError, ValueError, TypeError) as exc:
+        raise ValueError("Missing or invalid video packet timing") from exc
 
 
-def _source_pcm_digest(wav: Path, width: int) -> tuple[int, str]:
-    digest = hashlib.sha256()
+def _source_pcm_digest(wav: Path, width: int) -> tuple[int, str, str]:
+    """Return decoded-MOV identity and original raw-WAV PCM digest."""
+    decoded_digest = hashlib.sha256()
+    source_digest = hashlib.sha256()
     total = 0
     with wave.open(str(wav), "rb") as source:
         while chunk := source.readframes(16384):
+            source_digest.update(chunk)
             if width == 1:
                 # WAV 8-bit PCM is unsigned; MOV pcm_s8 uses signed samples.
                 chunk = bytes(value ^ 0x80 for value in chunk)
             total += len(chunk)
-            digest.update(chunk)
-    return total, digest.hexdigest()
+            decoded_digest.update(chunk)
+    return total, decoded_digest.hexdigest(), source_digest.hexdigest()
 
 
 def _decoded_pcm_digest(mov: Path, width: int, ffmpeg: str) -> tuple[int, str]:
@@ -98,6 +111,9 @@ def _decoded_pcm_digest(mov: Path, width: int, ffmpeg: str) -> tuple[int, str]:
 def mux_verified_pcm(
     silent_mov: Path, wav: Path, output: Path, *,
     expected_samples: int, expected_sample_rate: int,
+    expected_channels: int | None = None,
+    expected_sample_width_bits: int | None = None,
+    expected_pcm_sha256: str | None = None,
     ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe",
 ) -> None:
     """Publish a MOV only if audio samples and video packet bytes are identical.
@@ -122,6 +138,11 @@ def mux_verified_pcm(
         raise ValueError(f"Invalid PCM WAV: {exc}") from exc
     if channels not in (1, 2) or width not in _AUDIO_CODECS:
         raise ValueError("Only mono/stereo 8/16/24/32-bit integer PCM WAV is supported")
+    if (expected_channels is not None and channels != expected_channels) or (
+        expected_sample_width_bits is not None
+        and width * 8 != expected_sample_width_bits
+    ):
+        raise ValueError("WAV PCM format changed after animation analysis")
     if samples <= 0 or rate <= 0 or (samples, rate) != (expected_samples, expected_sample_rate):
         raise ValueError("Source WAV timing differs from the animation schedule")
     validate_pcm_header(
@@ -130,6 +151,8 @@ def mux_verified_pcm(
     )
     source_stat = wav.stat()
     expected_data = _source_pcm_digest(wav, width)
+    if expected_pcm_sha256 is not None and expected_data[2] != expected_pcm_sha256:
+        raise ValueError("WAV PCM changed after animation analysis")
     video_before = _streams(silent_mov, ffprobe)
     if len(video_before) != 1 or video_before[0]["codec_name"] != "prores":
         raise ValueError("Expected one silent ProRes video stream")
@@ -173,8 +196,12 @@ def mux_verified_pcm(
             raise RuntimeError("Mux PCM codec, sample rate or channels differ")
         if int(audio.get("start_pts", -1)) != 0 or int(audio.get("duration_ts", -1)) != samples:
             raise RuntimeError("Mux shifted, padded or shortened audio timing")
-        if _decoded_pcm_digest(stage, width, ffmpeg) != expected_data:
+        if _decoded_pcm_digest(stage, width, ffmpeg) != expected_data[:2]:
             raise RuntimeError("Mux lost, duplicated or modified PCM samples")
+        if expected_pcm_sha256 is not None and (
+            _source_pcm_digest(wav, width)[2] != expected_pcm_sha256
+        ):
+            raise ValueError("WAV PCM changed during mux")
         after = wav.stat()
         if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) != (
             source_stat.st_dev, source_stat.st_ino,
