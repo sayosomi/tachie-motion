@@ -145,6 +145,16 @@ class RoundedOtioTests(unittest.TestCase):
                 tracks[1]["children"][0]["media_references"]["DEFAULT_MEDIA"]["target_url"],
                 str(wav.resolve()),
             )
+            embedded = build_rounded_utterance(
+                mov, wav, MovieTiming(4, 30), WaveTiming(101, 1000),
+                embedded_audio=True,
+            )
+            embedded_track = embedded["tracks"]["children"][1]["children"][0]
+            self.assertEqual(
+                embedded_track["media_references"]["DEFAULT_MEDIA"]["target_url"],
+                str(mov.resolve()),
+            )
+            self.assertNotIn(str(wav.resolve()), json.dumps(embedded))
             with self.assertRaisesRegex(ValueError, "rounded WAV duration"):
                 build_rounded_utterance(
                     mov, wav, MovieTiming(3, 30), WaveTiming(101, 1000),
@@ -196,6 +206,9 @@ class MouthPipelineProtectionTests(unittest.TestCase):
             with patch(
                 "tachie_motion.lipsync.pipeline.encode_prores_sequence"
             ) as encoder, patch(
+                "tachie_motion.lipsync.pipeline.mux_verified_pcm",
+                side_effect=lambda _mov, _wav, out, **kwargs: out.write_bytes(b"muxed"),
+            ), patch(
                 "tachie_motion.lipsync.pipeline.write_otio",
                 side_effect=OSError("synthetic write failure"),
             ):
@@ -264,9 +277,9 @@ class MouthPipelineIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(
                 tracks[1]["children"][0]["media_references"]["DEFAULT_MEDIA"]["target_url"],
-                str(wav.resolve()),
+                str(mov.resolve()),
             )
-            # The original WAV is referenced in place. No duplicate media.
+            # One PCM-bearing MOV is referenced by both OTIO tracks; WAV is not.
             self.assertEqual(set(folder.iterdir()), {psd, wav, mov, otio})
             self.assertEqual((psd.read_bytes(), wav.read_bytes()), original)
             # The writer's independently decoded checker already confirmed
