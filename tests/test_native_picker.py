@@ -38,13 +38,13 @@ class NativeDialogTests(unittest.TestCase):
     def test_multi_wav_paths_keep_unicode_and_embedded_newlines(self):
         with tempfile.TemporaryDirectory() as temp:
             first = Path(temp) / "音声 た\u3099んもん.wav"
-            second = Path(temp) / "line\\nnext.wav"
+            second = Path(temp) / "line\nnext.wav"
             first.write_bytes(b"synthetic")
             second.write_bytes(b"synthetic")
             with patch("tachie_motion.web.native_picker.sys.platform", "darwin"), patch(
                 "tachie_motion.web.native_picker.subprocess.run",
                 return_value=subprocess.CompletedProcess(
-                    ["osascript"], 0, stdout=str(first) + "\\0" + str(second) + "\\n",
+                    ["osascript"], 0, stdout=str(first) + "\0" + str(second) + "\n",
                     stderr="",
                 ),
             ) as invocation:
