@@ -15,6 +15,7 @@ export type Fps = 24 | 30 | 60;
 
 export type UtteranceItem = {
   id: string;
+  registrationOrder: number;
   wavPath: string;
   wav: WavData;
   presetId: string;
@@ -34,7 +35,7 @@ export function createUtterance(
   outputDir: string, sequence: number,
 ): UtteranceItem {
   return {
-    id, wavPath, wav, presetId, mode: "none", fps: 30, outputDir,
+    id, registrationOrder: sequence, wavPath, wav, presetId, mode: "none", fps: 30, outputDir,
     basename: "speech_" + String(sequence).padStart(3, "0"),
     conflictChoice: "overwrite", saveAsName: null, result: null, error: "",
   };
