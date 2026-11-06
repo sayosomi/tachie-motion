@@ -65,6 +65,13 @@ def export_mouth_animation(
     """
     if mov.suffix.lower() != ".mov" or otio.suffix.lower() != ".otio":
         raise ValueError("Output paths must have .mov and .otio extensions")
+    # An interrupted or competing rollback must be inspected before reusing
+    # the same public filename, even if the MOV pathname is now missing.
+    if mov.parent.is_dir() and any(
+        entry.name.startswith(f".{mov.stem}.failed-")
+        for entry in mov.parent.iterdir()
+    ):
+        raise RuntimeError("Previous MOV export needs manual recovery")
     for destination in (mov, otio):
         if destination.exists() or destination.is_symlink():
             raise FileExistsError(f"Output already exists: {destination}")
