@@ -1,6 +1,6 @@
 # Product specification — agreed scope
 
-Status: agreed product requirements updated 2026-10-31 (JST). This is a product contract, not evidence that code exists.
+Status: agreed product requirements updated 2026-11-06 (JST), including PCM-in-MOV output and no WAV copies (Issue #2). This is a product contract; unimplemented multi-character/combined-OTIO features remain planned.
 
 ## 1. 用途・利用環境
 
