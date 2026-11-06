@@ -75,6 +75,14 @@ test("per-WAV editing survives reorder, duplicate registration and screen switch
     "data-utterance-id", registeredIds[1]);
   await expect(page.locator("#speech-basename")).toHaveValue("second_line");
   await expect(page.locator("[data-utterance-id]").first().locator("small").first()).toHaveText(sameNameElsewhere);
+  // The exact same WAV path may be registered again as a separate item.
+  await addWav(page, sameNameElsewhere);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+  const duplicateIds = await page.locator("[data-utterance-id]").evaluateAll(
+    (nodes) => nodes.map((el) => el.getAttribute("data-utterance-id")));
+  expect(duplicateIds[0]).not.toBe(duplicateIds[1]);
+  await page.locator("[data-utterance-id]").first().locator(".utterance-item-select").click();
+  await expect(page.locator("#speech-basename")).toHaveValue("second_line");
 });
 
 test("out-of-order WAV inspection cannot select the wrong item or reorder registrations", async ({ page }) => {
