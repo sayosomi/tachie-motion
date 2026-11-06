@@ -62,6 +62,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     if (!active) return;
     let cancelled = false;
     setStartupError("");
+    setDraft(null); // Block export until the returning preset snapshot is revalidated.
     const load = async () => {
       try {
         const saved = readPresetDraft();
