@@ -22,7 +22,7 @@ export default function UtteranceList({
 }: Props) {
   return <section className="panel utterance-list-panel" aria-label="セリフ一覧">
     <div className="utterance-list-header">
-      <h2>セリフ一覧</h2><span className="meta">{items.length}件</span>
+      <h2>WAV一覧</h2><span className="meta">{items.length}件</span>
     </div>
     <NativeFilePicker id="speech-wav-path" kind="wav" label="WAVファイルを追加"
       value={pendingPath} disabled={disabled}
