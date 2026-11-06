@@ -73,17 +73,27 @@ def choose_local_source(
             pass
     try:
         result = subprocess.run(
-            args, capture_output=True, text=True, timeout=300, check=False,
+            args, capture_output=True, text=False, timeout=300, check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise PickerUnavailable("Finder selection failed or timed out") from exc
+    stderr = result.stderr.decode("utf-8", errors="replace") if isinstance(
+        result.stderr, bytes
+    ) else result.stderr
     if result.returncode != 0:
-        if "(-128)" in result.stderr or "User canceled" in result.stderr:
+        if "(-128)" in stderr or "User canceled" in stderr:
             return {"status": "cancelled"}
         raise PickerUnavailable("Finder could not open a file selection dialog")
-    # osascript adds one terminal newline. Do not strip whitespace from a
-    # legitimate filename; never normalize Japanese or combining characters.
-    source = result.stdout.removesuffix("\n")
+    # Read raw bytes, not subprocess text=True: universal newline conversion
+    # silently rewrites CR within a legitimate macOS filename to LF.
+    # The osascript terminal LF is removed once; preserve everything else.
+    try:
+        if isinstance(result.stdout, bytes):
+            source = result.stdout.removesuffix(b"\n").decode("utf-8")
+        else:  # Compatibility with synthetic mocks predating raw byte capture.
+            source = result.stdout.removesuffix("\n")
+    except UnicodeDecodeError as exc:
+        raise PickerUnavailable("Finder returned invalid UTF-8") from exc
     paths = source.split("\0") if multiple else [source]
     if not paths or len(paths) > 256:
         raise PickerUnavailable("Invalid number of WAV selections")
