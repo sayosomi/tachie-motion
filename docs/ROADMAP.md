@@ -22,7 +22,7 @@
 - [x] ProResの同一保持フレームを圧縮済みパケットで再利用する**明示的オプトイン**。不適用時は従来経路へ戻し、全フレーム品質検査を維持 — Issue #8（旧Private開発履歴） / PR #9（旧Private開発履歴）。
 - [ ] エンドツーエンドで残る処理時間の継続調査・優先順位整理 — 性能調査Issue #3（旧Private開発履歴）（OPEN）。既存の最適化成果と今後の調査を区別する。
 
-### Public Issue #2 — PCM内包セリフMOV（Draft PR段階・Mac Resolve Human PASS・出力仕様確定）
+### Public Issue #2 — PCM内包セリフMOV（PR #10 main統合済み・Mac Resolve Human PASS）
 
 - [x] 既存の単一WAV/キャラクターMOV書き出しに、映像ストリームをコピーしたPCM内包処理を追加（試験実装）。
 - [x] 合成PCM（8/16/24/32-bit、mono/stereo）の復号サンプル一致、映像パケット一致、映像の端数丸めと音声サンプル長の独立性を検証する自動テストを追加。
@@ -30,7 +30,7 @@
 - [x] 2026-11-06 Mac実PSD/WAVで**個別OTIO取り込み**の音声トラック・音声欠落／二重再生なし・同期、クリップ移動／トリミングをHuman PASS確認。
 - [x] 2026-11-06利用者承認に基づき `PRODUCT_SPEC.md` §6と`DECISIONS.md` D16/D17を正式更新。非圧縮PCM入りMOVと同一MOV参照の個別OTIOを正本とし、WAVコピー機能は設けない。
 
-1 WAV・1キャラクターのPCM入りMOVと個別OTIOはMac Resolve実機検証済み。複数WAV・複数キャラ・全体OTIOの生成は未実装で、正式仕様の詳細は [PRODUCT_SPEC](PRODUCT_SPEC.md) §6と [DECISIONS](DECISIONS.md) D16/D17を参照。
+PR #10は2026-11-06にマージ済み。1 WAV・1キャラクターのPCM入りMOVと個別OTIOはMac Resolve実機検証済み。複数WAV・複数キャラ・全体OTIOの生成は未実装で、正式仕様の詳細は [PRODUCT_SPEC](PRODUCT_SPEC.md) §6と [DECISIONS](DECISIONS.md) D16/D17を参照。
 
 ## Phase 1 — first usable single-character tool：CLI・Web UI初期版をmainに統合済み
 
@@ -70,9 +70,10 @@
 - [x] **レイヤー名の選択とプレビューの範囲強調** — PR #58（旧Private開発履歴） で実装。チェックによる基本表示とレイヤー名による選択を分離し、index-pathとPSD上のbboxで即時フィードバック。Web UI・Python CI、独立ブロッキングレビュー、Mac実PSD Human UXをそれぞれPASS（2026-11-05〜06）。
 - [ ] さらに必要な行選択操作・排他グループ等はHuman UX結果に基づき判断。PSDレイヤー名から関係を推測する機能は無断導入しない。
 
-## Phase 3 — workflow integration：計画
+## Phase 3 — workflow integration：複数WAVの項目別編集から着手
 
-- [ ] 複数WAV、1 WAVから複数キャラクターMOV、聞き手のリアクション。
+- [x] **複数WAVの登録・選択・並べ替え・一覧削除と項目別の個別書き出し** — Public Issue #4。安定IDで元パス（同一ファイルの複数登録・同名別パス・Unicode NFDを含む）、解析結果、プリセット、口パク方式、fps、保存設定を独立管理。選択した1項目に既存のPCM入りMOV＋個別OTIO書き出しを適用。セリフ画面とプリセット画面の往復中は一覧を保持するが、正式な制作プロジェクト保存／再読み込み復元は未実装。実装ブランチ `feat/4-multi-wav` の変更であり、mainでの利用はPRマージ後。
+- [ ] 1 WAVから複数キャラクターMOV、聞き手のリアクション。
 - [ ] 汎用ループ待機モーションと場面専用待機。
 - [ ] バッチ書き出し、変更した項目だけ再生成、安定したメディア参照パス。
 - [ ] 全体OTIOと複数発話・複数キャラの個別OTIO、単一音声所有MOVの割当、トラックとギャップの検証。**WAVコピー／同梱機能は設けない**。
