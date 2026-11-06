@@ -9,6 +9,8 @@ import unittest
 from unittest.mock import patch
 import wave
 
+from tachie_motion.audio.volume import analyze_wav
+from tachie_motion.render import pcm_mux
 from tachie_motion.render.pcm_mux import mux_verified_pcm
 
 
@@ -115,6 +117,56 @@ class PCMMuxTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertFalse(list(self.root.glob(".tachie-pcm-*.mov")))
         self.assertEqual(wav.read_bytes(), original)
+
+    def test_packet_pts_dts_or_duration_change_rejects_mux(self):
+        wav = self.make_wav()
+        real_probe = pcm_mux._video_packets
+        for changed_field in (1, 2, 3):
+            with self.subTest(changed_field=changed_field):
+                calls = 0
+
+                def altered_probe(path, ffprobe):
+                    nonlocal calls
+                    packets = real_probe(path, ffprobe)
+                    calls += 1
+                    if calls == 2:
+                        tampered = list(packets[1])
+                        tampered[changed_field] += 1
+                        packets[1] = tuple(tampered)
+                    return packets
+
+                output = self.root / f"tamper_{changed_field}.mov"
+                with patch(
+                    "tachie_motion.render.pcm_mux._video_packets",
+                    side_effect=altered_probe,
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "video timing"):
+                        mux_verified_pcm(
+                            self.video, wav, output,
+                            expected_samples=101, expected_sample_rate=1000,
+                        )
+                self.assertFalse(output.exists())
+                self.assertFalse(list(self.root.glob(".tachie-pcm-*.mov")))
+
+    def test_same_length_wav_replacement_after_analysis_is_rejected(self):
+        wav = self.make_wav()
+        schedule = analyze_wav(wav, fps=30)
+        before = wav.read_bytes()
+        changed = bytearray(before)
+        changed[-1] ^= 1
+        wav.write_bytes(changed)
+        self.assertEqual(len(wav.read_bytes()), len(before))
+        output = self.root / "changed.mov"
+        with self.assertRaisesRegex(ValueError, "PCM changed after animation"):
+            mux_verified_pcm(
+                self.video, wav, output,
+                expected_samples=schedule.sample_count,
+                expected_sample_rate=schedule.sample_rate,
+                expected_channels=schedule.channels,
+                expected_sample_width_bits=schedule.sample_width_bits,
+                expected_pcm_sha256=schedule.pcm_sha256,
+            )
+        self.assertFalse(output.exists())
 
     def test_unsupported_channel_count_is_rejected(self):
         wav = self.make_wav(channels=3)
