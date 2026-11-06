@@ -272,6 +272,12 @@ class MouthPipelineProtectionTests(unittest.TestCase):
             self.assertFalse(mov.exists())
             self.assertFalse(otio.exists())
             self.assertFalse(list(root.glob(".tachie-mouth-states-*")))
+            with self.assertRaisesRegex(RuntimeError, "manual recovery"):
+                export_mouth_animation(
+                    psd=psd, wav=wav, closed_path=closed, open_path=opened,
+                    mov=mov, otio=otio,
+                )
+            self.assertEqual((found[0] / "candidate.mov").read_bytes(), b"FOREIGN")
 
     @unittest.skipUnless(
         shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required",
