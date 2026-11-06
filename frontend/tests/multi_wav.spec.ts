@@ -481,3 +481,72 @@ test("Finder multi-WAV partial failure preserves successful selection and report
     .toContainText("invalid PCM");
 });
 
+
+
+test("cancelled Finder multi-select leaves all registered WAVs untouched", async ({ page }) => {
+  const origin = "http://127.0.0.1:8765";
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
+  }));
+  await page.route("http://127.0.0.1:8766/health", (route) =>
+    route.fulfill({ json: { picker: "mac-local", ready: true },
+      headers: { "access-control-allow-origin": origin } }));
+  await page.route("http://127.0.0.1:8766/pick", (route) => {
+    if (route.request().method() === "OPTIONS") return route.fulfill({
+      status: 204, headers: {
+        "access-control-allow-origin": origin,
+        "access-control-allow-methods": "POST",
+        "access-control-allow-headers": "Content-Type, X-Tachie-Picker",
+      } });
+    return route.fulfill({ json: { status: "cancelled" },
+      headers: { "access-control-allow-origin": origin } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/existing.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await page.locator("#speech-basename").fill("keep_settings");
+  const initialId = await page.locator("[data-utterance-id]").first()
+    .getAttribute("data-utterance-id");
+  await page.getByRole("button", { name: "Finderで選ぶ" }).click();
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await expect(page.locator("[data-utterance-id]").first())
+    .toHaveAttribute("data-utterance-id", initialId!);
+  await expect(page.locator("#speech-basename")).toHaveValue("keep_settings");
+});
+
+test("batch export sends unsafe, partial and recovery_required original outputs only to safe alternate names", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
+  }));
+  const outputs: Array<Record<string, unknown>> = [];
+  await page.route("**/api/preset-utterance-export", (route) => {
+    outputs.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill({ json: {
+      mov: "/tmp/output/alternate.mov", otio: "/tmp/output/alternate.otio",
+      frames: 30, sample_count: 800,
+    } });
+  });
+  await openSpeech(page);
+  // Override the generic destination mock after openSpeech has installed it.
+  await page.route("**/api/preset-utterance-destination", (route) => {
+    const { basename } = route.request().postDataJSON() as { basename: string };
+    const status: Record<string, string> = {
+      speech_001: "unsafe", speech_002: "partial", speech_003: "recovery_required",
+    };
+    return route.fulfill({ json: status[basename] ? {
+      state: status[basename], suggested_basename: "alternate_" + basename,
+      canonical_output_dir: "/tmp/output",
+    } : { state: "available", suggested_basename: "unused", canonical_output_dir: "/tmp/output" } });
+  });
+  await addWav(page, "/tmp/unsafe.wav");
+  await addWav(page, "/tmp/partial.wav");
+  await addWav(page, "/tmp/recovery.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(3);
+  await page.getByRole("button", { name: "すべて保存（MOV・OTIO）" }).click();
+  await expect(page.getByText("一括書き出し完了：成功 3 件／失敗 0 件", { exact: false }))
+    .toBeVisible();
+  expect(outputs.map((x) => x.basename)).toEqual([
+    "alternate_speech_001", "alternate_speech_002", "alternate_speech_003",
+  ]);
+  expect(outputs.every((x) => x.conflict_policy === "error")).toBe(true);
+});
