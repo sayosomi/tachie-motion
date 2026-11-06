@@ -78,11 +78,13 @@ test("Finder-first picker selects PSD/WAV/output folder without direct path typi
   await expect(page.getByRole("button", { name: "Finderで選ぶ" })).toBeEnabled();
   // Recovery has unsaved presets, so reselecting the same PSD asks before replacing.
   // Dismiss deliberately rather than leaving a browser dialog during teardown.
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("保存済みのプリセットを破棄");
-    await dialog.dismiss();
-  });
-  await page.getByRole("button", { name: "Finderで選ぶ" }).click();
+  await Promise.all([
+    page.waitForEvent("dialog").then(async (dialog) => {
+      expect(dialog.message()).toContain("保存済みのプリセットを破棄");
+      await dialog.dismiss();
+    }),
+    page.getByRole("button", { name: "Finderで選ぶ" }).click(),
+  ]);
   await expect(page.getByRole("button", { name: "詳細を編集" })).toBeVisible();
   expect(picked.at(-1)).toEqual({ kind: "psd", initial_dir: "/Volumes/立ち絵素材" });
 
@@ -172,8 +174,10 @@ test("Finder-selected replacement PSD rejected by confirm leaves original edit a
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const draftBefore = await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v1"));
-  page.once("dialog", dialog => dialog.dismiss());
-  await page.getByRole("button", { name: "Finderで選ぶ" }).click();
+  await Promise.all([
+    page.waitForEvent("dialog").then((dialog) => dialog.dismiss()),
+    page.getByRole("button", { name: "Finderで選ぶ" }).click(),
+  ]);
   await expect(page.locator("#preset-psd-path")).toHaveValue("/tmp/original.psd");
   expect(loaded).toEqual(["/tmp/original.psd"]);
   expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1")))
@@ -184,8 +188,10 @@ test("Finder-selected replacement PSD rejected by confirm leaves original edit a
   await expect(page.getByRole("checkbox", { name: "mouth [0/0] 表示" })).not.toBeChecked();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
 
-  page.once("dialog", dialog => dialog.accept());
-  await page.getByRole("button", { name: "Finderで選ぶ" }).click();
+  await Promise.all([
+    page.waitForEvent("dialog").then((dialog) => dialog.accept()),
+    page.getByRole("button", { name: "Finderで選ぶ" }).click(),
+  ]);
   await expect(page.locator("#preset-psd-path")).toHaveValue("/Volumes/new-folder/other.psd");
   expect(loaded).toEqual(["/tmp/original.psd", "/Volumes/new-folder/other.psd"]);
   expect(await page.evaluate(() => localStorage.getItem("tachie-motion.picker-dir.v1.psd")))
