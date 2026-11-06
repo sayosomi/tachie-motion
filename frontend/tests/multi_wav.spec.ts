@@ -113,6 +113,36 @@ test("out-of-order WAV inspection cannot select the wrong item or reorder regist
   await expect(page.locator(".utterance-item-select[aria-current=true]")).toContainText("fast.wav");
 });
 
+test("earlier concurrent WAV failure remains visible after a newer WAV succeeds", async ({ page }) => {
+  const olderPath = "/Volumes/A/先行 だんもん.wav";
+  const newerPath = "/Volumes/B/後行.wav";
+  let releaseOlder: (() => void) | undefined;
+  await page.route("**/api/wav", async (route) => {
+    const { path } = route.request().postDataJSON() as { path: string };
+    if (path === olderPath) {
+      await new Promise<void>((resolve) => { releaseOlder = resolve; });
+      return route.fulfill({ status: 422, json: { detail: "WAV解析に失敗しました" } });
+    }
+    return route.fulfill({ json: {
+      samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, olderPath);
+  await expect.poll(() => Boolean(releaseOlder)).toBe(true);
+  await addWav(page, newerPath);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await expect(page.locator(".utterance-item-select[aria-current=true]")).toContainText("後行.wav");
+  releaseOlder!();
+  const alert = page.getByRole("alert").filter({ hasText: olderPath });
+  await expect(alert).toContainText("WAV解析に失敗しました");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await expect(page.locator("[data-utterance-id]").first().locator("small").first())
+    .toHaveText(newerPath);
+  await expect(page.locator(".utterance-item-select[aria-current=true]")).toContainText("後行.wav");
+  await expect(page.locator("#speech-basename")).toHaveValue("speech_002");
+});
+
 test("failed addition preserves selected export and the PCM MOV endpoint receives that WAV once", async ({ page }) => {
   const path = "/tmp/voice 日本語.wav";
   const exports: Array<Record<string, unknown>> = [];
