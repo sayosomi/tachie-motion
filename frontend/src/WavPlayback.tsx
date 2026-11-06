@@ -9,6 +9,7 @@ export default function WavPlayback({
   const audio = useRef<HTMLAudioElement>(null);
   const pending = useRef<AbortController | null>(null);
   const objectUrl = useRef<string | null>(null);
+  const source = useRef<Source | null>(null);
   const generation = useRef(0);
   const playlist = useRef<Source[]>([]);
   const playlistIndex = useRef(0);
@@ -20,13 +21,34 @@ export default function WavPlayback({
   function discardSource() {
     pending.current?.abort();
     pending.current = null;
+    const previousUrl = objectUrl.current;
+    objectUrl.current = null; // Ignore media errors caused by our own source removal.
+    source.current = null;
     if (audio.current) {
       audio.current.pause();
       audio.current.removeAttribute("src");
       audio.current.load();
     }
-    if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
-    objectUrl.current = null;
+    if (previousUrl) URL.revokeObjectURL(previousUrl);
+  }
+
+  function failPlayback(item: Source, reason: string) {
+    generation.current++; // Invalidate a pending play() rejection or stale fetch.
+    allMode.current = false;
+    playlist.current = [];
+    discardSource();
+    setPlayingId(null);
+    setMode(null);
+    setStatus("音声の再生に失敗: " + item.wavPath + " — " + reason);
+  }
+
+  function onMediaError() {
+    // load() after explicit cleanup may emit an error; only an active Blob counts.
+    if (!objectUrl.current || !source.current) return;
+    const item = source.current;
+    const mediaError = audio.current?.error;
+    failPlayback(item, mediaError ? "メディアエラー (" + mediaError.code + ")" :
+      "メディアの読み込み・デコードエラー");
   }
 
   function stop() {
@@ -54,6 +76,7 @@ export default function WavPlayback({
   async function startSource(item: Source) {
     const epoch = ++generation.current;
     discardSource();
+    source.current = item;
     setPlayingId(item.id);
     setStatus("音声を読み込み中: " + wavFilename(item.wavPath));
     const controller = new AbortController();
@@ -81,11 +104,7 @@ export default function WavPlayback({
     } catch (error) {
       if (epoch !== generation.current) return;
       if (controller.signal.aborted) return;
-      allMode.current = false;
-      setMode(null);
-      setPlayingId(null);
-      setStatus("音声の再生に失敗: " + item.wavPath + " — " +
-        (error instanceof Error ? error.message : String(error)));
+      failPlayback(item, error instanceof Error ? error.message : String(error));
     } finally {
       if (pending.current === controller) pending.current = null;
     }
@@ -112,7 +131,10 @@ export default function WavPlayback({
     if (allMode.current && playlistIndex.current < playlist.current.length) {
       void startSource(playlist.current[playlistIndex.current++]);
     } else {
+      generation.current++;
       allMode.current = false;
+      playlist.current = [];
+      discardSource();
       setPlayingId(null);
       setMode(null);
       setStatus("再生が終了しました");
@@ -129,10 +151,10 @@ export default function WavPlayback({
       <button type="button" onClick={playAll} disabled={items.length === 0}>全件を連続再生</button>
       <button type="button" onClick={stop} disabled={!playingId && !mode}>停止</button>
     </div>
-    <audio ref={audio} controls preload="none" onEnded={onEnded}
-      onPause={() => { if (playingId) setStatus("一時停止: " + wavFilename(
+    <audio ref={audio} controls preload="none" onEnded={onEnded} onError={onMediaError}
+      onPause={() => { if (playingId && objectUrl.current) setStatus("一時停止: " + wavFilename(
         items.find((item) => item.id === playingId)?.wavPath ?? "")); }}
-      onPlay={() => { if (playingId) setStatus("再生中: " + wavFilename(
+      onPlay={() => { if (playingId && objectUrl.current) setStatus("再生中: " + wavFilename(
         items.find((item) => item.id === playingId)?.wavPath ?? "")); }}
       aria-label="選択したWAVの音声" />
     {status && <p className="hint" role="status">{status}</p>}
