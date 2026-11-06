@@ -215,8 +215,12 @@ test("drag handle reorders WAV rows without changing their edit state", async ({
   }));
   await openSpeech(page);
   await addWav(page, "/tmp/first.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await expect(page.locator(".utterance-item-select[aria-current=true]")).toContainText("first.wav");
   await page.locator("#speech-basename").fill("first");
   await addWav(page, "/tmp/second.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+  await expect(page.locator(".utterance-item-select[aria-current=true]")).toContainText("second.wav");
   await page.locator("#speech-basename").fill("second");
   const ids = await page.locator("[data-utterance-id]").evaluateAll(
     (nodes) => nodes.map((node) => node.getAttribute("data-utterance-id")));
@@ -278,7 +282,7 @@ test("batch exports every WAV in list order and retains individual failures", as
   await addWav(page, "/tmp/a.wav");
   await addWav(page, "/tmp/b.wav");
   await addWav(page, "/tmp/c.wav");
-  await page.getByRole("button", { name: "全件のMOVとOTIOを書き出す" }).click();
+  await page.getByRole("button", { name: "すべて保存（MOV・OTIO）" }).click();
   await expect(page.getByText("一括書き出し完了：成功 2 件／失敗 1 件", { exact: false }))
     .toBeVisible();
   expect(requests.map((r) => r.wav)).toEqual(["/tmp/a.wav", "/tmp/b.wav", "/tmp/c.wav"]);
@@ -298,9 +302,12 @@ test("batch preflight blocks colliding output filenames before generating MOVs",
   });
   await openSpeech(page);
   await addWav(page, "/tmp/first.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
   await addWav(page, "/tmp/second.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+  await expect(page.locator(".utterance-item-select[aria-current=true]")).toContainText("second.wav");
   await page.locator("#speech-basename").fill("speech_001");
-  await page.getByRole("button", { name: "全件のMOVとOTIOを書き出す" }).click();
+  await page.getByRole("button", { name: "すべて保存（MOV・OTIO）" }).click();
   await expect(page.getByText("複数のセリフが同じ出力先", { exact: false })).toBeVisible();
   expect(calls).toBe(0);
 });

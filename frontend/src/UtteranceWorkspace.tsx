@@ -251,7 +251,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
           disabled={!draft || items.length === 0 || batch.running ||
             !!exportingId || addingCount > 0}
           onClick={() => { void batch.run(); }}>
-          {batch.running ? "一括書き出し中…" : "全件のMOVとOTIOを書き出す"}
+          {batch.running ? "一括書き出し中…" : "すべて保存（MOV・OTIO）"}
         </button>
       </div>
       <p className="hint">一覧順に各セリフの透過MOV（PCM音声入り）と個別OTIOを保存します。
