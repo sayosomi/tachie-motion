@@ -316,16 +316,17 @@ test("batch export requires confirmation before overwriting existing output pair
   await page.route("**/api/wav", (route) => route.fulfill({
     json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
   }));
-  await page.route("**/api/preset-utterance-destination", (route) => route.fulfill({
-    json: { state: "complete", suggested_basename: "speech_001_002",
-      canonical_output_dir: "/tmp/output" },
-  }));
   let exports = 0;
   await page.route("**/api/preset-utterance-export", (route) => {
     exports++;
     return route.fulfill({ status: 500, json: { detail: "unexpected export" } });
   });
   await openSpeech(page);
+  // Last registered route wins in Playwright; override openSpeech's available default.
+  await page.route("**/api/preset-utterance-destination", (route) => route.fulfill({
+    json: { state: "complete", suggested_basename: "speech_001_002",
+      canonical_output_dir: "/tmp/output" },
+  }));
   await addWav(page, "/tmp/voice.wav");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
   const dialog = page.waitForEvent("dialog").then(async (shown) => {
