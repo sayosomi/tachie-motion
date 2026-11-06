@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import stat
 import tempfile
 
 from tachie_motion.audio.volume import VolumeSchedule, analyze_wav
@@ -14,6 +15,35 @@ from tachie_motion.timeline.media import MovieTiming, WaveTiming
 from tachie_motion.timeline.otio_json import (
     build_rounded_utterance, write_otio,
 )
+
+
+def _rollback_published_mov(published: Path, owned_stage: Path) -> None:
+    """Atomically quarantine the live pathname before checking ownership.
+
+    No check-then-unlink of the public path: a concurrent writer's replacement
+    is kept in a private recovery directory rather than removed.
+    """
+    recovery = Path(tempfile.mkdtemp(
+        prefix=f".{published.stem}.failed-", dir=published.parent,
+    ))
+    candidate = recovery / "candidate.mov"
+    try:
+        os.rename(published, candidate)
+    except OSError as exc:
+        raise RuntimeError(
+            f"MOV rollback incomplete; inspect {recovery} and {published}"
+        ) from exc
+    source = owned_stage.stat()
+    captured = candidate.lstat()
+    if (not stat.S_ISREG(captured.st_mode) or
+        (source.st_dev, source.st_ino) != (captured.st_dev, captured.st_ino)):
+        raise RuntimeError(
+            f"Concurrent MOV replacement was preserved in {recovery};"
+            " manual recovery required"
+        )
+    # Only remove the quarantined inode, never the public pathname.
+    candidate.unlink()
+    recovery.rmdir()
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +61,7 @@ def export_mouth_animation(
     """Export one PCM-in-MOV + OTIO, preserving sources and destinations.
 
     Both outputs are staged before final publication. If OTIO publication
-    fails, remove only the newly linked MOV owned by this operation.
+    fails, quarantine the public MOV path before ownership verification.
     """
     if mov.suffix.lower() != ".mov" or otio.suffix.lower() != ".otio":
         raise ValueError("Output paths must have .mov and .otio extensions")
@@ -68,6 +98,9 @@ def export_mouth_animation(
             stage_mov, wav, pcm_mov,
             expected_samples=schedule.sample_count,
             expected_sample_rate=schedule.sample_rate,
+            expected_channels=schedule.channels,
+            expected_sample_width_bits=schedule.sample_width_bits,
+            expected_pcm_sha256=schedule.pcm_sha256,
             ffmpeg=ffmpeg, ffprobe=ffprobe,
         )
         os.link(pcm_mov, mov)
@@ -81,15 +114,7 @@ def export_mouth_animation(
             write_otio(doc, stage_otio)
             os.link(stage_otio, otio)
         except BaseException:
-            # Never delete another writer's path on an unexpected race.
-            try:
-                original = pcm_mov.stat()
-                published = mov.stat(follow_symlinks=False)
-                if (original.st_dev, original.st_ino) == (
-                    published.st_dev, published.st_ino
-                ):
-                    mov.unlink()
-            except FileNotFoundError:
-                pass
+            # Race-safe even if another process replaces MOV during rollback.
+            _rollback_published_mov(mov, pcm_mov)
             raise
     return MouthExportResult(schedule=schedule, video=report)
