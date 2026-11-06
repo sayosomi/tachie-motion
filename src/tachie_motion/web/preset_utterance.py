@@ -132,6 +132,9 @@ def export_preset_utterance(
             staged_mov, wav, pcm_mov,
             expected_samples=schedule.sample_count,
             expected_sample_rate=schedule.sample_rate,
+            expected_channels=schedule.channels,
+            expected_sample_width_bits=schedule.sample_width_bits,
+            expected_pcm_sha256=schedule.pcm_sha256,
         )
         # Stage OTIO against existing muxed media; remap BOTH tracks to the
         # final MOV, never to the source WAV or a temporary output.
