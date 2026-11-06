@@ -50,7 +50,7 @@ class WavPlaybackApiTests(unittest.TestCase):
             self.assertEqual(self.client.post("/api/wav-playback",
                 json={"path": str(fake)}, headers={"Origin": "https://evil.example"}).status_code,
                 403)
-            self.assertEqual(self.client.get("/api/wav-playback").status_code, 405 if False else 405)
+            self.assertEqual(self.client.get("/api/wav-playback").status_code, 405)
 
 
 if __name__ == "__main__":
