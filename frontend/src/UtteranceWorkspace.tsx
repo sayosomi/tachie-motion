@@ -113,7 +113,6 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     const atEpoch = selectionEpoch.current;
     const ordinal = ++sequence.current;
     setAddingCount((count) => count + 1);
-    setAddError("");
     try {
       const wav = await post<WavData>("wav", { path });
       if (!mounted.current) return false;
@@ -132,8 +131,14 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
       setPendingPath((value) => value === path ? "" : value);
       return true;
     } catch (err) {
-      if (mounted.current && request === latestAdd.current) {
-        setAddError(err instanceof Error ? err.message : String(err));
+      if (mounted.current) {
+        const reason = err instanceof Error ? err.message : String(err);
+        // A newer WAV may have succeeded before this request failed.
+        // Preserve every failure with its source path instead of dropping stale responses.
+        setAddError((previous) => {
+          const message = `${path}: ${reason}`;
+          return previous ? `${previous} ／ ${message}` : message;
+        });
       }
       return false;
     } finally {
