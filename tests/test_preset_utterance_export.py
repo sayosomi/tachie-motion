@@ -240,6 +240,32 @@ class PresetExportApiTests(unittest.TestCase):
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), originals)
         self.assertFalse((self.root / ".speech.tachie-backup").exists())
 
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_replaced_wav_with_same_timing_cannot_publish_web_pair(self):
+        from unittest.mock import patch
+        from tachie_motion.render.pcm_mux import mux_verified_pcm
+
+        before = self.wav.read_bytes()
+
+        def switch_wav_before_mux(video, source, target, **kwargs):
+            payload = bytearray(source.read_bytes())
+            payload[-1] ^= 1  # Same RIFF length, channel layout and sample count.
+            source.write_bytes(payload)  # Simulate an external writer.
+            return mux_verified_pcm(video, source, target, **kwargs)
+
+        with patch(
+            "tachie_motion.web.preset_utterance.mux_verified_pcm",
+            side_effect=switch_wav_before_mux,
+        ):
+            response = self.post()
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("PCM changed after animation", response.text)
+        self.assertEqual(len(self.wav.read_bytes()), len(before))
+        self.assertFalse((self.root / "speech.mov").exists())
+        self.assertFalse((self.root / "speech.otio").exists())
+        self.assertFalse(list(self.root.glob(".speech.failed-*")))
+
     def test_abandoned_new_export_recovery_is_visible_and_blocks_api(self):
         recovery = self.root / ".speech.failed-simulated"
         recovery.mkdir()
