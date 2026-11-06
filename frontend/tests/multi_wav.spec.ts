@@ -311,3 +311,29 @@ test("batch preflight blocks colliding output filenames before generating MOVs",
   await expect(page.getByText("複数のセリフが同じ出力先", { exact: false })).toBeVisible();
   expect(calls).toBe(0);
 });
+
+test("batch export requires confirmation before overwriting existing output pairs", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
+  }));
+  await page.route("**/api/preset-utterance-destination", (route) => route.fulfill({
+    json: { state: "complete", suggested_basename: "speech_001_002",
+      canonical_output_dir: "/tmp/output" },
+  }));
+  let exports = 0;
+  await page.route("**/api/preset-utterance-export", (route) => {
+    exports++;
+    return route.fulfill({ status: 500, json: { detail: "unexpected export" } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/voice.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  const dialog = page.waitForEvent("dialog").then(async (shown) => {
+    expect(shown.message()).toContain("既存のMOVとOTIOを1組上書き");
+    await shown.dismiss();
+  });
+  await page.getByRole("button", { name: "すべて保存（MOV・OTIO）" }).click();
+  await dialog;
+  await expect(page.getByText("一括書き出しをキャンセルしました")).toBeVisible();
+  expect(exports).toBe(0);
+});

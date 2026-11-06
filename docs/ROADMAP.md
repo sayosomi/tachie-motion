@@ -30,7 +30,7 @@
 - [x] 2026-11-06 Mac実PSD/WAVで**個別OTIO取り込み**の音声トラック・音声欠落／二重再生なし・同期、クリップ移動／トリミングをHuman PASS確認。
 - [x] 2026-11-06利用者承認に基づき `PRODUCT_SPEC.md` §6と`DECISIONS.md` D16/D17を正式更新。非圧縮PCM入りMOVと同一MOV参照の個別OTIOを正本とし、WAVコピー機能は設けない。
 
-PR #10は2026-11-06にマージ済み。1 WAV・1キャラクターのPCM入りMOVと個別OTIOはMac Resolve実機検証済み。複数WAV・複数キャラ・全体OTIOの生成は未実装で、正式仕様の詳細は [PRODUCT_SPEC](PRODUCT_SPEC.md) §6と [DECISIONS](DECISIONS.md) D16/D17を参照。
+PR #10は2026-11-06にマージ済み。1 WAV・1キャラクターのPCM入りMOVと個別OTIOはMac Resolve実機検証済み。mainでは複数WAV・複数キャラ・全体OTIOの生成は未実装で（複数WAVはDraft PR #13・#15で実装中）、正式仕様の詳細は [PRODUCT_SPEC](PRODUCT_SPEC.md) §6と [DECISIONS](DECISIONS.md) D16/D17を参照。
 
 ## Phase 1 — first usable single-character tool：CLI・Web UI初期版をmainに統合済み
 
