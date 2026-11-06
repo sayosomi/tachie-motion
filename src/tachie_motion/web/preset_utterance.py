@@ -13,6 +13,7 @@ from tachie_motion.psd.crop import write_fixed_crop_png
 from tachie_motion.psd.tree import walk_layers
 from tachie_motion.psd.visibility import parse_index_path, resolve_layer
 from tachie_motion.render.sequence import encode_prores_sequence
+from tachie_motion.render.pcm_mux import mux_verified_pcm
 from tachie_motion.timeline.media import MovieTiming, WaveTiming
 from tachie_motion.timeline.otio_json import build_rounded_utterance, write_otio
 from tachie_motion.web.preset_preview import psd_snapshot_token
@@ -81,7 +82,7 @@ def export_preset_utterance(
     mouth: dict | None, mode: str, blink_enabled: bool,
     mov: Path, otio: Path, fps: int = 30, conflict_policy: str = "error",
 ):
-    """Generate one preset-backed MOV and WAV-referencing OTIO.
+    """Generate one preset-backed PCM-in-MOV and synchronized OTIO.
 
     This slice supports none/open only. aiueo, blink, timeline change points,
     and multiple character tracks are explicitly excluded until implemented.
@@ -124,22 +125,34 @@ def export_preset_utterance(
             raise RuntimeError("Encoded MOV frame count mismatch")
         if psd_snapshot_token(str(psd_path)) != fingerprint:
             raise ValueError("PSD changed during export; nothing was published")
-        # The OTIO builder requires an already-existing MOV. Build against the
-        # fully verified staged movie, then write the final publication URI
-        # before publishing either output. Both paths use the validated folder.
+        # Reuse the already-verified compressed video packets. The mux is
+        # separately checked for identical video packets and decoded PCM.
+        pcm_mov = directory / "pcm.mov"
+        mux_verified_pcm(
+            staged_mov, wav, pcm_mov,
+            expected_samples=schedule.sample_count,
+            expected_sample_rate=schedule.sample_rate,
+        )
+        # Stage OTIO against existing muxed media; remap BOTH tracks to the
+        # final MOV, never to the source WAV or a temporary output.
         document = build_rounded_utterance(
-            staged_mov, wav, MovieTiming(report.frames, fps),
+            pcm_mov, wav, MovieTiming(report.frames, fps),
             WaveTiming(schedule.sample_count, schedule.sample_rate),
+            embedded_audio=True,
         )
         video_ref = document["tracks"]["children"][0]["children"][0][
             "media_references"]["DEFAULT_MEDIA"]
         video_ref["target_url"] = mov.as_uri()
         video_ref["name"] = mov.name
+        audio_ref = document["tracks"]["children"][1]["children"][0][
+            "media_references"]["DEFAULT_MEDIA"]
+        audio_ref["target_url"] = str(mov.absolute())
+        audio_ref["name"] = mov.name
         staged_otio = directory / "staged.otio"
         write_otio(document, staged_otio)
         # Validate and stage both outputs BEFORE touching any published media.
         warning = publish_pair(
-            staged_mov, staged_otio, mov, otio,
+            pcm_mov, staged_otio, mov, otio,
             policy=conflict_policy, prior=prior,
         )
         committed = True
