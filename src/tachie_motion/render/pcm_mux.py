@@ -156,14 +156,17 @@ def mux_verified_pcm(
         video, audio = streams
         if video["codec_type"] != "video" or audio["codec_type"] != "audio":
             raise RuntimeError("Mux stream order or type is unexpected")
+        # Packet bytes alone do not prove that mux preserved frame timing.
+        video_fields = (
+            "codec_name", "profile", "pix_fmt", "time_base",
+            "start_pts", "duration_ts", "avg_frame_rate", "r_frame_rate",
+        )
         if (
-            video.get("codec_name"), video.get("profile"), video.get("pix_fmt"),
-        ) != (
-            video_before[0].get("codec_name"),
-            video_before[0].get("profile"),
-            video_before[0].get("pix_fmt"),
-        ) or packet_hashes != _video_packets(stage, ffprobe):
-            raise RuntimeError("Mux changed video stream or compressed video packets")
+            tuple(video.get(key) for key in video_fields)
+            != tuple(video_before[0].get(key) for key in video_fields)
+            or packet_hashes != _video_packets(stage, ffprobe)
+        ):
+            raise RuntimeError("Mux changed ProRes packets or video timing")
         if (
             audio["codec_name"], int(audio["sample_rate"]), int(audio["channels"]),
         ) != (_AUDIO_CODECS[width], rate, channels):
