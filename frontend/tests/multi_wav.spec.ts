@@ -27,6 +27,8 @@ async function openSpeech(page: Page) {
 }
 
 async function addWav(page: Page, path: string) {
+  await page.locator("#speech-wav-path-advanced").evaluate(
+    (el) => { (el as HTMLDetailsElement).open = true; });
   await page.locator("#speech-wav-path").fill(path);
   await page.getByRole("button", { name: "WAVを確認" }).click();
 }
@@ -72,7 +74,7 @@ test("per-WAV editing survives reorder, duplicate registration and screen switch
   await expect(page.locator("[data-utterance-id]").first()).toHaveAttribute(
     "data-utterance-id", registeredIds[1]);
   await expect(page.locator("#speech-basename")).toHaveValue("second_line");
-  await expect(page.getByText(sameNameElsewhere, { exact: true })).toBeVisible();
+  await expect(page.locator("[data-utterance-id]").first().locator("small").first()).toHaveText(sameNameElsewhere);
 });
 
 test("out-of-order WAV inspection cannot select the wrong item or reorder registrations", async ({ page }) => {
@@ -126,7 +128,7 @@ test("failed addition preserves selected export and the PCM MOV endpoint receive
   await addWav(page, "/tmp/missing.wav");
   await expect(page.getByRole("alert").filter({ hasText: "WAVが見つかりません" })).toBeVisible();
   await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
-  await expect(page.getByText(path, { exact: true })).toBeVisible();
+  await expect(page.locator("[data-utterance-id]").first().locator("small").first()).toHaveText(path);
   await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeEnabled();
   await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
   await expect(page.getByText("書き出し完了・30フレーム")).toBeVisible();
