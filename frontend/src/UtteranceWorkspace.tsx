@@ -5,7 +5,7 @@ import UtteranceList from "./UtteranceList";
 import type { UnifiedPreset } from "./presetModel";
 import { matchesSource, readPresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
-  createUtterance, moveUtterance, updateUtterance,
+  createUtterance, moveUtterance, reorderUtterances, updateUtterance,
   type ExportData, type Fps, type LipMode, type UtteranceItem, type WavData,
 } from "./utteranceItems";
 
@@ -146,6 +146,13 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     }
   }
 
+  async function addManyWavs(paths: string[]): Promise<boolean> {
+    // Analyze in parallel while keeping registration order by the allocated sequence ID.
+    // Partial failures remain visible with their original paths.
+    const outcomes = await Promise.all(paths.map((path) => addWav(path)));
+    return outcomes.some(Boolean);
+  }
+
   function removeItem(id: string) {
     const index = items.findIndex((item) => item.id === id);
     if (index < 0 || exportingId === id) return;
@@ -228,8 +235,10 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     <UtteranceList items={items} selectedId={activeId} pendingPath={pendingPath}
       addingCount={addingCount} addError={addError}
       disabled={!draft} exportingId={exportingId}
-      onPathChange={setPendingPath} onAdd={addWav} onSelect={selectItem}
+      onPathChange={setPendingPath} onAdd={addWav} onAddMany={addManyWavs} onSelect={selectItem}
       onMove={(id, delta) => setItems((previous) => moveUtterance(previous, id, delta))}
+      onReorder={(from, to, after) => setItems((previous) =>
+        reorderUtterances(previous, from, to, after))}
       onRemove={removeItem} />
     <div className="utterance-columns">
       <section className="panel">
