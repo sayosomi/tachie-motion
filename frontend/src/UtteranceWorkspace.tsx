@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import type { Layer } from "./LayerTree";
 import NativeFilePicker from "./NativeFilePicker";
 import UtteranceList from "./UtteranceList";
+import WavPlayback from "./WavPlayback";
+import { useBatchUtteranceExport } from "./useBatchUtteranceExport";
 import type { UnifiedPreset } from "./presetModel";
 import { matchesSource, readPresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
-  createUtterance, moveUtterance, updateUtterance,
+  createUtterance, moveUtterance, reorderUtterances, updateUtterance,
   type ExportData, type Fps, type LipMode, type UtteranceItem, type WavData,
 } from "./utteranceItems";
 
@@ -50,6 +52,8 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   const latestAdd = useRef(0);
   const selectionEpoch = useRef(0);
   const mounted = useRef(false);
+  const batch = useBatchUtteranceExport(draft, items, setItems,
+    () => setProbeVersion((previous) => previous + 1));
 
   useEffect(() => {
     mounted.current = true;
@@ -146,6 +150,13 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     }
   }
 
+  async function addManyWavs(paths: string[]): Promise<boolean> {
+    // Analyze in parallel while keeping registration order by the allocated sequence ID.
+    // Partial failures remain visible with their original paths.
+    const outcomes = await Promise.all(paths.map((path) => addWav(path)));
+    return outcomes.some(Boolean);
+  }
+
   function removeItem(id: string) {
     const index = items.findIndex((item) => item.id === id);
     if (index < 0 || exportingId === id) return;
@@ -187,7 +198,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     ? "overwrite" : "error";
   const allowed = !!selected && !selected.blinkEnabled &&
     (current?.mode === "none" || openMouthReady(selected));
-  const canExport = !!draft && !!current && allowed && !exportingId &&
+  const canExport = !!draft && !!current && allowed && !exportingId && !batch.running &&
     !!info && !destinationError &&
     /^[A-Za-z0-9_-]{1,64}$/.test(outputBasename) &&
     (!requiresAlternate || outputBasename !== current.basename);
@@ -223,14 +234,32 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     <header className="topbar"><div className="brand"><span className="brand-mark">t</span>
       <span>tachie-motion</span></div></header>
     <div className="intro"><h1>セリフ</h1></div>
-    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・書き出します。一括出力・aiueo・瞬き・待機・変更点は後続対応です。</p>
+    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件のMOV・個別OTIOの一括書き出しに対応します。aiueo・瞬き・待機・変更点・全体OTIOは後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} selectedId={activeId} pendingPath={pendingPath}
       addingCount={addingCount} addError={addError}
-      disabled={!draft} exportingId={exportingId}
-      onPathChange={setPendingPath} onAdd={addWav} onSelect={selectItem}
+      disabled={!draft || batch.running} exportingId={exportingId}
+      onPathChange={setPendingPath} onAdd={addWav} onAddMany={addManyWavs} onSelect={selectItem}
       onMove={(id, delta) => setItems((previous) => moveUtterance(previous, id, delta))}
+      onReorder={(from, to, after) => setItems((previous) =>
+        reorderUtterances(previous, from, to, after))}
       onRemove={removeItem} />
+    <WavPlayback items={items} selectedId={activeId} />
+    <section className="panel utterance-batch" aria-label="一括書き出し">
+      <div className="utterance-list-header"><h2>一括書き出し</h2>
+        <button type="button" className="primary"
+          disabled={!draft || items.length === 0 || batch.running ||
+            !!exportingId || addingCount > 0}
+          onClick={() => { void batch.run(); }}>
+          {batch.running ? "一括書き出し中…" : "すべて保存（MOV・OTIO）"}
+        </button>
+      </div>
+      <p className="hint">一覧順に各セリフの透過MOV（PCM音声入り）と個別OTIOを保存します。
+        既存ファイルの上書きは事前確認し、出力名の重複は開始前に止めます。
+        途中で失敗しても、他の項目は続けて書き出します。</p>
+      {batch.progress && <p role="status" className="hint">{batch.progress}</p>}
+      {batch.summary && <p role="status" className="hint">{batch.summary}</p>}
+    </section>
     <div className="utterance-columns">
       <section className="panel">
         <h2>選択中のWAV</h2>
@@ -240,7 +269,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
           <p className="meta">長さ {current.wav.duration_seconds.toFixed(2)}秒 ／ {current.wav.sample_rate}Hz</p>
           <label htmlFor="speech-preset">プリセット</label>
           <select id="speech-preset" value={current.presetId}
-            disabled={!draft || exportingId === current.id}
+            disabled={!draft || batch.running || exportingId === current.id}
             onChange={(e) => revise(current.id, { presetId: e.target.value })}>
             {!selected && <option value={current.presetId}>（プリセットを再選択してください）</option>}
             {draft?.collection.items.map((preset) =>
@@ -248,7 +277,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
           </select>
           <label htmlFor="speech-lip-mode">口パク方式</label>
           <select id="speech-lip-mode" value={current.mode}
-            disabled={exportingId === current.id}
+            disabled={batch.running || exportingId === current.id}
             onChange={(e) => revise(current.id, { mode: e.target.value as LipMode })}>
             <option value="none">なし</option>
             <option value="open">open（音量連動）</option>
@@ -268,17 +297,17 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
         </> : <>
           <label htmlFor="speech-fps">フレームレート</label>
           <select id="speech-fps" value={current.fps}
-            disabled={exportingId === current.id}
+            disabled={batch.running || exportingId === current.id}
             onChange={(e) => revise(current.id, { fps: Number(e.target.value) as Fps })}>
             <option value={24}>24 fps</option><option value={30}>30 fps</option><option value={60}>60 fps</option>
           </select>
           <NativeFilePicker id="speech-output-dir" kind="output_dir" label="出力フォルダ"
-            value={current.outputDir} disabled={exportingId === current.id}
+            value={current.outputDir} disabled={batch.running || exportingId === current.id}
             onChange={(path) => revise(current.id, { outputDir: path, saveAsName: null })}
             onSelected={(path) => revise(current.id, { outputDir: path, saveAsName: null })} />
           <label htmlFor="speech-basename">ファイル名（英数字・-・_）</label>
           <input id="speech-basename" value={current.basename}
-            disabled={exportingId === current.id}
+            disabled={batch.running || exportingId === current.id}
             onChange={(e) => revise(current.id, { basename: e.target.value, saveAsName: null })} />
           {destinationError && <p className="hint warning" role="alert">{destinationError}</p>}
           {info?.state === "complete" && <>
@@ -287,11 +316,11 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
               <legend>保存方法</legend>
               <label><input type="radio" name="speech-conflict" value="overwrite"
                 checked={current.conflictChoice === "overwrite"}
-                disabled={exportingId === current.id}
+                disabled={batch.running || exportingId === current.id}
                 onChange={() => revise(current.id, { conflictChoice: "overwrite" })} />上書きする</label>
               <label><input type="radio" name="speech-conflict" value="rename"
                 checked={current.conflictChoice === "rename"}
-                disabled={exportingId === current.id}
+                disabled={batch.running || exportingId === current.id}
                 onChange={() => revise(current.id, { conflictChoice: "rename" })} />別名で書き出す</label>
             </fieldset>
           </>}
@@ -306,7 +335,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
           {requiresAlternate && <div className="output-save-as">
             <label htmlFor="speech-save-as">別名のファイル名</label>
             <input id="speech-save-as" value={saveAsName}
-              disabled={exportingId === current.id}
+              disabled={batch.running || exportingId === current.id}
               onChange={(e) => revise(current.id, { saveAsName: e.target.value })} />
             <p className="hint">元のMOV・OTIOは残します。</p>
           </div>}

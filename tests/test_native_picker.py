@@ -35,6 +35,64 @@ class NativeDialogTests(unittest.TestCase):
             self.assertEqual(args[0], "osascript")
             self.assertNotIn("shell", launch.call_args.kwargs)
 
+    def test_multi_wav_paths_keep_unicode_and_embedded_newlines(self):
+        with tempfile.TemporaryDirectory() as temp:
+            first = Path(temp) / "音声 た\u3099んもん.wav"
+            second = Path(temp) / "line\nnext.wav"
+            first.write_bytes(b"synthetic")
+            second.write_bytes(b"synthetic")
+            with patch("tachie_motion.web.native_picker.sys.platform", "darwin"), patch(
+                "tachie_motion.web.native_picker.subprocess.run",
+                return_value=subprocess.CompletedProcess(
+                    ["osascript"], 0, stdout=str(first) + "\0" + str(second) + "\n",
+                    stderr="",
+                ),
+            ) as invocation:
+                result = choose_local_source("wav", multiple=True)
+            self.assertEqual(result, {"status": "selected", "paths": [str(first), str(second)]})
+            script = invocation.call_args.args[0][2]
+            self.assertIn("multiple selections allowed", script)
+            self.assertIn("ASCII character 0", script)
+            self.assertEqual(first.read_bytes(), b"synthetic")
+            self.assertEqual(second.read_bytes(), b"synthetic")
+            with self.assertRaises(ValueError):
+                choose_local_source("psd", multiple=True)
+
+    def test_mac_finder_byte_output_preserves_cr_inside_name_and_nfd(self):
+        with tempfile.TemporaryDirectory() as temp:
+            first = Path(temp) / "あんこもん た\u3099\r声.wav"
+            second = Path(temp) / "line\nnext.wav"
+            first.write_bytes(b"synthetic")
+            second.write_bytes(b"synthetic")
+            output = (str(first) + "\0" + str(second) + "\n").encode("utf-8")
+            with patch("tachie_motion.web.native_picker.sys.platform", "darwin"), patch(
+                "tachie_motion.web.native_picker.subprocess.run",
+                return_value=subprocess.CompletedProcess(
+                    ["osascript"], 0, stdout=output, stderr=b"",
+                ),
+            ) as invocation:
+                result = choose_local_source("wav", multiple=True)
+            self.assertEqual(result, {"status": "selected", "paths": [str(first), str(second)]})
+            self.assertIs(invocation.call_args.kwargs["text"], False)
+            self.assertEqual(first.read_bytes(), b"synthetic")
+
+    def test_mac_finder_byte_error_handles_cancel_without_path_leak(self):
+        with patch("tachie_motion.web.native_picker.sys.platform", "darwin"), patch(
+            "tachie_motion.web.native_picker.subprocess.run",
+            return_value=subprocess.CompletedProcess(
+                ["osascript"], 1, stdout=b"", stderr=b"User canceled. (-128)",
+            ),
+        ):
+            self.assertEqual(choose_local_source("wav", multiple=True), {"status": "cancelled"})
+        with patch("tachie_motion.web.native_picker.sys.platform", "darwin"), patch(
+            "tachie_motion.web.native_picker.subprocess.run",
+            return_value=subprocess.CompletedProcess(
+                ["osascript"], 0, stdout=b"\xff", stderr=b"",
+            ),
+        ):
+            with self.assertRaisesRegex(PickerUnavailable, "UTF-8"):
+                choose_local_source("wav", multiple=True)
+
     def test_start_folder_is_an_argument_and_never_script_source(self):
         with tempfile.TemporaryDirectory() as temp:
             location = Path(temp) / "立ち絵 空白 た\u3099"
@@ -150,6 +208,20 @@ class PickerApiTests(unittest.TestCase):
             }, headers={"Origin": self.origin, "X-Tachie-Picker": "1"})
             self.assertEqual(response.status_code, 200)
             choose.assert_called_once_with("wav", initial_dir=temp)
+
+    def test_multi_wav_api_preserves_paths_and_rejects_other_kinds(self):
+        paths = ["/tmp/あんこもん た\u3099.wav", "/tmp/other.wav"]
+        with patch("tachie_motion.web.picker_app.choose_local_source",
+                   return_value={"status": "selected", "paths": paths}) as choose:
+            result = self.client.post("/pick", json={"kind": "wav", "multiple": True},
+                headers={"Origin": self.origin, "X-Tachie-Picker": "1"})
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertEqual(result.json()["paths"], paths)
+            choose.assert_called_once_with("wav", initial_dir=None, multiple=True)
+            rejected = self.client.post("/pick", json={"kind": "psd", "multiple": True},
+                headers={"Origin": self.origin, "X-Tachie-Picker": "1"})
+            self.assertEqual(rejected.status_code, 422)
+            choose.assert_called_once()
 
     def test_remote_host_origin_csrf_and_types_do_not_open_dialog(self):
         with patch("tachie_motion.web.picker_app.choose_local_source") as choose:

@@ -23,6 +23,7 @@ dialog_lock = asyncio.Lock()
 class PickerRequest(BaseModel):
     kind: Literal["psd", "wav", "output_dir"]
     initial_dir: str | None = None
+    multiple: bool = False
 
 
 @app.middleware("http")
@@ -66,12 +67,15 @@ def health():
 
 @app.post("/pick")
 async def pick(payload: PickerRequest):
+    if payload.multiple and payload.kind != "wav":
+        raise HTTPException(status_code=422, detail="Multiple selection is WAV only")
     if dialog_lock.locked():
         raise HTTPException(status_code=409, detail="A Finder dialog is already open")
     async with dialog_lock:
         try:
-            return await asyncio.to_thread(
-                choose_local_source, payload.kind, initial_dir=payload.initial_dir
-            )
+            options = {"initial_dir": payload.initial_dir}
+            if payload.multiple:
+                options["multiple"] = True
+            return await asyncio.to_thread(choose_local_source, payload.kind, **options)
         except PickerUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
