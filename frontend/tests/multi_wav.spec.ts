@@ -338,3 +338,146 @@ test("batch export requires confirmation before overwriting existing output pair
   await expect(page.getByText("一括書き出しをキャンセルしました")).toBeVisible();
   expect(exports).toBe(0);
 });
+
+test("batch locks the preset selector throughout an in-progress render", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
+  }));
+  let releaseFirst: (() => void) | undefined;
+  const payloads: Array<Record<string, unknown>> = [];
+  await page.route("**/api/preset-utterance-export", async (route) => {
+    const payload = route.request().postDataJSON() as Record<string, unknown>;
+    payloads.push(payload);
+    if (payload.wav === "/tmp/a.wav") {
+      await new Promise<void>((resolve) => { releaseFirst = resolve; });
+    }
+    await route.fulfill({ json: {
+      mov: "/tmp/output/" + payload.basename + ".mov",
+      otio: "/tmp/output/" + payload.basename + ".otio",
+      frames: 30, sample_count: 800,
+    } });
+  });
+  await openSpeech(page);
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await page.getByRole("button", { name: "＋ 作成" }).click();
+  await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await expect(page.locator("#speech-wav-path")).toBeAttached();
+  await addWav(page, "/tmp/a.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await addWav(page, "/tmp/b.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+  await expect(page.locator("#speech-preset option")).toHaveCount(2);
+  const assignedPreset = await page.locator("#speech-preset").inputValue();
+
+  await page.getByRole("button", { name: "すべて保存（MOV・OTIO）" }).click();
+  await expect.poll(() => Boolean(releaseFirst)).toBe(true);
+  await page.locator("[data-utterance-id]").nth(1)
+    .locator(".utterance-item-select").click();
+  await expect(page.locator("#speech-preset")).toBeDisabled();
+  await expect(page.locator("#speech-preset")).toHaveValue(assignedPreset);
+  releaseFirst!();
+  await expect(page.getByText("一括書き出し完了：成功 2 件／失敗 0 件", { exact: false }))
+    .toBeVisible();
+  await expect(page.locator("#speech-preset")).toBeEnabled();
+  expect(payloads.map((item) => item.wav)).toEqual(["/tmp/a.wav", "/tmp/b.wav"]);
+});
+
+test("media error stops the playlist and releases Blob URLs on error and on normal completion", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = URL.revokeObjectURL;
+    const target = window as Window & { __revokedBlobUrls: string[] };
+    target.__revokedBlobUrls = [];
+    URL.revokeObjectURL = (url: string) => {
+      target.__revokedBlobUrls.push(url);
+      original.call(URL, url);
+    };
+  });
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 16000, sample_rate: 8000, duration_seconds: 2 },
+  }));
+  const wav = Buffer.alloc(44 + 32000);
+  wav.write("RIFF", 0); wav.writeUInt32LE(wav.length - 8, 4);
+  wav.write("WAVEfmt ", 8); wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+  wav.write("data", 36); wav.writeUInt32LE(32000, 40);
+  const requests: string[] = [];
+  await page.route("**/api/wav-playback", (route) => {
+    requests.push((route.request().postDataJSON() as { path: string }).path);
+    return route.fulfill({ body: wav, contentType: "audio/wav" });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/one.wav");
+  await addWav(page, "/tmp/two.wav");
+  const player = page.locator(".utterance-playback audio");
+
+  await page.getByRole("button", { name: "全件を連続再生" }).click();
+  await expect(player).toHaveAttribute("src", /^blob:/);
+  const brokenUrl = await player.getAttribute("src");
+  await player.evaluate((node) => node.dispatchEvent(new Event("error")));
+  await expect(page.getByText("音声の再生に失敗:", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "停止" })).toBeDisabled();
+  await expect.poll(async () => player.evaluate((node) => node.hasAttribute("src"))).toBe(false);
+  const firstRevoked = await page.evaluate(
+    () => (window as Window & { __revokedBlobUrls: string[] }).__revokedBlobUrls);
+  expect(firstRevoked).toContain(brokenUrl);
+  expect(requests).toEqual(["/tmp/one.wav"]);
+
+  await page.getByRole("button", { name: "全件を連続再生" }).click();
+  await expect.poll(() => requests.length).toBe(2);
+  await expect.poll(async () => {
+    const src = await player.getAttribute("src");
+    return Boolean(src?.startsWith("blob:"));
+  }).toBe(true);
+  const firstUrl = await player.getAttribute("src");
+  await player.evaluate((node) => node.dispatchEvent(new Event("ended")));
+  await expect.poll(() => requests.length).toBe(3);
+  await expect.poll(async () => {
+    const src = await player.getAttribute("src");
+    return Boolean(src?.startsWith("blob:") && src !== firstUrl);
+  }).toBe(true);
+  const secondUrl = await player.getAttribute("src");
+  await player.evaluate((node) => node.dispatchEvent(new Event("ended")));
+  await expect(page.getByText("再生が終了しました")).toBeVisible();
+  await expect(page.getByRole("button", { name: "停止" })).toBeDisabled();
+  await expect.poll(async () => player.evaluate((node) => node.hasAttribute("src"))).toBe(false);
+  const revoked = await page.evaluate(
+    () => (window as Window & { __revokedBlobUrls: string[] }).__revokedBlobUrls);
+  expect(revoked).toContain(firstUrl);
+  expect(revoked).toContain(secondUrl);
+});
+
+test("Finder multi-WAV partial failure preserves successful selection and reports the failed path", async ({ page }) => {
+  const origin = "http://127.0.0.1:8765";
+  const okPath = "/tmp/good だんもん.wav";
+  const badPath = "/tmp/bad.wav";
+  await page.route("http://127.0.0.1:8766/health", (route) =>
+    route.fulfill({ json: { picker: "mac-local", ready: true },
+      headers: { "access-control-allow-origin": origin } }));
+  await page.route("http://127.0.0.1:8766/pick", (route) => {
+    if (route.request().method() === "OPTIONS") return route.fulfill({
+      status: 204, headers: {
+        "access-control-allow-origin": origin,
+        "access-control-allow-methods": "POST",
+        "access-control-allow-headers": "Content-Type, X-Tachie-Picker",
+      } });
+    return route.fulfill({ json: { status: "selected", paths: [okPath, badPath] },
+      headers: { "access-control-allow-origin": origin } });
+  });
+  await page.route("**/api/wav", (route) =>
+    (route.request().postDataJSON() as { path: string }).path === badPath
+      ? route.fulfill({ status: 422, json: { detail: "invalid PCM" } })
+      : route.fulfill({ json: {
+        samples: 800, sample_rate: 8000, duration_seconds: 0.1,
+      } }));
+  await openSpeech(page);
+  await page.getByRole("button", { name: "Finderで選ぶ" }).click();
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await expect(page.locator("[data-utterance-id]").first()).toContainText(okPath);
+  await expect(page.getByRole("alert").filter({ hasText: badPath }))
+    .toContainText("invalid PCM");
+});
+
