@@ -98,8 +98,9 @@ def build_single_utterance(
 
 def build_rounded_utterance(
     mov: Path, wav: Path, movie: MovieTiming, audio: WaveTiming,
+    *, embedded_audio: bool = False,
 ) -> dict:
-    """Keep WAV sample-accurate and allow only the final fractional video frame.
+    """Keep PCM sample-accurate and allow only the final fractional video frame.
 
     Both media clips start at zero. The MOV gets the exact ceiling frame
     count; the WAV retains its unrounded sample duration. No audio padding or
@@ -115,12 +116,17 @@ def build_rounded_utterance(
     if movie.frames != rounded_frames:
         raise ValueError("MOV frame count does not match rounded WAV duration")
     video_clip = _clip("Character MOV", mov, movie.frames, movie.fps)
-    audio_clip = _clip("Original WAV", wav, audio.samples, audio.sample_rate)
+    audio_media = mov if embedded_audio else wav
+    audio_clip = _clip(
+        "Embedded PCM" if embedded_audio else "Original WAV",
+        audio_media, audio.samples, audio.sample_rate,
+    )
     # Resolve-on-Mac import verified the original Japanese/NFD WAV only when
     # its OTIO target_url was a filesystem path rather than a percent-encoded
-    # file:// URI. Keep the MOV's existing URI, and do not duplicate the WAV.
+    # file:// URI. Preserve the tested path form on the audio track, including
+    # when it references embedded PCM in the same MOV as the video track.
     audio_clip["media_references"]["DEFAULT_MEDIA"]["target_url"] = str(
-        wav.resolve(strict=True)
+        audio_media.resolve(strict=True)
     )
     return {
         "OTIO_SCHEMA": "Timeline.1",
