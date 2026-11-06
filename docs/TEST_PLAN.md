@@ -246,3 +246,14 @@ Use self-authored / permission-cleared synthetic test PSD and WAV in CI. Do not 
 - 選択は表示切替やサーバー再合成を起動しない。検索・階層折りたたみで選択行が非表示になっても、プレビュー側の範囲表示を維持し、再表示時に同じ行が選択される。
 - プレビューの既存拡大・パン・Open状態変更時も選択範囲が画像と同じ座標変換で動き、選択位置拡大で中心に移動すること。新しいPSDの読込では選択を解除する。
 - Mac実PSDの大きなレイヤーツリーでの見つけやすさ、視認性、押し間違い、拡大・パン時の位置一致はHuman UX別ゲート。Python・動画書き出し・OTIO・DaVinci Resolveの契約は変更しない。
+
+
+## Public Issue #2 — PCM内包ProRes MOV、個別OTIO
+
+- 合成のみで8/16/24/32-bit整数PCMのmono/stereoを検証。WAV 8-bit unsignedとMOV 8-bit signedの正規化後の全サンプル一致を判定。非対応チャンネル・形式は拒否する。
+- WAVの冒頭・末尾無音、101/1000秒のような映像フレーム非整数尺、音声start=0、復号PCMの全バイト一致、音声の切詰め・付加なしを独立チェックする。
+- 元の透過ProRes 4444映像を再エンコードせず、mux前後の映像パケットhash、codec/profile/pixel formatを照合する。元PSD/WAVを編集しない。
+- 個別OTIOのVideoとAudioは同一MOVを参照し、Audioのsource_rangeは元WAVサンプル尺、Videoは切り上げフレーム尺とする。旧単独OTIO PoCのWAV参照は回帰維持する。多キャラ出力は本Issueでは追加しない。
+- mux/デコード/検証失敗はMOV・OTIOを公開せず、既存の上書き・別名・部分失敗復旧の保証を回帰する。日本語/空白/NFDの入力WAV、出力フォルダを試す。
+- **Mac実機ゲートは独立**：①PCM入りMOV単独をResolveへ読み込み音声再生、②個別OTIOを別タイムラインとして読み込んで音声トラックが再生、③各取り込みで無音・二重再生・同期ずれなし。どちらか未実施ならHuman E2EはUNTESTED。
+- 製品仕様の§6（WAV別参照、ポータブルWAVコピー）とD16/D17の変更は実証と製品判断後に行う。自動テストはResolveでの互換性証拠の代わりにならない。
