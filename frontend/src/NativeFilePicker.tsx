@@ -79,7 +79,7 @@ export default function NativeFilePicker({
         throw new Error("ファイル選択の応答が不正です");
       }
       if (multiple) {
-        const paths = answer.paths;
+        const paths = Array.isArray(answer.paths) ? answer.paths : answer.path ? [answer.path] : undefined;
         if (!onSelectedMany || !Array.isArray(paths) || paths.length === 0 ||
             paths.length > 256 || paths.some((path) => typeof path !== "string" || !path.startsWith("/"))) {
           throw new Error("複数ファイルの選択結果が不正です");
