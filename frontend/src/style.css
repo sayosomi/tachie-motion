@@ -322,3 +322,17 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   .utterance-item { grid-template-columns:1fr; }
   .utterance-item-actions { justify-content:flex-end; }
 }
+
+/* WAV authoring: drag handle, audio audition and batch output. */
+.utterance-item[data-drop-target="true"] { outline:2px solid #a9e7d8; outline-offset:-2px; }
+.utterance-drag-handle { cursor:grab; touch-action:none; letter-spacing:-2px;
+  color:#b9d8ce; border-color:#577487; }
+.utterance-drag-handle:active { cursor:grabbing; }
+.utterance-playback { margin-bottom:20px; }
+.utterance-playback-buttons { display:flex; flex-wrap:wrap; gap:9px; margin:16px 0 12px; }
+.utterance-playback audio { display:block; width:100%; max-width:650px; }
+.utterance-batch { margin-bottom:20px; }
+.utterance-batch .primary { width:auto; }
+@media (hover:none), (pointer:coarse) {
+  .utterance-drag-handle { display:none; }
+}
