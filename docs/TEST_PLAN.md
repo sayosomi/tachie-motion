@@ -255,5 +255,8 @@ Use self-authored / permission-cleared synthetic test PSD and WAV in CI. Do not 
 - 元の透過ProRes 4444映像を再エンコードせず、mux前後の映像パケットhash、codec/profile/pixel formatを照合する。元PSD/WAVを編集しない。
 - 個別OTIOのVideoとAudioは同一MOVを参照し、Audioのsource_rangeは元WAVサンプル尺、Videoは切り上げフレーム尺とする。旧単独OTIO PoCのWAV参照は回帰維持する。多キャラ出力は本Issueでは追加しない。
 - mux/デコード/検証失敗はMOV・OTIOを公開せず、既存の上書き・別名・部分失敗復旧の保証を回帰する。日本語/空白/NFDの入力WAV、出力フォルダを試す。
+- mux前後の全映像パケットのSHA-256だけでなくPTS/DTS/durationが同一であることを確認し、中間フレーム時刻だけを改変する故障注入で公開を拒否する。
+- WAV解析時の全PCM内容ハッシュをmux側と照合する。サンプル数・レート・形式が同一の外部WAV差替えをWeb/CLI両経路で故障注入し、MOV/OTIO未公開を確認する。
+- CLIのOTIO失敗時は公開MOV名を先に復旧領域へ原子的に移し、他所有ファイルを削除しない。競合ファイル保全・同名再出力の拒否と通常のロールバック成功をテストする。
 - **Mac実機ゲートは独立**：①PCM入りMOV単独をResolveへ読み込み音声再生、②個別OTIOを別タイムラインとして読み込んで音声トラックが再生、③各取り込みで無音・二重再生・同期ずれなし。どちらか未実施ならHuman E2EはUNTESTED。
 - 製品仕様の§6（WAV別参照、ポータブルWAVコピー）とD16/D17の変更は実証と製品判断後に行う。自動テストはResolveでの互換性証拠の代わりにならない。
