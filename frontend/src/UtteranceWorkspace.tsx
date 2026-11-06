@@ -234,7 +234,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     <header className="topbar"><div className="brand"><span className="brand-mark">t</span>
       <span>tachie-motion</span></div></header>
     <div className="intro"><h1>セリフ</h1></div>
-    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・書き出します。一括出力・aiueo・瞬き・待機・変更点は後続対応です。</p>
+    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件のMOV・個別OTIOの一括書き出しに対応します。aiueo・瞬き・待機・変更点・全体OTIOは後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} selectedId={activeId} pendingPath={pendingPath}
       addingCount={addingCount} addError={addError}
@@ -269,7 +269,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
           <p className="meta">長さ {current.wav.duration_seconds.toFixed(2)}秒 ／ {current.wav.sample_rate}Hz</p>
           <label htmlFor="speech-preset">プリセット</label>
           <select id="speech-preset" value={current.presetId}
-            disabled={!draft || exportingId === current.id}
+            disabled={!draft || batch.running || exportingId === current.id}
             onChange={(e) => revise(current.id, { presetId: e.target.value })}>
             {!selected && <option value={current.presetId}>（プリセットを再選択してください）</option>}
             {draft?.collection.items.map((preset) =>
