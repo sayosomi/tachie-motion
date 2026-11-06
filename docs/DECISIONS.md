@@ -35,6 +35,7 @@ These decisions are carried from product planning. Changes require an explicit p
 - Parent/group effective visibility, precedence and conflict handling when mouth/eye dynamic targets overlap; not decided merely by agreeing to the two-state preset UI.
 - Deletion behavior for presets referenced by project snapshots, and precise migration policy for earlier single-layer bindings.
 - Absolute vs relative media-link behavior per OTIO importer; verification required.
+- Public Issue #2 proposes embedding original WAV-derived lossless PCM in utterance MOV (single audio-owner MOV per utterance), with individual OTIO Audio referencing that MOV. D16/D17 and PRODUCT_SPEC §6 are **not revised until Mac Resolve standalone/OTIO validation and explicit product approval**. Portable WAV copy policy remains undecided; original files stay untouched.
 - PSD compositing fidelity boundaries and fallback/error presentation.
 - Exact idle looping rules with blinking and whether loopable motion must be periodic by construction.
 - Default output pixel scaling, preset migration rules and project schema versioning.
