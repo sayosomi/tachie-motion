@@ -240,7 +240,7 @@ class WebApiTests(unittest.TestCase):
             for track in otio["tracks"]["children"]
         ]
         self.assertEqual(refs[0], Path(result["mov"]).resolve().as_uri())
-        self.assertEqual(refs[1], str(self.wav.resolve()))
+        self.assertEqual(refs[1], str(Path(result["mov"]).resolve()))
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), original)
         self.assertEqual(
             {path.resolve() for path in self.root.iterdir()},

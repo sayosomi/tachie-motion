@@ -2,6 +2,7 @@
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -32,6 +33,8 @@ class VolumeSchedule:
     open_threshold: float
     close_threshold: float
     frames: tuple[MouthFrame, ...]
+    # Internal source-PCM identity; intentionally excluded from versioned JSON.
+    pcm_sha256: str
 
     def as_dict(self) -> dict:
         """Versioned, path-free data for CLI and future renderer consumers."""
@@ -129,6 +132,7 @@ def analyze_wav(
         raise ValueError("WAV does not exist or is not a file")
 
     levels: list[tuple[int, int, float]] = []
+    pcm_digest = hashlib.sha256()
     try:
         with wave.open(str(path), "rb") as reader:
             if reader.getcomptype() != "NONE":
@@ -154,6 +158,7 @@ def analyze_wav(
                 data = reader.readframes(end - start)
                 if len(data) != expected:
                     raise ValueError("Truncated PCM WAV sample data")
+                pcm_digest.update(data)
                 if expected:
                     normalized = _normalized_pcm(data, width)
                     rms = float(np.sqrt(np.mean(normalized * normalized)))
@@ -178,6 +183,7 @@ def analyze_wav(
         fps=fps,
         open_threshold=open_threshold,
         close_threshold=close_threshold,
+        pcm_sha256=pcm_digest.hexdigest(),
         frames=tuple(
             MouthFrame(i, start, end, rms, states[i])
             for i, (start, end, rms) in enumerate(levels)

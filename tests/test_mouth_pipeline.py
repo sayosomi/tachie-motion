@@ -145,6 +145,16 @@ class RoundedOtioTests(unittest.TestCase):
                 tracks[1]["children"][0]["media_references"]["DEFAULT_MEDIA"]["target_url"],
                 str(wav.resolve()),
             )
+            embedded = build_rounded_utterance(
+                mov, wav, MovieTiming(4, 30), WaveTiming(101, 1000),
+                embedded_audio=True,
+            )
+            embedded_track = embedded["tracks"]["children"][1]["children"][0]
+            self.assertEqual(
+                embedded_track["media_references"]["DEFAULT_MEDIA"]["target_url"],
+                str(mov.resolve()),
+            )
+            self.assertNotIn(str(wav.resolve()), json.dumps(embedded))
             with self.assertRaisesRegex(ValueError, "rounded WAV duration"):
                 build_rounded_utterance(
                     mov, wav, MovieTiming(3, 30), WaveTiming(101, 1000),
@@ -196,6 +206,9 @@ class MouthPipelineProtectionTests(unittest.TestCase):
             with patch(
                 "tachie_motion.lipsync.pipeline.encode_prores_sequence"
             ) as encoder, patch(
+                "tachie_motion.lipsync.pipeline.mux_verified_pcm",
+                side_effect=lambda _mov, _wav, out, **kwargs: out.write_bytes(b"muxed"),
+            ), patch(
                 "tachie_motion.lipsync.pipeline.write_otio",
                 side_effect=OSError("synthetic write failure"),
             ):
@@ -213,6 +226,91 @@ class MouthPipelineProtectionTests(unittest.TestCase):
             self.assertFalse(mov.exists())
             self.assertFalse(otio.exists())
             self.assertFalse(list(folder.glob(".tachie-mouth-*")))
+
+    def test_cli_rollback_preserves_competing_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            psd, closed, opened = make_fixture(root)
+            wav = root / "voice.wav"
+            make_wav(wav, [0] * 100)
+            mov, otio = root / "result.mov", root / "result.otio"
+            real_rename = os.rename
+
+            def write_staged(pngs, indices, output, **kwargs):
+                output.write_bytes(b"staged")
+                from types import SimpleNamespace
+                return SimpleNamespace(frames=len(indices), decoded_frames=len(indices))
+
+            def replace_before_quarantine(source, destination):
+                if Path(source) == mov:
+                    competing = root / "other-writer.mov"
+                    competing.write_bytes(b"FOREIGN")
+                    os.replace(competing, mov)
+                return real_rename(source, destination)
+
+            with patch(
+                "tachie_motion.lipsync.pipeline.encode_prores_sequence",
+                side_effect=write_staged,
+            ), patch(
+                "tachie_motion.lipsync.pipeline.mux_verified_pcm",
+                side_effect=lambda _mov, _wav, out, **kw: out.write_bytes(b"muxed"),
+            ), patch(
+                "tachie_motion.lipsync.pipeline.write_otio",
+                side_effect=OSError("synthetic OTIO write error"),
+            ), patch(
+                "tachie_motion.lipsync.pipeline.os.rename",
+                side_effect=replace_before_quarantine,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "replacement was preserved"):
+                    export_mouth_animation(
+                        psd=psd, wav=wav, closed_path=closed, open_path=opened,
+                        mov=mov, otio=otio,
+                    )
+            found = list(root.glob(".result.failed-*"))
+            self.assertEqual(len(found), 1)
+            self.assertEqual((found[0] / "candidate.mov").read_bytes(), b"FOREIGN")
+            self.assertFalse(mov.exists())
+            self.assertFalse(otio.exists())
+            self.assertFalse(list(root.glob(".tachie-mouth-states-*")))
+            with self.assertRaisesRegex(RuntimeError, "manual recovery"):
+                export_mouth_animation(
+                    psd=psd, wav=wav, closed_path=closed, open_path=opened,
+                    mov=mov, otio=otio,
+                )
+            self.assertEqual((found[0] / "candidate.mov").read_bytes(), b"FOREIGN")
+
+    @unittest.skipUnless(
+        shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required",
+    )
+    def test_cli_rejects_replaced_wav_with_same_timing(self):
+        from tachie_motion.render.pcm_mux import mux_verified_pcm
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            psd, closed, opened = make_fixture(root)
+            wav = root / "speech.wav"
+            make_wav(wav, [0] * 34 + [12000] * 33 + [0] * 34)
+            before = wav.read_bytes()
+            mov, otio = root / "speech.mov", root / "speech.otio"
+
+            def swap_before_mux(video, source, destination, **kwargs):
+                data = bytearray(source.read_bytes())
+                data[-1] ^= 1
+                source.write_bytes(data)
+                return mux_verified_pcm(video, source, destination, **kwargs)
+
+            with patch(
+                "tachie_motion.lipsync.pipeline.mux_verified_pcm",
+                side_effect=swap_before_mux,
+            ):
+                with self.assertRaisesRegex(ValueError, "PCM changed after animation"):
+                    export_mouth_animation(
+                        psd=psd, wav=wav, closed_path=closed, open_path=opened,
+                        mov=mov, otio=otio,
+                    )
+            self.assertEqual(len(wav.read_bytes()), len(before))
+            self.assertFalse(mov.exists())
+            self.assertFalse(otio.exists())
+            self.assertFalse(list(root.glob(".speech.failed-*")))
 
     def test_preexisting_symlink_is_not_replaced(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -264,9 +362,9 @@ class MouthPipelineIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(
                 tracks[1]["children"][0]["media_references"]["DEFAULT_MEDIA"]["target_url"],
-                str(wav.resolve()),
+                str(mov.resolve()),
             )
-            # The original WAV is referenced in place. No duplicate media.
+            # One PCM-bearing MOV is referenced by both OTIO tracks; WAV is not.
             self.assertEqual(set(folder.iterdir()), {psd, wav, mov, otio})
             self.assertEqual((psd.read_bytes(), wav.read_bytes()), original)
             # The writer's independently decoded checker already confirmed

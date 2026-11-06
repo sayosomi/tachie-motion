@@ -140,6 +140,34 @@ class OfficialOtioRoundtrip(unittest.TestCase):
                 str(wav.resolve()),
             )
 
+    def test_embedded_pcm_audio_reference_roundtrip_without_wav_link(self):
+        from tachie_motion.timeline.otio_json import build_rounded_utterance
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            mov = root / "透過-animation.mov"
+            wav = root / "元 音声た\u3099.wav"
+            mov.touch()
+            wav.touch()
+            document = build_rounded_utterance(
+                mov, wav, MovieTiming(4, 30), WaveTiming(101, 1000),
+                embedded_audio=True,
+            )
+            path = root / "embedded.otio"
+            write_otio(document, path)
+            timeline = otio.adapters.read_from_file(str(path))
+            self.assertEqual(len(timeline.tracks), 2)
+            video, audio = timeline.tracks[0][0], timeline.tracks[1][0]
+            self.assertEqual(video.media_reference.target_url, mov.resolve().as_uri())
+            self.assertEqual(audio.media_reference.target_url, str(mov.resolve()))
+            self.assertEqual(
+                (audio.source_range.duration.value, audio.source_range.duration.rate),
+                (101, 1000),
+            )
+            self.assertNotIn(str(wav.resolve()), path.read_text(encoding="utf-8"))
+            serialized = otio.adapters.write_to_string(timeline, "otio_json")
+            reparsed = otio.adapters.read_from_string(serialized, "otio_json")
+            self.assertEqual(reparsed.tracks[1][0].media_reference.target_url, str(mov.resolve()))
+
 
 if __name__ == "__main__":
     unittest.main()

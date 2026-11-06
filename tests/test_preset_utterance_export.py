@@ -139,7 +139,7 @@ class PresetExportApiTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")
-    def test_none_and_open_produce_separate_media_with_original_wav_reference(self):
+    def test_none_and_open_produce_pcm_mov_with_embedded_audio_reference(self):
         originals = (self.psd.read_bytes(), self.wav.read_bytes())
         static = self.post()
         self.assertEqual(static.status_code, 200, static.text)
@@ -159,7 +159,8 @@ class PresetExportApiTests(unittest.TestCase):
             tracks = otio["tracks"]["children"]
             self.assertEqual(len(tracks), 2)
             reference = tracks[1]["children"][0]["media_references"]["DEFAULT_MEDIA"]
-            self.assertEqual(reference["target_url"], str(self.wav.resolve()))
+            self.assertEqual(reference["target_url"], str((self.root / (basename + ".mov")).resolve()))
+            self.assertEqual(reference["name"], basename + ".mov")
             self.assertTrue((self.root / (basename + ".mov")).is_file())
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), originals)
         self.assertEqual(self.post().status_code, 400)
@@ -209,6 +210,61 @@ class PresetExportApiTests(unittest.TestCase):
             self.assertTrue((self.root / "speech.mov").is_file())
             self.assertTrue((self.root / "speech.otio").is_file())
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), originals)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_mux_failure_leaves_new_and_existing_pairs_untouched(self):
+        from unittest.mock import patch
+
+        originals = (self.psd.read_bytes(), self.wav.read_bytes())
+        with patch(
+            "tachie_motion.web.preset_utterance.mux_verified_pcm",
+            side_effect=RuntimeError("synthetic PCM mux failure"),
+        ):
+            failed = self.post()
+        self.assertEqual(failed.status_code, 400, failed.text)
+        self.assertEqual(set(self.root.iterdir()), {self.psd, self.wav})
+        self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), originals)
+
+        created = self.post()
+        self.assertEqual(created.status_code, 200, created.text)
+        mov, otio = self.root / "speech.mov", self.root / "speech.otio"
+        existing_pair = (mov.read_bytes(), otio.read_bytes())
+        with patch(
+            "tachie_motion.web.preset_utterance.mux_verified_pcm",
+            side_effect=RuntimeError("synthetic PCM mux failure"),
+        ):
+            failed = self.post(conflict_policy="overwrite")
+        self.assertEqual(failed.status_code, 400, failed.text)
+        self.assertEqual((mov.read_bytes(), otio.read_bytes()), existing_pair)
+        self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), originals)
+        self.assertFalse((self.root / ".speech.tachie-backup").exists())
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_replaced_wav_with_same_timing_cannot_publish_web_pair(self):
+        from unittest.mock import patch
+        from tachie_motion.render.pcm_mux import mux_verified_pcm
+
+        before = self.wav.read_bytes()
+
+        def switch_wav_before_mux(video, source, target, **kwargs):
+            payload = bytearray(source.read_bytes())
+            payload[-1] ^= 1  # Same RIFF length, channel layout and sample count.
+            source.write_bytes(payload)  # Simulate an external writer.
+            return mux_verified_pcm(video, source, target, **kwargs)
+
+        with patch(
+            "tachie_motion.web.preset_utterance.mux_verified_pcm",
+            side_effect=switch_wav_before_mux,
+        ):
+            response = self.post()
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("PCM changed after animation", response.text)
+        self.assertEqual(len(self.wav.read_bytes()), len(before))
+        self.assertFalse((self.root / "speech.mov").exists())
+        self.assertFalse((self.root / "speech.otio").exists())
+        self.assertFalse(list(self.root.glob(".speech.failed-*")))
 
     def test_abandoned_new_export_recovery_is_visible_and_blocks_api(self):
         recovery = self.root / ".speech.failed-simulated"

@@ -22,6 +22,16 @@
 - [x] ProResの同一保持フレームを圧縮済みパケットで再利用する**明示的オプトイン**。不適用時は従来経路へ戻し、全フレーム品質検査を維持 — Issue #8（旧Private開発履歴） / PR #9（旧Private開発履歴）。
 - [ ] エンドツーエンドで残る処理時間の継続調査・優先順位整理 — 性能調査Issue #3（旧Private開発履歴）（OPEN）。既存の最適化成果と今後の調査を区別する。
 
+### Public Issue #2 — PCM内包セリフMOV（Draft PR段階・Mac Resolve Human PASS・出力仕様確定）
+
+- [x] 既存の単一WAV/キャラクターMOV書き出しに、映像ストリームをコピーしたPCM内包処理を追加（試験実装）。
+- [x] 合成PCM（8/16/24/32-bit、mono/stereo）の復号サンプル一致、映像パケット一致、映像の端数丸めと音声サンプル長の独立性を検証する自動テストを追加。
+- [x] 2026-11-06 Mac実PSD/WAVで**単独MOV取り込み**の透過映像と音声再生をHuman PASS確認。
+- [x] 2026-11-06 Mac実PSD/WAVで**個別OTIO取り込み**の音声トラック・音声欠落／二重再生なし・同期、クリップ移動／トリミングをHuman PASS確認。
+- [x] 2026-11-06利用者承認に基づき `PRODUCT_SPEC.md` §6と`DECISIONS.md` D16/D17を正式更新。非圧縮PCM入りMOVと同一MOV参照の個別OTIOを正本とし、WAVコピー機能は設けない。
+
+1 WAV・1キャラクターのPCM入りMOVと個別OTIOはMac Resolve実機検証済み。複数WAV・複数キャラ・全体OTIOの生成は未実装で、正式仕様の詳細は [PRODUCT_SPEC](PRODUCT_SPEC.md) §6と [DECISIONS](DECISIONS.md) D16/D17を参照。
+
 ## Phase 1 — first usable single-character tool：CLI・Web UI初期版をmainに統合済み
 
 - [x] WAV PCMの音量解析と決定論的な開閉フレーム列JSON CLI — Issue #12（旧Private開発履歴）（Phase 1 Slice 1。PSD・MOV・OTIO接続は未実装）。
@@ -65,7 +75,7 @@
 - [ ] 複数WAV、1 WAVから複数キャラクターMOV、聞き手のリアクション。
 - [ ] 汎用ループ待機モーションと場面専用待機。
 - [ ] バッチ書き出し、変更した項目だけ再生成、安定したメディア参照パス。
-- [ ] 全体OTIOと個別OTIO、**必要時に選択できる**WAVのポータブルな同梱、トラックとギャップの検証。通常書き出しはWAVを複製しない。
+- [ ] 全体OTIOと複数発話・複数キャラの個別OTIO、単一音声所有MOVの割当、トラックとギャップの検証。**WAVコピー／同梱機能は設けない**。
 
 ## Phase 4 — quality, distribution and OSS preparation：計画
 

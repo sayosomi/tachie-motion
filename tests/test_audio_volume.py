@@ -63,6 +63,12 @@ class VolumeScheduleTests(unittest.TestCase):
             self.assertEqual(result.sample_count, 80)
             self.assertEqual(result.sample_rate, 480)
             self.assertEqual(result.sample_width_bits, 16)
+            with wave.open(str(wav), "rb") as stream:
+                analyzed_bytes = stream.readframes(stream.getnframes())
+            self.assertEqual(
+                result.pcm_sha256, hashlib.sha256(analyzed_bytes).hexdigest()
+            )
+            self.assertNotIn("pcm_sha256", result.as_dict())  # Stable JSON schema
             self.assertEqual(
                 [f.mouth for f in result.frames],
                 ["closed", "open", "open", "closed"],
