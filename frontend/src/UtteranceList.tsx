@@ -70,7 +70,9 @@ export default function UtteranceList({
               <span className="utterance-item-details">
                 <strong title={item.wavPath}>{name}</strong>
                 <small title={item.wavPath}>{item.wavPath}</small>
-                <small>{item.wav.duration_seconds.toFixed(2)}秒 ／ {item.mode}</small>
+                <small>{item.wav.duration_seconds.toFixed(2)}秒 ／ {item.mode}
+                  {item.result ? " ／ 書き出し済み" : item.error ? " ／ 書き出し失敗" : ""}
+                </small>
               </span>
             </button>
             <div className="utterance-item-actions">
