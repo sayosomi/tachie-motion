@@ -159,7 +159,8 @@ class PresetExportApiTests(unittest.TestCase):
             tracks = otio["tracks"]["children"]
             self.assertEqual(len(tracks), 2)
             reference = tracks[1]["children"][0]["media_references"]["DEFAULT_MEDIA"]
-            self.assertEqual(reference["target_url"], str(self.wav.resolve()))
+            self.assertEqual(reference["target_url"], str((self.root / (basename + ".mov")).resolve()))
+            self.assertEqual(reference["name"], basename + ".mov")
             self.assertTrue((self.root / (basename + ".mov")).is_file())
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), originals)
         self.assertEqual(self.post().status_code, 400)
