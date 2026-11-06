@@ -1,0 +1,51 @@
+name: Phase 1 local Web UI
+
+on:
+  pull_request:
+    paths:
+      - "src/tachie_motion/web/**"
+      - "frontend/**"
+      - "tests/test_web_api.py"
+      - "tests/test_native_picker.py"
+      - "pyproject.toml"
+      - ".github/workflows/web-ui.yml"
+  workflow_dispatch:
+
+jobs:
+  api-and-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install media and Python test dependencies
+        run: |
+          # The Azure mirror stalled FFmpeg downloads past the 20-minute CI limit.
+          # GitHub's Ubuntu 24.04 runner uses this file via apt's mirror+file source.
+          sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          test -s /etc/apt/apt-mirrors.txt
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=1 update
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=1 install -y --no-install-recommends ffmpeg
+          ffmpeg -version
+          ffprobe -version
+          python -m pip install -e ".[web-test]"
+      - name: API and real FFmpeg synthetic PSD tests
+        run: python -m unittest discover -s tests -p "test_web_api.py" -v
+      - name: Finder picker security tests (missing dependencies must fail)
+        run: python -m unittest discover -s tests -p "test_native_picker.py" -v
+      - name: Install frontend and build
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Browser smoke tests
+        working-directory: frontend
+        run: npm run test:e2e

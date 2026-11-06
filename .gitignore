@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Node/Vite
+node_modules/
+frontend/dist/
+playwright-report/
+test-results/
+coverage/
+
+# Local configs, media, output and private assets
+.wrangler/
+.env
+.env.*
+!.env.example
+*.psd
+*.psb
+*.wav
+*.lab
+*.mov
+*.mp4
+*.otio
+*.otioz
+*.zip
+exports/
+output/
+media/
+projects-local/
+characters-local/
+diagnostics/
+*.log
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

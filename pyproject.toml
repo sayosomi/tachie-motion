@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tachie-motion"
+version = "0.0.0"
+description = "Local PSD character animation editor (early proof of concept)"
+requires-python = ">=3.11"
+dependencies = ["psd-tools>=1.26,<2", "numpy>=1.26,<3", "fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
+
+[project.optional-dependencies]
+web-test = ["httpx2"]
+
+[project.scripts]
+tachie-psd-inspect = "tachie_motion.psd.cli:main"
+tachie-psd-render = "tachie_motion.psd.render_cli:main"
+tachie-psd-variant = "tachie_motion.psd.variant_cli:main"
+tachie-psd-bounds = "tachie_motion.psd.bounds_cli:main"
+tachie-psd-fidelity = "tachie_motion.psd.fidelity_cli:main"
+tachie-prores-poc = "tachie_motion.render.cli:main"
+tachie-otio-poc = "tachie_motion.timeline.cli:main"
+tachie-wav-mouth = "tachie_motion.audio.cli:main"
+tachie-mouth-render = "tachie_motion.lipsync.cli:main"
+tachie-web = "tachie_motion.web.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

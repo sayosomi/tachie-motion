@@ -1,0 +1,85 @@
+name: Python PoC tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/python-tests.yml"
+      - "pyproject.toml"
+      - "src/**"
+      - "tests/**"
+      - "verification/**"
+      - "docs/**"
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-and-ffmpeg:
+    name: Python ${{ matrix.python-version }} / Ubuntu / FFmpeg
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install system FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -hide_banner -encoders | grep prores_ks
+          ffprobe -version | head -n 1
+
+      - name: Install application and security test dependencies
+        run: python -m pip install -e ".[web-test]"
+
+      - name: Run all Python tests (including FFmpeg integration)
+        run: python -m unittest discover -s tests -v
+
+      # One controlled benchmark on the 3.12 runner, not on every matrix
+      # entry. Measures real 1654x2030/30f encode vs independent verify,
+      # plus a frame-wide subthreshold stress case (baseline vs optimized).
+      - name: Phase 0 performance benchmark (Python 3.12 only)
+        if: matrix.python-version == '3.12'
+        run: python -m verification.prores_performance --rounds 2 --stress-frames 30
+
+      - name: Confirm alpha ProRes integration test was executed
+        run: |
+          python -m unittest discover -s tests -p "test_prores.py" -v 2>&1 | tee prores-test-results.txt
+          grep -E 'test_short_mov_profile_count_and_decoded_alpha .*\.\.\. ok' prores-test-results.txt
+          if grep -q 'skipped' prores-test-results.txt; then
+            echo "ProRes integration unexpectedly skipped"
+            exit 1
+          fi
+
+  official-otio:
+    name: OpenTimelineIO 0.18.1 / Python 3.13
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install PoC and official OpenTimelineIO
+        run: |
+          python -m pip install -e .
+          python -m pip install "opentimelineio==0.18.1"
+
+      - name: Official OTIO deserialize and reserialize
+        run: python -m unittest verification.otio_roundtrip -v
