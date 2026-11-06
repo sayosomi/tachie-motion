@@ -204,6 +204,7 @@ def wav_playback(payload: FileRequest):
         size = wav.stat().st_size
         if not 0 < size <= 128 * 1024 * 1024:
             raise ValueError("WAV playback requires a file between 1 byte and 128 MiB")
+        describe_wav(str(wav))  # Refuse a non-WAV file merely renamed with .wav.
         return FileResponse(
             wav, media_type="audio/wav",
             headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
