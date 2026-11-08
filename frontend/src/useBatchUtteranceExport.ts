@@ -118,7 +118,9 @@ export function useBatchUtteranceExport(
   // The displayed plan is an actual destination preflight, never guessed filenames.
   // Any input change invalidates it immediately, including while a preflight is pending.
   useEffect(() => {
-    if (!enabled || running || !draft || !items.length) {
+    // Keep the exact approved plan visible while exports are running.
+    if (running) return;
+    if (!enabled || !draft || !items.length) {
       setReview(null);
       setReviewError("");
       setReviewing(false);
