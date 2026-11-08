@@ -5,6 +5,7 @@ type Source = Pick<UtteranceItem, "id" | "wavPath">;
 export type WavPlaybackControls = {
   activeId: string | null;
   paused: boolean;
+  loading: boolean;
   mode: "single" | "all" | null;
   elapsed: number;
   status: string;
@@ -27,6 +28,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
   const allMode = useRef(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"single" | "all" | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [status, setStatus] = useState("");
@@ -53,6 +55,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
     setActiveId(null);
     setMode(null);
     setPaused(false);
+    setLoading(false);
     setElapsed(0);
     setStatus("");
   }
@@ -65,6 +68,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
     setActiveId(null);
     setMode(null);
     setPaused(false);
+    setLoading(false);
     setElapsed(0);
     setStatus("音声の再生に失敗: " + item.wavPath + " — " + reason);
   }
@@ -96,6 +100,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
     source.current = item;
     setActiveId(item.id);
     setPaused(false);
+    setLoading(true);
     setElapsed(0);
     setStatus("音声を読み込み中: " + wavFilename(item.wavPath));
     const controller = new AbortController();
@@ -119,7 +124,10 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
       if (!player) return;
       player.src = url;
       await player.play();
-      if (epoch === generation.current) setStatus("再生中: " + wavFilename(item.wavPath));
+      if (epoch === generation.current) {
+        setLoading(false);
+        setStatus("再生中: " + wavFilename(item.wavPath));
+      }
     } catch (error) {
       if (epoch !== generation.current || controller.signal.aborted) return;
       failPlayback(item, error instanceof Error ? error.message : String(error));
@@ -141,6 +149,12 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
   function toggleItem(id: string) {
     const item = items.find((entry) => entry.id === id);
     if (!item) return;
+    // Clicking an already-loading row is cancellation, not a second fetch.
+    // Check the active source ref as well as React state for rapid repeated clicks.
+    if (source.current?.id === id && loading) {
+      stop();
+      return;
+    }
     if (id === activeId && objectUrl.current) {
       if (audio.current?.paused) resume();
       else audio.current?.pause();
@@ -173,6 +187,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
       setActiveId(null);
       setMode(null);
       setPaused(false);
+      setLoading(false);
       setElapsed(0);
       setStatus("再生が終了しました");
     }
@@ -192,16 +207,18 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
       onPause={() => {
         if (!objectUrl.current || !source.current) return;
         setPaused(true);
+        setLoading(false);
         setStatus("一時停止: " + wavFilename(source.current.wavPath));
       }}
       onPlay={() => {
         if (!objectUrl.current || !source.current) return;
         setPaused(false);
+        setLoading(false);
         setStatus("再生中: " + wavFilename(source.current.wavPath));
       }}
       aria-label="WAV試聴プレーヤー" />
   </div>;
 
-  return { activeId, paused, mode, elapsed, status, toggleItem, playAll, stop, seek,
+  return { activeId, paused, loading, mode, elapsed, status, toggleItem, playAll, stop, seek,
     audioElement };
 }
