@@ -1,11 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { wavFilename, type UtteranceItem } from "./utteranceItems";
 
 type Source = Pick<UtteranceItem, "id" | "wavPath">;
+export type WavPlaybackControls = {
+  activeId: string | null;
+  paused: boolean;
+  mode: "single" | "all" | null;
+  elapsed: number;
+  status: string;
+  toggleItem: (id: string) => void;
+  playAll: () => void;
+  stop: () => void;
+  seek: (seconds: number) => void;
+  audioElement: ReactNode;
+};
 
-export default function WavPlayback({
-  items, selectedId,
-}: { items: UtteranceItem[]; selectedId: string | null }) {
+/** Playback owns the one audio element. Buttons and progress live in each WAV row. */
+export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackControls {
   const audio = useRef<HTMLAudioElement>(null);
   const pending = useRef<AbortController | null>(null);
   const objectUrl = useRef<string | null>(null);
@@ -14,15 +25,17 @@ export default function WavPlayback({
   const playlist = useRef<Source[]>([]);
   const playlistIndex = useRef(0);
   const allMode = useRef(false);
-  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [paused, setPaused] = useState(false);
   const [mode, setMode] = useState<"single" | "all" | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const [status, setStatus] = useState("");
 
   function discardSource() {
     pending.current?.abort();
     pending.current = null;
     const previousUrl = objectUrl.current;
-    objectUrl.current = null; // Ignore media errors caused by our own source removal.
+    objectUrl.current = null; // Events raised by pause/load during cleanup are not errors.
     source.current = null;
     if (audio.current) {
       audio.current.pause();
@@ -32,32 +45,36 @@ export default function WavPlayback({
     if (previousUrl) URL.revokeObjectURL(previousUrl);
   }
 
-  function failPlayback(item: Source, reason: string) {
-    generation.current++; // Invalidate a pending play() rejection or stale fetch.
+  function stop() {
+    generation.current++;
     allMode.current = false;
     playlist.current = [];
     discardSource();
-    setPlayingId(null);
+    setActiveId(null);
     setMode(null);
+    setPaused(false);
+    setElapsed(0);
+    setStatus("");
+  }
+
+  function failPlayback(item: Source, reason: string) {
+    generation.current++;
+    allMode.current = false;
+    playlist.current = [];
+    discardSource();
+    setActiveId(null);
+    setMode(null);
+    setPaused(false);
+    setElapsed(0);
     setStatus("音声の再生に失敗: " + item.wavPath + " — " + reason);
   }
 
   function onMediaError() {
-    // load() after explicit cleanup may emit an error; only an active Blob counts.
     if (!objectUrl.current || !source.current) return;
     const item = source.current;
-    const mediaError = audio.current?.error;
-    failPlayback(item, mediaError ? "メディアエラー (" + mediaError.code + ")" :
+    const problem = audio.current?.error;
+    failPlayback(item, problem ? "メディアエラー (" + problem.code + ")" :
       "メディアの読み込み・デコードエラー");
-  }
-
-  function stop() {
-    generation.current++;
-    allMode.current = false;
-    discardSource();
-    setPlayingId(null);
-    setMode(null);
-    setStatus("");
   }
 
   useEffect(() => {
@@ -70,14 +87,16 @@ export default function WavPlayback({
   }, []);
 
   useEffect(() => {
-    if (playingId && !items.some((item) => item.id === playingId)) stop();
-  }, [items, playingId]);
+    if (activeId && !items.some((item) => item.id === activeId)) stop();
+  }, [items, activeId]);
 
   async function startSource(item: Source) {
     const epoch = ++generation.current;
     discardSource();
     source.current = item;
-    setPlayingId(item.id);
+    setActiveId(item.id);
+    setPaused(false);
+    setElapsed(0);
     setStatus("音声を読み込み中: " + wavFilename(item.wavPath));
     const controller = new AbortController();
     pending.current = controller;
@@ -92,9 +111,9 @@ export default function WavPlayback({
         const detail = await response.json().catch(() => null) as { detail?: string } | null;
         throw new Error(detail?.detail || "HTTP " + response.status);
       }
-      const data = await response.blob();
+      const wav = await response.blob();
       if (epoch !== generation.current) return;
-      const url = URL.createObjectURL(data);
+      const url = URL.createObjectURL(wav);
       objectUrl.current = url;
       const player = audio.current;
       if (!player) return;
@@ -102,18 +121,33 @@ export default function WavPlayback({
       await player.play();
       if (epoch === generation.current) setStatus("再生中: " + wavFilename(item.wavPath));
     } catch (error) {
-      if (epoch !== generation.current) return;
-      if (controller.signal.aborted) return;
+      if (epoch !== generation.current || controller.signal.aborted) return;
       failPlayback(item, error instanceof Error ? error.message : String(error));
     } finally {
       if (pending.current === controller) pending.current = null;
     }
   }
 
-  function playSelected() {
-    const item = items.find((entry) => entry.id === selectedId);
+  function resume() {
+    const item = source.current;
+    if (!item || !audio.current || !objectUrl.current) return;
+    void audio.current.play().catch((error: unknown) => {
+      if (item.id === source.current?.id) {
+        failPlayback(item, error instanceof Error ? error.message : String(error));
+      }
+    });
+  }
+
+  function toggleItem(id: string) {
+    const item = items.find((entry) => entry.id === id);
     if (!item) return;
+    if (id === activeId && objectUrl.current) {
+      if (audio.current?.paused) resume();
+      else audio.current?.pause();
+      return;
+    }
     allMode.current = false;
+    playlist.current = [];
     setMode("single");
     void startSource(item);
   }
@@ -135,28 +169,38 @@ export default function WavPlayback({
       allMode.current = false;
       playlist.current = [];
       discardSource();
-      setPlayingId(null);
+      setActiveId(null);
       setMode(null);
+      setPaused(false);
+      setElapsed(0);
       setStatus("再生が終了しました");
     }
   }
 
-  return <section className="panel utterance-playback" aria-label="WAV試聴">
-    <div className="utterance-list-header"><h2>WAV試聴</h2>
-      <span className="meta">{mode === "all" ? "全件を一覧順に再生" :
-        mode === "single" ? "選択中の1件を再生" : ""}</span>
-    </div>
-    <div className="utterance-playback-buttons">
-      <button type="button" onClick={playSelected} disabled={!selectedId}>選択中を再生</button>
-      <button type="button" onClick={playAll} disabled={items.length === 0}>全件を連続再生</button>
-      <button type="button" onClick={stop} disabled={!playingId && !mode}>停止</button>
-    </div>
-    <audio ref={audio} controls preload="none" onEnded={onEnded} onError={onMediaError}
-      onPause={() => { if (playingId && objectUrl.current) setStatus("一時停止: " + wavFilename(
-        items.find((item) => item.id === playingId)?.wavPath ?? "")); }}
-      onPlay={() => { if (playingId && objectUrl.current) setStatus("再生中: " + wavFilename(
-        items.find((item) => item.id === playingId)?.wavPath ?? "")); }}
-      aria-label="選択したWAVの音声" />
-    {status && <p className="hint" role="status">{status}</p>}
-  </section>;
+  function seek(seconds: number) {
+    const player = audio.current;
+    if (player && objectUrl.current && Number.isFinite(seconds)) {
+      player.currentTime = Math.max(0, Math.min(seconds, player.duration || seconds));
+      setElapsed(player.currentTime);
+    }
+  }
+
+  const audioElement = <div className="utterance-playback" hidden>
+    <audio ref={audio} preload="none" onEnded={onEnded} onError={onMediaError}
+      onTimeUpdate={() => setElapsed(audio.current?.currentTime ?? 0)}
+      onPause={() => {
+        if (!objectUrl.current || !source.current) return;
+        setPaused(true);
+        setStatus("一時停止: " + wavFilename(source.current.wavPath));
+      }}
+      onPlay={() => {
+        if (!objectUrl.current || !source.current) return;
+        setPaused(false);
+        setStatus("再生中: " + wavFilename(source.current.wavPath));
+      }}
+      aria-label="WAV試聴プレーヤー" />
+  </div>;
+
+  return { activeId, paused, mode, elapsed, status, toggleItem, playAll, stop, seek,
+    audioElement };
 }
