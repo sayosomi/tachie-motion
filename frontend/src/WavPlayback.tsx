@@ -151,7 +151,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
     if (!item) return;
     // Clicking an already-loading row is cancellation, not a second fetch.
     // Check the active source ref as well as React state for rapid repeated clicks.
-    if (source.current?.id === id && loading) {
+    if (source.current?.id === id && (loading || (pending.current !== null && !objectUrl.current))) {
       stop();
       return;
     }
