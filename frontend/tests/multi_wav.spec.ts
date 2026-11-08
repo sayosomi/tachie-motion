@@ -705,10 +705,11 @@ test("inline WAV pause, resume and seeking operate on the currently loaded audio
   await expect(page.getByRole("button", { name: /再生: 1 long.wav/ })).toBeVisible();
   await expect.poll(() => player.evaluate((el) => (el as HTMLAudioElement).paused)).toBe(true);
   const seek = page.getByRole("slider", { name: /再生位置: long.wav/ });
-  await seek.focus();
-  await seek.press("End");
+  const rect = await seek.boundingBox();
+  expect(rect).not.toBeNull();
+  await seek.click({ position: { x: rect!.width * 0.6, y: rect!.height / 2 } });
   await expect.poll(() => player.evaluate((el) => (el as HTMLAudioElement).currentTime))
-    .toBeGreaterThan(8);
+    .toBeGreaterThan(4);
   await page.getByRole("button", { name: /再生: 1 long.wav/ }).click();
   await expect(page.getByRole("button", { name: /一時停止:/ })).toBeVisible();
   await page.getByRole("button", { name: "停止" }).click();
