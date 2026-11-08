@@ -253,7 +253,7 @@ test("browser WAV controls read through bounded POST API for single and all play
   await openSpeech(page);
   await addWav(page, "/tmp/a.wav");
   await addWav(page, "/tmp/b.wav");
-  await page.getByRole("button", { name: "選択中を再生" }).click();
+  await page.locator(".utterance-item-play").nth(1).click();
   await expect.poll(() => requested.length).toBe(1);
   expect(requested[0]).toBe("/tmp/b.wav");
   await page.getByRole("button", { name: "全件を連続再生" }).click();
@@ -282,7 +282,8 @@ test("batch exports every WAV in list order and retains individual failures", as
   await addWav(page, "/tmp/a.wav");
   await addWav(page, "/tmp/b.wav");
   await addWav(page, "/tmp/c.wav");
-  await page.getByRole("button", { name: "すべて保存（MOV・OTIO）" }).click();
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
   await expect(page.getByText("一括書き出し完了：成功 2 件／失敗 1 件", { exact: false }))
     .toBeVisible();
   expect(requests.map((r) => r.wav)).toEqual(["/tmp/a.wav", "/tmp/b.wav", "/tmp/c.wav"]);
@@ -307,7 +308,8 @@ test("batch preflight blocks colliding output filenames before generating MOVs",
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
   await expect(page.locator(".utterance-item-select[aria-current=true]")).toContainText("second.wav");
   await page.locator("#speech-basename").fill("speech_001");
-  await page.getByRole("button", { name: "すべて保存（MOV・OTIO）" }).click();
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
   await expect(page.getByText("複数のセリフが同じ出力先", { exact: false })).toBeVisible();
   expect(calls).toBe(0);
 });
@@ -333,7 +335,8 @@ test("batch export requires confirmation before overwriting existing output pair
     expect(shown.message()).toContain("既存のMOVとOTIOを1組上書き");
     await shown.dismiss();
   });
-  await page.getByRole("button", { name: "すべて保存（MOV・OTIO）" }).click();
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
   await dialog;
   await expect(page.getByText("一括書き出しをキャンセルしました")).toBeVisible();
   expect(exports).toBe(0);
@@ -371,7 +374,8 @@ test("batch locks the preset selector throughout an in-progress render", async (
   await expect(page.locator("#speech-preset option")).toHaveCount(2);
   const assignedPreset = await page.locator("#speech-preset").inputValue();
 
-  await page.getByRole("button", { name: "すべて保存（MOV・OTIO）" }).click();
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
   await expect.poll(() => Boolean(releaseFirst)).toBe(true);
   await page.locator("[data-utterance-id]").nth(1)
     .locator(".utterance-item-select").click();
@@ -542,7 +546,8 @@ test("batch export sends unsafe, partial and recovery_required original outputs 
   await addWav(page, "/tmp/partial.wav");
   await addWav(page, "/tmp/recovery.wav");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(3);
-  await page.getByRole("button", { name: "すべて保存（MOV・OTIO）" }).click();
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
   await expect(page.getByText("一括書き出し完了：成功 3 件／失敗 0 件", { exact: false }))
     .toBeVisible();
   expect(outputs.map((x) => x.basename)).toEqual([
