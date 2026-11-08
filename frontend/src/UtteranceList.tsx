@@ -97,7 +97,7 @@ export default function UtteranceList({
                 <strong title={item.wavPath}>{name}</strong>
                 <small title={item.wavPath}>{item.wavPath}</small>
                 <small>{item.wav.duration_seconds.toFixed(2)}秒 ／ 口パク: {item.mode === "open" ? "open" : "なし"}
-                  {item.result ? " ／ 保存済み" : item.error ? " ／ 保存失敗" : ""}
+                  {item.result ? " ／ 書き出し済み" : item.error ? " ／ 書き出し失敗" : ""}
                 </small>
               </span>
             </button>
