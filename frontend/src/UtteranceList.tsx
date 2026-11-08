@@ -84,10 +84,12 @@ export default function UtteranceList({
               }}
               onDragEnd={() => { setDragging(null); setHover(null); }}>⠿</button>
             <button type="button" className="utterance-item-play"
-              aria-label={`${playback.activeId === item.id && !playback.paused ? "一時停止" : "再生"}: ${index + 1} ${name}`}
-              aria-pressed={playback.activeId === item.id && !playback.paused}
+              aria-label={`${playback.activeId === item.id && playback.loading ? "読み込み中止" :
+                playback.activeId === item.id && !playback.paused ? "一時停止" : "再生"}: ${index + 1} ${name}`}
+              aria-pressed={playback.activeId === item.id && !playback.paused && !playback.loading}
               onClick={() => { onSelect(item.id); playback.toggleItem(item.id); }}>
-              {playback.activeId === item.id && !playback.paused ? "Ⅱ" : "▶"}
+              {playback.activeId === item.id && playback.loading ? "■" :
+                playback.activeId === item.id && !playback.paused ? "Ⅱ" : "▶"}
             </button>
             <button type="button" className="utterance-item-select"
               aria-current={item.id === selectedId ? "true" : undefined}
