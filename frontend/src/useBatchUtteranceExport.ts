@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { PresetDraft } from "./presetDraftStorage";
 import type { UnifiedPreset } from "./presetModel";
 import { exportPayload, exportReady } from "./utteranceExportRequest";
@@ -9,11 +9,12 @@ type Destination = {
   suggested_basename: string;
   canonical_output_dir?: string;
 };
-type Plan = {
+export type Plan = {
   item: UtteranceItem;
   preset: UnifiedPreset;
   basename: string;
   conflict_policy: "overwrite" | "error";
+  canonicalOutputDir: string;
 };
 
 async function post<T>(route: string, body: object): Promise<T> {
@@ -26,10 +27,13 @@ async function post<T>(route: string, body: object): Promise<T> {
   return result;
 }
 
-async function prepare(items: UtteranceItem[], draft: PresetDraft): Promise<{
+export type PreparedBatch = {
   plans: Plan[];
   overwrites: number;
-}> {
+};
+
+async function prepare(items: UtteranceItem[], draft: PresetDraft): Promise<PreparedBatch> {
+
   const plans: Plan[] = [];
   const destinations = new Set<string>();
   let overwrites = 0;
@@ -72,31 +76,91 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft): Promise<{
     const conflict_policy = !alternate && destination.state === "complete" ?
       "overwrite" : "error";
     if (conflict_policy === "overwrite") overwrites++;
-    plans.push({ item, preset, basename, conflict_policy });
+    plans.push({ item, preset, basename, conflict_policy, canonicalOutputDir: folder });
   }
   return { plans, overwrites };
 }
 
+/** Only render-affecting inputs enter this key; completed result/status updates are ignored. */
+function snapshotKey(draft: PresetDraft | null, items: UtteranceItem[]): string {
+  if (!draft) return "";
+  return JSON.stringify({
+    path: draft.path, fingerprint: draft.fingerprint, presets: draft.collection.items,
+    items: items.map(({ id, wavPath, presetId, mode, fps, outputDir, basename,
+      conflictChoice, saveAsName }) => ({
+      id, wavPath, presetId, mode, fps, outputDir, basename, conflictChoice, saveAsName,
+    })),
+  });
+}
+
+function planKey(draft: PresetDraft, batch: PreparedBatch): string {
+  return JSON.stringify(batch.plans.map((plan) => ({
+    item: plan.item.id, folder: plan.canonicalOutputDir,
+    payload: exportPayload(draft, plan.item, plan.preset, plan.basename, plan.conflict_policy),
+  })));
+}
+
+
 export function useBatchUtteranceExport(
   draft: PresetDraft | null, items: UtteranceItem[],
   setItems: Dispatch<SetStateAction<UtteranceItem[]>>,
-  onFinished: () => void,
+  onFinished: () => void, enabled: boolean,
 ) {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState("");
   const [summary, setSummary] = useState("");
+  const [review, setReview] = useState<{ key: string; prepared: PreparedBatch } | null>(null);
+  const [reviewError, setReviewError] = useState("");
+  const [reviewing, setReviewing] = useState(false);
+  const busy = useRef(false);
+  const key = snapshotKey(draft, items);
+
+  // The displayed plan is an actual destination preflight, never guessed filenames.
+  // Any input change invalidates it immediately, including while a preflight is pending.
+  useEffect(() => {
+    if (!enabled || running || !draft || !items.length) {
+      setReview(null);
+      setReviewError("");
+      setReviewing(false);
+      return;
+    }
+    let cancelled = false;
+    const source = draft;
+    const currentItems = [...items];
+    setReview(null);
+    setReviewError("");
+    setReviewing(true);
+    void prepare(currentItems, source).then((prepared) => {
+      if (!cancelled) setReview({ key, prepared });
+    }).catch((error: unknown) => {
+      if (!cancelled) setReviewError(error instanceof Error ? error.message : String(error));
+    }).finally(() => {
+      if (!cancelled) setReviewing(false);
+    });
+    return () => { cancelled = true; };
+  }, [enabled, running, key]);
+
+  const displayed = enabled && review?.key === key ? review.prepared : null;
+
 
   async function run() {
-    if (running || !draft || items.length === 0) return;
+    if (busy.current || running || !draft || items.length === 0 || !displayed) return;
+    busy.current = true;
     setRunning(true);
     setSummary("");
-    setProgress("出力先とプリセットを確認中…");
+    setProgress("出力先とプリセットを再確認中…");
     try {
-      const { plans, overwrites } = await prepare([...items], draft);
+      // Recheck the destination immediately before execution. If it changed, stop;
+      // never silently substitute a new basename for the one shown to the user.
+      const refreshed = await prepare([...items], draft);
+      if (planKey(draft, refreshed) !== planKey(draft, displayed)) {
+        setSummary("出力予定が変更されました。新しい予定を確認してから再実行してください。");
+        return;
+      }
+      const { plans, overwrites } = displayed;
       if (overwrites > 0 && !window.confirm(
         `既存のMOVとOTIOを${overwrites}組上書きします。続行しますか？`
       )) {
-        setProgress("");
         setSummary("一括書き出しをキャンセルしました。");
         return;
       }
@@ -119,16 +183,16 @@ export function useBatchUtteranceExport(
         }
       }
       setSummary(`一括書き出し完了：成功 ${successes} 件／失敗 ${failures} 件。各セリフの結果を確認してください。`);
-      setProgress("");
       onFinished();
     } catch (error) {
-      setProgress("");
       setSummary("一括書き出しを開始できません: " +
         (error instanceof Error ? error.message : String(error)));
     } finally {
+      setProgress("");
+      busy.current = false;
       setRunning(false);
     }
   }
 
-  return { running, progress, summary, run };
+  return { running, progress, summary, run, displayed, reviewing, reviewError };
 }
