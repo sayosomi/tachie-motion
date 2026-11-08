@@ -1,5 +1,4 @@
 import NativeFilePicker from "./NativeFilePicker";
-import type { UnifiedPreset } from "./presetModel";
 import type { Fps, UtteranceItem } from "./utteranceItems";
 
 export type ExportScope = "single" | "all";
@@ -16,7 +15,6 @@ export type BatchStatus = {
 type Props = {
   items: UtteranceItem[];
   current: UtteranceItem | undefined;
-  selected: UnifiedPreset | undefined;
   draftAvailable: boolean;
   info: ExportDestination | undefined;
   destinationError: string;
@@ -34,7 +32,7 @@ type Props = {
 };
 
 export default function UtteranceExportPanel({
-  items, current, selected, draftAvailable, info, destinationError, requiresAlternate,
+  items, current, draftAvailable, info, destinationError, requiresAlternate,
   saveAsName, outputBasename, canExport, exportingId, addingCount,
   scope, onScopeChange, onRevise, onSingleExport, batch,
 }: Props) {
