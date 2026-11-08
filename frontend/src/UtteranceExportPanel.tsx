@@ -1,4 +1,6 @@
 import NativeFilePicker from "./NativeFilePicker";
+import type { PreparedBatch } from "./useBatchUtteranceExport";
+import { wavFilename } from "./utteranceItems";
 import type { Fps, UtteranceItem } from "./utteranceItems";
 
 export type ExportScope = "single" | "all";
@@ -11,6 +13,9 @@ export type BatchStatus = {
   progress: string;
   summary: string;
   run: () => Promise<void>;
+  displayed: PreparedBatch | null;
+  reviewing: boolean;
+  reviewError: string;
 };
 type Props = {
   items: UtteranceItem[];
@@ -39,7 +44,8 @@ export default function UtteranceExportPanel({
   const locked = batch.running || !!exportingId;
   const noneCount = items.filter((item) => item.mode === "none").length;
   const canSubmit = scope === "single" ? canExport :
-    draftAvailable && items.length > 0 && !locked && addingCount === 0;
+    draftAvailable && items.length > 0 && !!batch.displayed && !batch.reviewing &&
+    !locked && addingCount === 0;
 
   return <section className="panel utterance-export-panel" aria-label="書き出し">
     <h2>書き出し</h2>
@@ -107,14 +113,30 @@ export default function UtteranceExportPanel({
       {noneCount > 0 && <p className="hint warning" role="note">
         口パク「なし」が{noneCount}件あります。口を動かす場合は各WAVの方式をopenにしてください。
       </p>}
+      {batch.reviewing && <p className="hint" role="status">出力先と保存名を確認中…</p>}
+      {batch.reviewError && <p className="hint warning" role="alert">
+        一括書き出しを開始できません: {batch.reviewError}
+      </p>}
+      {batch.displayed && <p className="hint" role="status">
+        書き出し予定を確認済み（上書き {batch.displayed.overwrites} 件）。
+        実行直前にも同じ保存先を再確認します。
+      </p>}
       <ol className="export-plan-items">
-        {items.map((item) => <li key={item.id}>
-          <span className="export-plan-name" title={item.wavPath}>{item.wavPath.split(/[\\/]/).at(-1)}</span>
-          <span>{item.mode === "open" ? "口パク: open" : "口パク: なし"}</span>
-          <span title={item.outputDir}>{item.basename}.mov ＋ .otio</span>
-          <span>{item.error ? "失敗" : item.result ? "完了" : "未出力"}</span>
+        {batch.displayed?.plans.map((plan) => <li key={plan.item.id}>
+          <span className="export-plan-name" title={plan.item.wavPath}>
+            {wavFilename(plan.item.wavPath)}
+          </span>
+          <span>プリセット: {plan.preset.name}</span>
+          <span>口パク: {plan.item.mode === "open" ? "open" : "なし"} ／ {plan.item.fps} fps</span>
+          <span className="export-plan-path" title={plan.canonicalOutputDir}>
+            出力先: {plan.canonicalOutputDir}
+          </span>
+          <span title={plan.basename}>
+            {plan.basename}.mov ＋ {plan.basename}.otio
+          </span>
+          <span>{plan.conflict_policy === "overwrite" ? "上書き" : "新規保存"}</span>
         </li>)}
-      </ol>
+            </ol>
     </div>}
     <div className="export-execution">
       <button type="button" className="primary" disabled={!canSubmit}
