@@ -286,7 +286,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
         </>}
       </section>
       <UtteranceExportPanel
-        items={items} current={current} selected={selected} draftAvailable={!!draft}
+        items={items} current={current} draftAvailable={!!draft}
         info={info} destinationError={destinationError}
         requiresAlternate={requiresAlternate} saveAsName={saveAsName}
         outputBasename={outputBasename} canExport={canExport}
