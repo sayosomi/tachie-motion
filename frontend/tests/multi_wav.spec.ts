@@ -224,6 +224,15 @@ test("drag handle reorders WAV rows without changing their edit state", async ({
   await page.locator("#speech-basename").fill("second");
   const ids = await page.locator("[data-utterance-id]").evaluateAll(
     (nodes) => nodes.map((node) => node.getAttribute("data-utterance-id")));
+  const grip = await page.locator(".utterance-item").first()
+    .locator(".utterance-drag-handle").boundingBox();
+  const play = await page.locator(".utterance-item").first()
+    .locator(".utterance-item-play").boundingBox();
+  const name = await page.locator(".utterance-item").first()
+    .locator(".utterance-item-select").boundingBox();
+  expect(grip && play && name).toBeTruthy();
+  expect(grip!.x).toBeLessThan(play!.x);
+  expect(play!.x).toBeLessThan(name!.x);
   await page.getByRole("button", { name: "ドラッグで移動: 2 second.wav" })
     .dragTo(page.locator("[data-utterance-id]").first(), {
       targetPosition: { x: 20, y: 5 },
@@ -283,6 +292,9 @@ test("batch exports every WAV in list order and retains individual failures", as
   await addWav(page, "/tmp/b.wav");
   await addWav(page, "/tmp/c.wav");
   await page.getByRole("radio", { name: /^全件/ }).check();
+  await expect(page.getByRole("heading", { name: "書き出し", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "一括書き出し", exact: true })).toHaveCount(0);
+  await expect(page.getByText("口パク「なし」が3件", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "全件を書き出す" }).click();
   await expect(page.getByText("一括書き出し完了：成功 2 件／失敗 1 件", { exact: false }))
     .toBeVisible();
