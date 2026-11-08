@@ -712,7 +712,7 @@ test("inline WAV pause, resume and seeking operate on the currently loaded audio
     .toBeGreaterThan(4);
   await page.getByRole("button", { name: /再生: 1 long.wav/ }).click();
   await expect(page.getByRole("button", { name: /一時停止:/ })).toBeVisible();
-  await page.getByRole("button", { name: "停止" }).click();
+  await page.getByRole("button", { name: "停止", exact: true }).click();
   await expect.poll(() => player.evaluate((el) => el.hasAttribute("src"))).toBe(false);
   expect(requests).toEqual(["/tmp/long.wav"]);
 });
