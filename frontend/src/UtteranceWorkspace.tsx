@@ -54,9 +54,12 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   const latestAdd = useRef(0);
   const selectionEpoch = useRef(0);
   const mounted = useRef(false);
+  // Synchronous guard closes the gap before React commits exportingId state.
+  const singleExportLock = useRef(false);
   const batch = useBatchUtteranceExport(draft, items, setItems,
-    () => setProbeVersion((previous) => previous + 1));
+    () => setProbeVersion((previous) => previous + 1), active && exportScope === "all");
   const playback = useWavPlayback(items);
+  const editingLocked = batch.running || !!exportingId;
 
   useEffect(() => {
     mounted.current = true;
@@ -108,10 +111,12 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   }
 
   function revise(id: string, patch: Partial<UtteranceItem>) {
+    if (editingLocked || singleExportLock.current) return;
     setItems((previous) => updateUtterance(previous, id, patch));
   }
 
   async function addWav(path: string): Promise<boolean> {
+    if (editingLocked || singleExportLock.current) return false;
     if (!draft || !path.trim()) {
       setAddError("WAVのパスを指定してください");
       return false;
@@ -154,6 +159,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   }
 
   async function addManyWavs(paths: string[]): Promise<boolean> {
+    if (editingLocked || singleExportLock.current) return false;
     // Analyze in parallel while keeping registration order by the allocated sequence ID.
     // Partial failures remain visible with their original paths.
     const outcomes = await Promise.all(paths.map((path) => addWav(path)));
@@ -162,7 +168,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
 
   function removeItem(id: string) {
     const index = items.findIndex((item) => item.id === id);
-    if (index < 0 || exportingId === id) return;
+    if (index < 0 || editingLocked || singleExportLock.current) return;
     setItems((previous) => previous.filter((item) => item.id !== id));
     if (activeId === id) {
       selectionEpoch.current++;
@@ -200,13 +206,16 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   const conflictPolicy = info?.state === "complete" && !requiresAlternate
     ? "overwrite" : "error";
   const allowed = !!current && exportReady(selected, current);
-  const canExport = !!draft && !!current && allowed && !exportingId && !batch.running &&
+  const canExport = !!draft && !!current && allowed && !editingLocked &&
+    !singleExportLock.current && addingCount === 0 &&
     !!info && !destinationError &&
     /^[A-Za-z0-9_-]{1,64}$/.test(outputBasename) &&
     (!requiresAlternate || outputBasename !== current.basename);
 
   async function exportUtterance() {
-    if (!draft || !current || !selected || !canExport) return;
+    if (!draft || !current || !selected || !canExport ||
+        singleExportLock.current || editingLocked) return;
+    singleExportLock.current = true;
     const itemId = current.id;
     setExportingId(itemId);
     setItems((previous) => updateUtterance(previous, itemId, {}));
@@ -220,6 +229,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
         item.id === itemId ? { ...item, result: null,
           error: err instanceof Error ? err.message : String(err) } : item));
     } finally {
+      singleExportLock.current = false;
       if (mounted.current) {
         setExportingId(null);
         setProbeVersion((previous) => previous + 1);
@@ -229,7 +239,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
 
   function applySelectedAnimationToAll() {
     if (!current || !selected || !exportReady(selected, current) ||
-        batch.running || exportingId || items.length < 2) return;
+        editingLocked || singleExportLock.current || items.length < 2) return;
     if (!window.confirm("選択中のプリセットと口パク方式を全WAVへ適用しますか？各WAVの個別設定を上書きします。")) return;
     setItems((previous) => previous.map((item) =>
       item.presetId === current.presetId && item.mode === current.mode ? item :
@@ -244,7 +254,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} selectedId={activeId} pendingPath={pendingPath}
       addingCount={addingCount} addError={addError}
-      disabled={!draft || batch.running} exportingId={exportingId} playback={playback}
+      disabled={!draft || editingLocked} exportingId={exportingId} playback={playback}
       onPathChange={setPendingPath} onAdd={addWav} onAddMany={addManyWavs} onSelect={selectItem}
       onMove={(id, delta) => setItems((previous) => moveUtterance(previous, id, delta))}
       onReorder={(from, to, after) => setItems((previous) =>
@@ -259,7 +269,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
           <p className="meta">長さ {current.wav.duration_seconds.toFixed(2)}秒 ／ {current.wav.sample_rate}Hz</p>
           <label htmlFor="speech-preset">プリセット</label>
           <select id="speech-preset" value={current.presetId}
-            disabled={!draft || batch.running || exportingId === current.id}
+            disabled={!draft || editingLocked}
             onChange={(e) => revise(current.id, { presetId: e.target.value })}>
             {!selected && <option value={current.presetId}>（プリセットを再選択してください）</option>}
             {draft?.collection.items.map((preset) =>
@@ -267,14 +277,14 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
           </select>
           <label htmlFor="speech-lip-mode">口パク方式</label>
           <select id="speech-lip-mode" value={current.mode}
-            disabled={batch.running || exportingId === current.id}
+            disabled={editingLocked}
             onChange={(e) => revise(current.id, { mode: e.target.value as LipMode })}>
             <option value="none">なし</option>
             <option value="open">open（音量連動）</option>
             <option value="aiueo" disabled>aiueo（後続対応）</option>
           </select>
           {items.length > 1 && <div className="utterance-apply-all">
-            <button type="button" disabled={batch.running || !!exportingId ||
+            <button type="button" disabled={editingLocked ||
               !exportReady(selected, current)}
               onClick={applySelectedAnimationToAll}>このプリセット・口パク方式を全件に適用</button>
             <p className="hint">口パクはWAVごとに独立しています。新規WAVの初期値は「なし」です。</p>
