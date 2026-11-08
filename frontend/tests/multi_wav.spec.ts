@@ -579,3 +579,139 @@ test("batch export sends unsafe, partial and recovery_required original outputs 
   ]);
   expect(outputs.every((x) => x.conflict_policy === "error")).toBe(true);
 });
+
+
+test("single export locks every WAV's edits and new additions when selection changes", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
+  }));
+  let release: (() => void) | undefined;
+  let exported = 0;
+  await page.route("**/api/preset-utterance-export", async (route) => {
+    exported++;
+    await new Promise<void>((resolve) => { release = resolve; });
+    await route.fulfill({ json: {
+      mov: "/tmp/output/speech_001.mov", otio: "/tmp/output/speech_001.otio",
+      frames: 30, sample_count: 800,
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/a.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await addWav(page, "/tmp/b.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+  await page.locator("[data-utterance-id]").first().locator(".utterance-item-select").click();
+  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await expect.poll(() => Boolean(release)).toBe(true);
+  await page.locator("[data-utterance-id]").nth(1).locator(".utterance-item-select").click();
+  await expect(page.locator("#speech-preset")).toBeDisabled();
+  await expect(page.locator("#speech-lip-mode")).toBeDisabled();
+  await expect(page.locator("#speech-fps")).toBeDisabled();
+  await expect(page.locator("#speech-basename")).toBeDisabled();
+  await expect(page.locator("#speech-wav-path")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "WAVを確認" })).toBeDisabled();
+  await expect(page.locator("[data-utterance-id]").nth(1)
+    .getByRole("button", { name: /削除:/ })).toBeDisabled();
+  await expect(page.locator("[data-utterance-id]").nth(1)
+    .getByRole("button", { name: /ドラッグで移動:/ })).toBeDisabled();
+  release!();
+  await expect(page.locator("#speech-preset")).toBeEnabled();
+  await expect(page.locator("#speech-wav-path")).toBeEnabled();
+  expect(exported).toBe(1);
+});
+
+test("batch preview is invalidated when the actual destination changes before export", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
+  }));
+  let outputExists = false;
+  let submitted = 0;
+  await openSpeech(page);
+  await page.route("**/api/preset-utterance-destination", (route) => route.fulfill({
+    json: outputExists ? {
+      state: "complete", suggested_basename: "speech_001_002",
+      canonical_output_dir: "/tmp/output",
+    } : { state: "available", suggested_basename: "speech_001_002",
+      canonical_output_dir: "/tmp/output" },
+  }));
+  await page.route("**/api/preset-utterance-export", (route) => {
+    submitted++;
+    return route.fulfill({ status: 500, json: { detail: "unexpected export" } });
+  });
+  await addWav(page, "/tmp/a.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  const plan = page.locator(".export-plan-items li").first();
+  await expect(plan).toContainText("speech_001.mov");
+  await expect(plan).toContainText("新規保存");
+  outputExists = true;
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
+  await expect(page.getByText("出力予定が変更されました", { exact: false })).toBeVisible();
+  expect(submitted).toBe(0);
+  await expect(plan).toContainText("上書き");
+  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeEnabled();
+});
+
+test("clicking the loading WAV row cancels its fetch instead of starting a second request", async ({ page }) => {
+  let release: (() => void) | undefined;
+  let requests = 0;
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 8000, sample_rate: 8000, duration_seconds: 1 },
+  }));
+  await page.route("**/api/wav-playback", async (route) => {
+    requests++;
+    await new Promise<void>((resolve) => { release = resolve; });
+    try { await route.abort(); } catch { /* The browser already aborted it. */ }
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/loading.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await page.locator(".utterance-item-play").click();
+  await expect.poll(() => Boolean(release)).toBe(true);
+  await expect(page.getByRole("button", { name: /読み込み中止:/ })).toBeVisible();
+  await page.getByRole("button", { name: /読み込み中止:/ }).click();
+  release!();
+  await expect(page.locator(".utterance-item-play")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("button", { name: /再生: 1 loading.wav/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "停止" })).toBeDisabled();
+  await expect(page.getByText("音声の再生に失敗:", { exact: false })).toHaveCount(0);
+  await expect.poll(() => requests).toBe(1);
+});
+
+test("inline WAV pause, resume and seeking operate on the currently loaded audio", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 96000, sample_rate: 8000, duration_seconds: 12 },
+  }));
+  const wav = Buffer.alloc(44 + 96000 * 2);
+  wav.write("RIFF", 0); wav.writeUInt32LE(wav.length - 8, 4);
+  wav.write("WAVEfmt ", 8); wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+  wav.write("data", 36); wav.writeUInt32LE(96000 * 2, 40);
+  const requests: string[] = [];
+  await page.route("**/api/wav-playback", (route) => {
+    requests.push((route.request().postDataJSON() as { path: string }).path);
+    return route.fulfill({ body: wav, contentType: "audio/wav" });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/long.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await page.locator(".utterance-item-play").click();
+  const player = page.locator(".utterance-playback audio");
+  await expect(page.getByRole("button", { name: /一時停止:/ })).toBeVisible();
+  await expect(player).toHaveAttribute("src", /^blob:/);
+  await page.getByRole("button", { name: /一時停止:/ }).click();
+  await expect(page.getByRole("button", { name: /再生: 1 long.wav/ })).toBeVisible();
+  await expect.poll(() => player.evaluate((el) => (el as HTMLAudioElement).paused)).toBe(true);
+  const seek = page.getByRole("slider", { name: /再生位置: long.wav/ });
+  await seek.focus();
+  await seek.press("End");
+  await expect.poll(() => player.evaluate((el) => (el as HTMLAudioElement).currentTime))
+    .toBeGreaterThan(8);
+  await page.getByRole("button", { name: /再生: 1 long.wav/ }).click();
+  await expect(page.getByRole("button", { name: /一時停止:/ })).toBeVisible();
+  await page.getByRole("button", { name: "停止" }).click();
+  await expect.poll(() => player.evaluate((el) => el.hasAttribute("src"))).toBe(false);
+  expect(requests).toEqual(["/tmp/long.wav"]);
+});
