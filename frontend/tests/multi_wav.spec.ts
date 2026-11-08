@@ -321,8 +321,8 @@ test("batch preflight blocks colliding output filenames before generating MOVs",
   await expect(page.locator(".utterance-item-select[aria-current=true]")).toContainText("second.wav");
   await page.locator("#speech-basename").fill("speech_001");
   await page.getByRole("radio", { name: /^全件/ }).check();
-  await page.getByRole("button", { name: "全件を書き出す" }).click();
   await expect(page.getByText("複数のセリフが同じ出力先", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeDisabled();
   expect(calls).toBe(0);
 });
 
@@ -559,6 +559,17 @@ test("batch export sends unsafe, partial and recovery_required original outputs 
   await addWav(page, "/tmp/recovery.wav");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(3);
   await page.getByRole("radio", { name: /^全件/ }).check();
+  const plans = page.locator(".export-plan-items li");
+  await expect(plans).toHaveCount(3);
+  for (const [index, name] of ["alternate_speech_001", "alternate_speech_002",
+    "alternate_speech_003"].entries()) {
+    await expect(plans.nth(index)).toContainText(name + ".mov");
+    await expect(plans.nth(index)).toContainText("出力先: /tmp/output");
+    await expect(plans.nth(index)).toContainText("プリセット: 通常");
+    await expect(plans.nth(index)).toContainText("口パク: なし ／ 30 fps");
+    await expect(plans.nth(index)).toContainText("新規保存");
+    await expect(plans.nth(index)).not.toContainText("speech_00" + (index + 1) + ".mov");
+  }
   await page.getByRole("button", { name: "全件を書き出す" }).click();
   await expect(page.getByText("一括書き出し完了：成功 3 件／失敗 0 件", { exact: false }))
     .toBeVisible();
