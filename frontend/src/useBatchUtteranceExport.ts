@@ -1,6 +1,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
 import type { PresetDraft } from "./presetDraftStorage";
 import type { UnifiedPreset } from "./presetModel";
+import { exportPayload, exportReady } from "./utteranceExportRequest";
 import type { ExportData, UtteranceItem } from "./utteranceItems";
 
 type Destination = {
@@ -25,13 +26,6 @@ async function post<T>(route: string, body: object): Promise<T> {
   return result;
 }
 
-function ready(preset: UnifiedPreset, item: UtteranceItem): boolean {
-  const mouth = preset.openMouth;
-  return !preset.blinkEnabled && (item.mode === "none" ||
-    Boolean(mouth?.closed.length && mouth.closed.length === mouth.opened.length &&
-      JSON.stringify(mouth.closed) !== JSON.stringify(mouth.opened)));
-}
-
 async function prepare(items: UtteranceItem[], draft: PresetDraft): Promise<{
   plans: Plan[];
   overwrites: number;
@@ -42,7 +36,7 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft): Promise<{
 
   for (const item of items) {
     const preset = draft.collection.items.find((entry) => entry.id === item.presetId);
-    if (!preset || !ready(preset, item)) {
+    if (!preset || !exportReady(preset, item)) {
       throw new Error(item.wavPath + " — 口パク・プリセットの設定を確認してください");
     }
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(item.basename)) {
@@ -112,13 +106,8 @@ export function useBatchUtteranceExport(
         const item = plan.item;
         setProgress(`書き出し中 ${index + 1} / ${plans.length}：${item.wavPath}`);
         try {
-          const result = await post<ExportData>("preset-utterance-export", {
-            psd: draft.path, wav: item.wavPath, fingerprint: draft.fingerprint,
-            layers: plan.preset.base, mouth: plan.preset.openMouth ?? null,
-            mode: item.mode, blink_enabled: plan.preset.blinkEnabled,
-            output_dir: item.outputDir, basename: plan.basename,
-            conflict_policy: plan.conflict_policy, fps: item.fps,
-          });
+          const result = await post<ExportData>("preset-utterance-export",
+            exportPayload(draft, item, plan.preset, plan.basename, plan.conflict_policy));
           successes++;
           setItems((previous) => previous.map((entry) => entry.id === item.id ?
             { ...entry, result, error: "" } : entry));
