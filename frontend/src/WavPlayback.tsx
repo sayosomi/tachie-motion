@@ -162,6 +162,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
   }
 
   function onEnded() {
+    if (!source.current || !objectUrl.current) return;
     if (allMode.current && playlistIndex.current < playlist.current.length) {
       void startSource(playlist.current[playlistIndex.current++]);
     } else {
