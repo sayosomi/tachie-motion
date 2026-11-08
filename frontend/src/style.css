@@ -323,16 +323,66 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   .utterance-item-actions { justify-content:flex-end; }
 }
 
-/* WAV authoring: drag handle, audio audition and batch output. */
+/* Unified WAV list: left drag grip, inline player, and list-scope controls. */
+.utterance-list-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.utterance-list-toolbar button { font-size:12px; padding:7px 11px; }
+.utterance-list-toolbar .meta { margin-right:8px; }
+.utterance-item { display:grid; grid-template-columns:34px 38px minmax(0,1fr) auto;
+  gap:8px; align-items:center; padding:8px; }
 .utterance-item[data-drop-target="true"] { outline:2px solid #a9e7d8; outline-offset:-2px; }
-.utterance-drag-handle { cursor:grab; touch-action:none; letter-spacing:-2px;
-  color:#b9d8ce; border-color:#577487; }
+.utterance-item[data-playing="true"] { box-shadow:inset 3px 0 #a9e7d8; }
+.utterance-item-select { grid-column:3; }
+.utterance-drag-handle { grid-column:1; grid-row:1; min-height:40px; padding:5px;
+  border:1px solid transparent; background:transparent; cursor:grab;
+  touch-action:none; font-size:21px; color:#b9d8ce; }
 .utterance-drag-handle:active { cursor:grabbing; }
-.utterance-playback { margin-bottom:20px; }
-.utterance-playback-buttons { display:flex; flex-wrap:wrap; gap:9px; margin:16px 0 12px; }
-.utterance-playback audio { display:block; width:100%; max-width:650px; }
-.utterance-batch { margin-bottom:20px; }
-.utterance-batch .primary { width:auto; }
+.utterance-drag-handle:focus-visible, .utterance-item-play:focus-visible {
+  outline:2px solid #a9e7d8; outline-offset:2px; }
+.utterance-item-play { grid-column:2; grid-row:1; font-size:16px;
+  border:1px solid #496574; background:#1e3648; border-radius:5px;
+  width:38px; height:38px; padding:0; color:#d7f9ed; }
+.utterance-item-play[aria-pressed="true"] { background:#315b64; }
+.utterance-item-actions { grid-column:4; grid-row:1; }
+.utterance-row-progress { grid-column:3 / 5; display:flex; align-items:center; gap:12px;
+  padding:0 8px 7px; min-width:0; }
+.utterance-row-progress input[type="range"] { flex:1; min-width:0; }
+.utterance-row-progress .meta { font-variant-numeric:tabular-nums; white-space:nowrap; }
+.utterance-audio-status { margin:8px 0 0; overflow-wrap:anywhere; }
+.utterance-playback { display:none; }
+.utterance-apply-all { margin-top:12px; padding:12px; border:1px solid #365269;
+  border-radius:6px; }
+.utterance-apply-all button { font-size:12px; }
+.utterance-apply-all .hint { margin:7px 0 0; }
+
+.utterance-export-panel .export-scope { display:flex; align-items:center; gap:16px;
+  padding:10px 12px; margin:12px 0; border:1px solid #476478; border-radius:6px; }
+.export-scope legend { padding:0 5px; font-size:12px; }
+.export-scope label { display:flex; align-items:center; gap:5px; margin:0;
+  cursor:pointer; font-size:13px; }
+.export-scope input[type="radio"] { width:auto; margin:0; }
+.export-current-settings { margin-top:12px; }
+.export-overview { margin-top:15px; padding:12px; border:1px solid #39556b; border-radius:6px; }
+.export-overview h3 { margin:0 0 8px; font-size:14px; }
+.export-plan-items { list-style:decimal; padding-left:23px; max-height:200px; overflow:auto;
+  margin:10px 0 0; }
+.export-plan-items li { display:grid; grid-template-columns:minmax(110px,1.5fr) 95px
+  minmax(125px,1fr) 48px; gap:8px; padding:7px 4px; border-bottom:1px solid #30465a;
+  font-size:12px; align-items:center; }
+.export-plan-items span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.export-execution { margin-top:15px; }
+.export-execution .primary { width:100%; }
+@media(max-width:650px) {
+  .utterance-item { grid-template-columns:30px 34px minmax(0,1fr); }
+  .utterance-item-actions { grid-column:3; grid-row:2; justify-content:flex-end; }
+  .utterance-row-progress { grid-column:2 / 4; }
+  .export-plan-items li { grid-template-columns:minmax(90px,1fr) 95px; }
+  .export-plan-items li span:nth-child(n+3) { display:none; }
+}
 @media (hover:none), (pointer:coarse) {
   .utterance-drag-handle { display:none; }
+  .utterance-item { grid-template-columns:34px minmax(0,1fr) auto; }
+  .utterance-item-play { grid-column:1; }
+  .utterance-item-select { grid-column:2; }
+  .utterance-item-actions { grid-column:3; }
+  .utterance-row-progress { grid-column:2 / 4; }
 }
