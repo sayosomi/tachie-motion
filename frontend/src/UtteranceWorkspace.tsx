@@ -240,7 +240,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   function applySelectedAnimationToAll() {
     if (!current || !selected || !exportReady(selected, current) ||
         editingLocked || singleExportLock.current || items.length < 2) return;
-    if (!window.confirm("選択中のプリセットと口パク方式を全WAVへ適用しますか？各WAVの個別設定を上書きします。")) return;
+    if (!window.confirm("選択中のプリセットと口パク方式を全WAVへ適用しますか？他のWAVのプリセットと口パク方式だけを変更し、fps・出力先・ファイル名は変更しません。")) return;
     setItems((previous) => previous.map((item) =>
       item.presetId === current.presetId && item.mode === current.mode ? item :
         { ...item, presetId: current.presetId, mode: current.mode, result: null, error: "" }));
