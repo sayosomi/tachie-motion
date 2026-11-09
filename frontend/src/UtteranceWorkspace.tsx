@@ -252,7 +252,8 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     <div className="intro"><h1>セリフ</h1></div>
     <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件のMOV・個別OTIOの一括書き出しに対応します。aiueo・瞬き・待機・変更点・全体OTIOは後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
-    <UtteranceList items={items} selectedId={activeId} pendingPath={pendingPath}
+    <UtteranceList items={items} presets={draft?.collection.items ?? []}
+      selectedId={activeId} pendingPath={pendingPath}
       addingCount={addingCount} addError={addError}
       disabled={!draft || editingLocked} exportingId={exportingId} playback={playback}
       onPathChange={setPendingPath} onAdd={addWav} onAddMany={addManyWavs} onSelect={selectItem}
