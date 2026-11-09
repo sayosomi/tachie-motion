@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import NativeFilePicker from "./NativeFilePicker";
 import type { WavPlaybackControls } from "./WavPlayback";
+import type { UnifiedPreset } from "./presetModel";
 import { wavFilename, type UtteranceItem } from "./utteranceItems";
 
 type Props = {
   items: UtteranceItem[];
+  presets: Pick<UnifiedPreset, "id" | "name">[];
   selectedId: string | null;
   pendingPath: string;
   addingCount: number;
@@ -22,7 +24,7 @@ type Props = {
 };
 
 export default function UtteranceList({
-  items, selectedId, pendingPath, addingCount, addError, disabled,
+  items, presets, selectedId, pendingPath, addingCount, addError, disabled,
   exportingId, playback, onPathChange, onAdd, onAddMany, onSelect, onMove, onReorder, onRemove,
 }: Props) {
   const [dragging, setDragging] = useState<string | null>(null);
@@ -59,6 +61,8 @@ export default function UtteranceList({
       <ol className="utterance-items" aria-label="登録済みセリフ">
         {items.map((item, index) => {
           const name = wavFilename(item.wavPath);
+          // Resolve by stable ID; the visible preset name follows the current draft.
+          const presetName = presets.find((entry) => entry.id === item.presetId)?.name ?? "未設定（要再選択）";
           return <li className="utterance-item" data-utterance-id={item.id}
             data-selected={item.id === selectedId} data-playing={playback.activeId === item.id}
             data-drop-target={hover === item.id}
@@ -107,11 +111,20 @@ export default function UtteranceList({
               <span className="utterance-item-details">
                 <strong title={item.wavPath}>{name}</strong>
                 <small title={item.wavPath}>{item.wavPath}</small>
-                <small>{item.wav.duration_seconds.toFixed(2)}秒 ／ 口パク: {item.mode === "open" ? "open" : "なし"}
+                <small>{item.wav.duration_seconds.toFixed(2)}秒
                   {item.result ? " ／ 書き出し済み" : item.error ? " ／ 書き出し失敗" : ""}
                 </small>
               </span>
             </button>
+            <div className="utterance-row-field utterance-row-preset" aria-label={`プリセット: ${presetName}`}>
+              <span className="utterance-row-field-label">プリセット</span>
+              <strong title={presetName}>{presetName}</strong>
+            </div>
+            <div className="utterance-row-field utterance-row-mode"
+              aria-label={`口パク: ${item.mode === "open" ? "open（音量連動）" : "なし"}`}>
+              <span className="utterance-row-field-label">口パク: </span>
+              <strong>{item.mode === "open" ? "open（音量連動）" : "なし"}</strong>
+            </div>
             <div className="utterance-item-actions">
               <button type="button" aria-label={`上へ: ${index + 1} ${name}`}
                 disabled={disabled || !!exportingId || addingCount > 0 || index === 0} onClick={() => onMove(item.id, -1)}>↑</button>
