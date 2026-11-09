@@ -196,7 +196,8 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 }
 
 /* Desktop is the primary authoring viewport. Narrow layouts are a fallback. */
-.utterance-workspace { max-width:1300px; }
+/* Full-width desktop workspace; WAV rows include separate preset and lip columns. */
+.utterance-workspace { max-width:1720px; }
 .utterance-scope { margin:0 0 18px; overflow-wrap:anywhere; }
 .utterance-columns { display:grid; grid-template-columns:minmax(450px,1.1fr) minmax(350px,.9fr);
   gap:22px; align-items:start; }
@@ -327,11 +328,20 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .utterance-list-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .utterance-list-toolbar button { font-size:12px; padding:7px 11px; }
 .utterance-list-toolbar .meta { margin-right:8px; }
-.utterance-item { display:grid; grid-template-columns:34px 38px minmax(0,1fr) auto;
-  gap:8px; align-items:center; padding:8px; }
+.utterance-item { display:grid;
+  grid-template-columns:34px 38px minmax(240px,2fr) minmax(150px,1fr)
+    minmax(140px,.85fr) auto;
+  gap:10px; align-items:center; padding:8px; }
 .utterance-item[data-drop-target="true"] { outline:2px solid #a9e7d8; outline-offset:-2px; }
 .utterance-item[data-playing="true"] { box-shadow:inset 3px 0 #a9e7d8; }
-.utterance-item-select { grid-column:3; }
+.utterance-item-select { grid-column:3; min-width:0; }
+.utterance-row-field { display:flex; flex-direction:column; gap:4px; min-width:0;
+  padding:4px 6px; }
+.utterance-row-field-label { font-size:11px; font-weight:600; color:#9cb4c7; }
+.utterance-row-field strong { display:block; min-width:0; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:600; }
+.utterance-row-preset { grid-column:4; grid-row:1; }
+.utterance-row-mode { grid-column:5; grid-row:1; }
 .utterance-drag-handle { grid-column:1; grid-row:1; min-height:40px; padding:5px;
   border:1px solid transparent; background:transparent; cursor:grab;
   touch-action:none; font-size:21px; color:#b9d8ce; }
@@ -342,8 +352,8 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   border:1px solid #496574; background:#1e3648; border-radius:5px;
   width:38px; height:38px; padding:0; color:#d7f9ed; }
 .utterance-item-play[aria-pressed="true"] { background:#315b64; }
-.utterance-item-actions { grid-column:4; grid-row:1; }
-.utterance-row-progress { grid-column:3 / 5; display:flex; align-items:center; gap:12px;
+.utterance-item-actions { grid-column:6; grid-row:1; }
+.utterance-row-progress { grid-column:3 / 6; grid-row:2; display:flex; align-items:center; gap:12px;
   padding:0 8px 7px; min-width:0; }
 .utterance-row-progress input[type="range"] { flex:1; min-width:0; }
 .utterance-row-progress .meta { font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -376,10 +386,18 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .export-plan-items li > span:nth-child(5) { grid-column:1 / 3; }
 .export-execution { margin-top:15px; }
 .export-execution .primary { width:100%; }
+/* Preserve a readable WAV name and per-WAV settings when the viewport is narrower. */
+@media(max-width:1120px) {
+  .utterance-item { grid-template-columns:30px 34px minmax(0,1fr) auto; row-gap:4px; }
+  .utterance-row-preset { grid-column:3; grid-row:2; }
+  .utterance-row-mode { grid-column:3; grid-row:3; }
+  .utterance-item-actions { grid-column:4; grid-row:1 / 4; align-self:center; }
+  .utterance-row-progress { grid-column:3 / 5; grid-row:4; }
+}
 @media(max-width:650px) {
   .utterance-item { grid-template-columns:30px 34px minmax(0,1fr); }
-  .utterance-item-actions { grid-column:3; grid-row:2; justify-content:flex-end; }
-  .utterance-row-progress { grid-column:2 / 4; }
+  .utterance-item-actions { grid-column:3; grid-row:4; justify-content:flex-end; }
+  .utterance-row-progress { grid-column:2 / 4; grid-row:5; }
   .export-plan-items li { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
   .export-plan-items .export-plan-path { grid-column:1 / -1; }
   .export-plan-items li > span:nth-child(5) { grid-column:1 / -1; }
@@ -389,6 +407,8 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   .utterance-item { grid-template-columns:34px minmax(0,1fr) auto; }
   .utterance-item-play { grid-column:1; }
   .utterance-item-select { grid-column:2; }
-  .utterance-item-actions { grid-column:3; }
-  .utterance-row-progress { grid-column:2 / 4; }
+  .utterance-row-preset { grid-column:2; grid-row:2; }
+  .utterance-row-mode { grid-column:2; grid-row:3; }
+  .utterance-item-actions { grid-column:3; grid-row:1 / 4; }
+  .utterance-row-progress { grid-column:2 / 4; grid-row:4; }
 }
