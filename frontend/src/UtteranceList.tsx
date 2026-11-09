@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import NativeFilePicker from "./NativeFilePicker";
 import type { WavPlaybackControls } from "./WavPlayback";
 import { wavFilename, type UtteranceItem } from "./utteranceItems";
@@ -27,6 +27,14 @@ export default function UtteranceList({
 }: Props) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
+  const orderingLocked = disabled || !!exportingId || addingCount > 0;
+  // A drag may begin before export. Invalidate it as soon as editing locks.
+  useEffect(() => {
+    if (orderingLocked) {
+      setDragging(null);
+      setHover(null);
+    }
+  }, [orderingLocked]);
   return <section className="panel utterance-list-panel" aria-label="セリフ一覧">
     <div className="utterance-list-header">
       <h2>WAV一覧</h2>
@@ -56,7 +64,7 @@ export default function UtteranceList({
             data-drop-target={hover === item.id}
             key={item.id}
             onDragOver={(event) => {
-              if (dragging && dragging !== item.id) {
+              if (!orderingLocked && dragging && dragging !== item.id) {
                 event.preventDefault();
                 event.dataTransfer.dropEffect = "move";
                 if (hover !== item.id) setHover(item.id);
@@ -67,17 +75,18 @@ export default function UtteranceList({
             }}
             onDrop={(event) => {
               event.preventDefault();
-              if (dragging && dragging !== item.id) {
+              if (!orderingLocked && dragging && dragging !== item.id) {
                 const rect = event.currentTarget.getBoundingClientRect();
                 onReorder(dragging, item.id, event.clientY > rect.top + rect.height / 2);
               }
               setDragging(null); setHover(null);
             }}>
             <button type="button" className="utterance-drag-handle"
-              draggable={!disabled && !exportingId && addingCount === 0}
+              draggable={!orderingLocked}
               aria-label={`ドラッグで移動: ${index + 1} ${name}`} title="ドラッグして順序変更"
-              disabled={disabled || !!exportingId || addingCount > 0}
+              disabled={orderingLocked}
               onDragStart={(event) => {
+                if (orderingLocked) { event.preventDefault(); return; }
                 setDragging(item.id);
                 event.dataTransfer.effectAllowed = "move";
                 event.dataTransfer.setData("text/plain", item.id);
@@ -113,6 +122,9 @@ export default function UtteranceList({
             </div>
             {playback.activeId === item.id &&
               <div className="utterance-row-progress">
+                {playback.loading && <span className="utterance-loading-label">
+                  読み込み中止（■を押す）
+                </span>}
                 <input type="range" aria-label={`再生位置: ${name}`}
                   min={0} max={Math.max(0.01, item.wav.duration_seconds)} step="0.01"
                   value={Math.min(playback.elapsed, item.wav.duration_seconds)}
