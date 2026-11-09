@@ -347,6 +347,7 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   padding:0 8px 7px; min-width:0; }
 .utterance-row-progress input[type="range"] { flex:1; min-width:0; }
 .utterance-row-progress .meta { font-variant-numeric:tabular-nums; white-space:nowrap; }
+.utterance-loading-label { color:#b6e4d8; font-size:12px; line-height:1.5; }
 .utterance-audio-status { margin:8px 0 0; overflow-wrap:anywhere; }
 .utterance-playback { display:none; }
 .utterance-apply-all { margin-top:12px; padding:12px; border:1px solid #365269;
