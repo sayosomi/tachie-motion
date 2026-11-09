@@ -748,10 +748,17 @@ test("a drag started before single export cannot reorder after the export lock e
       bubbles: true, cancelable: true, dataTransfer,
     }));
   });
+  await rows.first().evaluate((node) => {
+    node.dispatchEvent(new DragEvent("dragover", {
+      bubbles: true, cancelable: true, dataTransfer: new DataTransfer(),
+    }));
+  });
+  await expect(rows.first()).toHaveAttribute("data-drop-target", "true");
   await rows.first().locator(".utterance-item-select").click();
   await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
   await expect.poll(() => Boolean(releaseExport)).toBe(true);
   await expect(rows.nth(1).locator(".utterance-drag-handle")).toBeDisabled();
+  await expect(rows.first()).toHaveAttribute("data-drop-target", "false");
 
   // Deliver the drop event even though the export has invalidated the drag.
   const dispatched = await rows.first().evaluate((node) => {
