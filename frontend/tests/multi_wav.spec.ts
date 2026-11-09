@@ -669,7 +669,10 @@ test("clicking the loading WAV row cancels its fetch instead of starting a secon
   await page.locator(".utterance-item-play").click();
   await expect.poll(() => Boolean(release)).toBe(true);
   await expect(page.getByRole("button", { name: /読み込み中止:/ })).toBeVisible();
+  await expect(page.locator(".utterance-loading-label")).toBeVisible();
+  await expect(page.locator(".utterance-loading-label")).toContainText("読み込み中止");
   await page.getByRole("button", { name: /読み込み中止:/ }).click();
+  await expect(page.locator(".utterance-loading-label")).toHaveCount(0);
   release!();
   await expect(page.locator(".utterance-item-play")).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByRole("button", { name: /再生: 1 loading.wav/ })).toBeVisible();
@@ -715,4 +718,55 @@ test("inline WAV pause, resume and seeking operate on the currently loaded audio
   await page.getByRole("button", { name: "停止", exact: true }).click();
   await expect.poll(() => player.evaluate((el) => el.hasAttribute("src"))).toBe(false);
   expect(requests).toEqual(["/tmp/long.wav"]);
+});
+
+
+test("a drag started before single export cannot reorder after the export lock engages", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
+  }));
+  let releaseExport: (() => void) | undefined;
+  await page.route("**/api/preset-utterance-export", async (route) => {
+    await new Promise<void>((resolve) => { releaseExport = resolve; });
+    await route.fulfill({ json: {
+      mov: "/tmp/output/speech_001.mov", otio: "/tmp/output/speech_001.otio",
+      frames: 30, sample_count: 800,
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/first.wav");
+  await addWav(page, "/tmp/second.wav");
+  const rows = page.locator("[data-utterance-id]");
+  await expect(rows).toHaveCount(2);
+  const ids = await rows.evaluateAll((nodes) =>
+    nodes.map((node) => node.getAttribute("data-utterance-id")));
+
+  // Keep an actual React dragStart active, rather than completing dragTo first.
+  await rows.nth(1).locator(".utterance-drag-handle").evaluate((node) => {
+    const dataTransfer = new DataTransfer();
+    node.dispatchEvent(new DragEvent("dragstart", {
+      bubbles: true, cancelable: true, dataTransfer,
+    }));
+  });
+  await rows.first().locator(".utterance-item-select").click();
+  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await expect.poll(() => Boolean(releaseExport)).toBe(true);
+  await expect(rows.nth(1).locator(".utterance-drag-handle")).toBeDisabled();
+
+  // Deliver the drop event even though the export has invalidated the drag.
+  const dispatched = await rows.first().evaluate((node) => {
+    return node.dispatchEvent(new DragEvent("drop", {
+      bubbles: true, cancelable: true,
+      clientY: node.getBoundingClientRect().top + 3,
+      dataTransfer: new DataTransfer(),
+    }));
+  });
+  expect(dispatched).toBe(false); // onDrop received the event and prevented default.
+  await expect(rows.first()).toHaveAttribute("data-utterance-id", ids[0]!);
+  await expect(rows.nth(1)).toHaveAttribute("data-utterance-id", ids[1]!);
+
+  releaseExport!();
+  await expect(page.locator(".utterance-drag-handle").first()).toBeEnabled();
+  await expect(rows.first()).toHaveAttribute("data-utterance-id", ids[0]!);
+  await expect(rows.nth(1)).toHaveAttribute("data-utterance-id", ids[1]!);
 });
