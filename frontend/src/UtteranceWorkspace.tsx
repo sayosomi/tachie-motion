@@ -256,9 +256,14 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
       addingCount={addingCount} addError={addError}
       disabled={!draft || editingLocked} exportingId={exportingId} playback={playback}
       onPathChange={setPendingPath} onAdd={addWav} onAddMany={addManyWavs} onSelect={selectItem}
-      onMove={(id, delta) => setItems((previous) => moveUtterance(previous, id, delta))}
-      onReorder={(from, to, after) => setItems((previous) =>
-        reorderUtterances(previous, from, to, after))}
+      onMove={(id, delta) => {
+        if (editingLocked || singleExportLock.current || addingCount > 0) return;
+        setItems((previous) => moveUtterance(previous, id, delta));
+      }}
+      onReorder={(from, to, after) => {
+        if (editingLocked || singleExportLock.current || addingCount > 0) return;
+        setItems((previous) => reorderUtterances(previous, from, to, after));
+      }}
       onRemove={removeItem} />
     <div className="utterance-columns">
       <section className="panel">
