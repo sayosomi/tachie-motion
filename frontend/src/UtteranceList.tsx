@@ -122,14 +122,15 @@ export default function UtteranceList({
             </div>
             {playback.activeId === item.id &&
               <div className="utterance-row-progress">
-                {playback.loading && <span className="utterance-loading-label">
+                {playback.loading ? <span className="utterance-loading-label">
                   読み込み中止（■を押す）
-                </span>}
-                <input type="range" aria-label={`再生位置: ${name}`}
-                  min={0} max={Math.max(0.01, item.wav.duration_seconds)} step="0.01"
-                  value={Math.min(playback.elapsed, item.wav.duration_seconds)}
-                  onChange={(event) => playback.seek(Number(event.target.value))} />
-                <span className="meta">{playback.elapsed.toFixed(1)} / {item.wav.duration_seconds.toFixed(1)}秒</span>
+                </span> : <>
+                  <input type="range" aria-label={`再生位置: ${name}`}
+                    min={0} max={Math.max(0.01, item.wav.duration_seconds)} step="0.01"
+                    value={Math.min(playback.elapsed, item.wav.duration_seconds)}
+                    onChange={(event) => playback.seek(Number(event.target.value))} />
+                  <span className="meta">{playback.elapsed.toFixed(1)} / {item.wav.duration_seconds.toFixed(1)}秒</span>
+                </>}
               </div>}
           </li>;
         })}
