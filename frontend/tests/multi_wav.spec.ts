@@ -780,6 +780,7 @@ test("a drag started before single export cannot reorder after the export lock e
 
 
 test("WAV list shows each item's preset and lip mode after editing and reordering", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
   await page.route("**/api/wav", (route) => route.fulfill({
     json: { samples: 8000, sample_rate: 8000, duration_seconds: 1 },
   }));
@@ -793,6 +794,17 @@ test("WAV list shows each item's preset and lip mode after editing and reorderin
   await addWav(page, "/tmp/second.wav");
   const rows = page.locator("[data-utterance-id]");
   await expect(rows).toHaveCount(2);
+  const screenWidth = await page.locator(".utterance-workspace").evaluate(
+    (node) => node.getBoundingClientRect().width);
+  expect(screenWidth).toBeGreaterThan(1300);
+  const positions = await rows.first().evaluate((row) => {
+    const x = (selector: string) => row.querySelector(selector)!.getBoundingClientRect().left;
+    return [x(".utterance-item-select"), x(".utterance-row-preset"),
+      x(".utterance-row-mode"), x(".utterance-item-actions")];
+  });
+  expect(positions[0]).toBeLessThan(positions[1]);
+  expect(positions[1]).toBeLessThan(positions[2]);
+  expect(positions[2]).toBeLessThan(positions[3]);
   const optionNames = await page.locator("#speech-preset option").allTextContents();
   const optionValues = await page.locator("#speech-preset option").evaluateAll(
     (nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
