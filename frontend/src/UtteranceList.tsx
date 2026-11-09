@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import NativeFilePicker from "./NativeFilePicker";
 import type { WavPlaybackControls } from "./WavPlayback";
 import type { UnifiedPreset } from "./presetModel";
-import { wavFilename, type UtteranceItem } from "./utteranceItems";
+import { wavFilename, type LipMode, type UtteranceItem } from "./utteranceItems";
 
 type Props = {
   items: UtteranceItem[];
   presets: Pick<UnifiedPreset, "id" | "name">[];
+  presetsLoading: boolean;
   selectedId: string | null;
   pendingPath: string;
   addingCount: number;
@@ -18,14 +19,16 @@ type Props = {
   onAdd: (path: string) => Promise<boolean>;
   onAddMany: (paths: string[]) => Promise<boolean>;
   onSelect: (id: string) => void;
+  onRevise: (id: string, patch: Partial<UtteranceItem>) => void;
   onMove: (id: string, delta: -1 | 1) => void;
   onReorder: (from: string, to: string, after: boolean) => void;
   onRemove: (id: string) => void;
 };
 
 export default function UtteranceList({
-  items, presets, selectedId, pendingPath, addingCount, addError, disabled,
-  exportingId, playback, onPathChange, onAdd, onAddMany, onSelect, onMove, onReorder, onRemove,
+  items, presets, presetsLoading, selectedId, pendingPath, addingCount, addError, disabled,
+  exportingId, playback, onPathChange, onAdd, onAddMany, onSelect, onRevise,
+  onMove, onReorder, onRemove,
 }: Props) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
@@ -54,15 +57,20 @@ export default function UtteranceList({
       onChange={onPathChange}
       onSelected={onAdd}
       onApply={async () => { await onAdd(pendingPath); }} applyLabel="WAVを確認" />
-    <p className="hint">FinderではCommand/Shiftで複数選択できます。左端の取っ手で並べ替え、再生ボタンで各WAVを試聴できます。元のWAVは変更しません。</p>
+    <p className="hint">FinderではCommand/Shiftで複数選択できます。左端で並べ替え、各行で試聴・プリセット・口パクを設定します。元WAVは変更しません。</p>
     {addingCount > 0 && <p className="hint" role="status">WAVを解析中…（{addingCount}件）</p>}
     {addError && <p className="hint warning" role="alert">{addError}</p>}
-    {items.length === 0 ? <p className="empty-state">WAVを追加してください。</p> :
+    {items.length === 0 ? <p className="empty-state">WAVを追加してください。</p> : <>
+      <div className="utterance-list-columns" aria-hidden="true">
+        <span className="utterance-column-name">WAV</span>
+        <span className="utterance-column-preset">プリセット</span>
+        <span className="utterance-column-mode">口パク</span>
+      </div>
       <ol className="utterance-items" aria-label="登録済みセリフ">
         {items.map((item, index) => {
           const name = wavFilename(item.wavPath);
-          // Resolve by stable ID; the visible preset name follows the current draft.
-          const presetName = presets.find((entry) => entry.id === item.presetId)?.name ?? "未設定（要再選択）";
+          // Keep the saved ID stable, including while the preset snapshot is reloading.
+          const presetFound = presets.some((entry) => entry.id === item.presetId);
           return <li className="utterance-item" data-utterance-id={item.id}
             data-selected={item.id === selectedId} data-playing={playback.activeId === item.id}
             data-drop-target={hover === item.id}
@@ -116,15 +124,31 @@ export default function UtteranceList({
                 </small>
               </span>
             </button>
-            <div className="utterance-row-field utterance-row-preset" aria-label={`プリセット: ${presetName}`}>
+            <label className="utterance-row-field utterance-row-preset">
               <span className="utterance-row-field-label">プリセット</span>
-              <strong title={presetName}>{presetName}</strong>
-            </div>
-            <div className="utterance-row-field utterance-row-mode"
-              aria-label={`口パク: ${item.mode === "open" ? "open（音量連動）" : "なし"}`}>
-              <span className="utterance-row-field-label">口パク: </span>
-              <strong>{item.mode === "open" ? "open（音量連動）" : "なし"}</strong>
-            </div>
+              <select aria-label={`プリセット: ${index + 1} ${name}`} value={item.presetId}
+                disabled={disabled} onChange={(event) => {
+                  onSelect(item.id);
+                  onRevise(item.id, { presetId: event.target.value });
+                }}>
+                {!presetFound && <option value={item.presetId} disabled>
+                  {presetsLoading ? "確認中…" : "未設定（要再選択）"}
+                </option>}
+                {presets.map((entry) =>
+                  <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+              </select>
+            </label>
+            <label className="utterance-row-field utterance-row-mode">
+              <span className="utterance-row-field-label">口パク</span>
+              <select aria-label={`口パク: ${index + 1} ${name}`} value={item.mode}
+                disabled={disabled} onChange={(event) => {
+                  onSelect(item.id);
+                  onRevise(item.id, { mode: event.target.value as LipMode });
+                }}>
+                <option value="none">なし</option>
+                <option value="open">open</option>
+              </select>
+            </label>
             <div className="utterance-item-actions">
               <button type="button" aria-label={`上へ: ${index + 1} ${name}`}
                 disabled={disabled || !!exportingId || addingCount > 0 || index === 0} onClick={() => onMove(item.id, -1)}>↑</button>
@@ -147,7 +171,7 @@ export default function UtteranceList({
               </div>}
           </li>;
         })}
-      </ol>}
+      </ol></>}
     {playback.audioElement}
     {playback.status && <p className="hint utterance-audio-status" role="status">{playback.status}</p>}
   </section>;
