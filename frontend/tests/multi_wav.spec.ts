@@ -777,3 +777,53 @@ test("a drag started before single export cannot reorder after the export lock e
   await expect(rows.first()).toHaveAttribute("data-utterance-id", ids[0]!);
   await expect(rows.nth(1)).toHaveAttribute("data-utterance-id", ids[1]!);
 });
+
+
+test("WAV list shows each item's preset and lip mode after editing and reordering", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 8000, sample_rate: 8000, duration_seconds: 1 },
+  }));
+  await openSpeech(page);
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await page.getByRole("button", { name: "＋ 作成" }).click();
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+
+  await addWav(page, "/tmp/first.wav");
+  await addWav(page, "/tmp/second.wav");
+  const rows = page.locator("[data-utterance-id]");
+  await expect(rows).toHaveCount(2);
+  const optionNames = await page.locator("#speech-preset option").allTextContents();
+  const optionValues = await page.locator("#speech-preset option").evaluateAll(
+    (nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
+  expect(optionNames).toHaveLength(2);
+  expect(optionNames[0]).not.toBe(optionNames[1]);
+
+  await rows.nth(0).locator(".utterance-item-select").click();
+  await page.locator("#speech-preset").selectOption(optionValues[0]);
+  await page.locator("#speech-lip-mode").selectOption("open");
+
+  await rows.nth(1).locator(".utterance-item-select").click();
+  await page.locator("#speech-preset").selectOption(optionValues[1]);
+  await expect(rows.nth(0).locator(".utterance-row-preset strong")).toHaveText(optionNames[0]);
+  await expect(rows.nth(1).locator(".utterance-row-preset strong")).toHaveText(optionNames[1]);
+  await expect(rows.nth(0).locator(".utterance-row-mode")).toContainText("口パク: open");
+  await expect(rows.nth(1).locator(".utterance-row-mode")).toContainText("口パク: なし");
+
+  const originalIds = await rows.evaluateAll((nodes) =>
+    nodes.map((node) => node.getAttribute("data-utterance-id")));
+  await page.getByRole("button", { name: "上へ: 2 second.wav" }).click();
+  await expect(rows.nth(0)).toHaveAttribute("data-utterance-id", originalIds[1]!);
+  await expect(rows.nth(1)).toHaveAttribute("data-utterance-id", originalIds[0]!);
+  await expect(rows.nth(0).locator(".utterance-row-preset strong")).toHaveText(optionNames[1]);
+  await expect(rows.nth(1).locator(".utterance-row-preset strong")).toHaveText(optionNames[0]);
+  await expect(rows.nth(1).locator(".utterance-row-mode")).toContainText("口パク: open");
+
+  // An individual edit is reflected in its own row, without changing other items.
+  await rows.nth(1).locator(".utterance-item-select").click();
+  await page.locator("#speech-preset").selectOption(optionValues[1]);
+  await expect(rows.nth(1).locator(".utterance-row-preset strong")).toHaveText(optionNames[1]);
+  await expect(rows.nth(0).locator(".utterance-row-preset strong")).toHaveText(optionNames[1]);
+  await expect(rows.nth(0).locator(".utterance-row-mode")).toContainText("口パク: なし");
+  await expect(rows.nth(1).locator(".utterance-row-mode")).toContainText("口パク: open");
+});
