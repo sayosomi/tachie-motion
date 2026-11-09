@@ -606,6 +606,8 @@ test("single export locks every WAV's edits and new additions when selection cha
   await page.locator("[data-utterance-id]").nth(1).locator(".utterance-item-select").click();
   await expect(page.locator('[data-selected="true"] .utterance-row-preset select')).toBeDisabled();
   await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toBeDisabled();
+  await expect(page.locator(".utterance-row-preset select:disabled")).toHaveCount(2);
+  await expect(page.locator(".utterance-row-mode select:disabled")).toHaveCount(2);
   await expect(page.locator("#speech-fps")).toBeDisabled();
   await expect(page.locator("#speech-basename")).toBeDisabled();
   await expect(page.locator("#speech-wav-path")).toBeDisabled();
@@ -805,6 +807,12 @@ test("WAV list shows each item's preset and lip mode after editing and reorderin
   expect(positions[0]).toBeLessThan(positions[1]);
   expect(positions[1]).toBeLessThan(positions[2]);
   expect(positions[2]).toBeLessThan(positions[3]);
+  await expect(page.locator(".utterance-list-columns")).toContainText("WAV");
+  await expect(page.locator(".utterance-list-columns")).toContainText("プリセット");
+  await expect(page.locator(".utterance-list-columns")).toContainText("口パク");
+  await expect(page.locator("#speech-preset")).toHaveCount(0);
+  await expect(page.locator("#speech-lip-mode")).toHaveCount(0);
+  await expect(rows.nth(0).locator(".utterance-row-mode option[value=open]")).toHaveText("open");
   const optionNames = await page.locator('[data-selected="true"] .utterance-row-preset select option').allTextContents();
   const optionValues = await page.locator('[data-selected="true"] .utterance-row-preset select option').evaluateAll(
     (nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
@@ -841,6 +849,7 @@ test("WAV list shows each item's preset and lip mode after editing and reorderin
   // A change made from an unselected row switches the selected WAV.
   await rows.nth(0).locator(".utterance-row-mode select").selectOption("open");
   await expect(rows.nth(0)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(1)).toHaveAttribute("data-selected", "false");
   await expect(rows.nth(0).locator(".utterance-row-mode select")).toHaveValue("open");
   await expect(rows.nth(1).locator(".utterance-row-mode select")).toHaveValue("open");
   await expect(page.getByRole("heading", { name: "選択中のWAV" })).toBeVisible();
