@@ -328,18 +328,25 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .utterance-list-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .utterance-list-toolbar button { font-size:12px; padding:7px 11px; }
 .utterance-list-toolbar .meta { margin-right:8px; }
-.utterance-item { display:grid;
-  grid-template-columns:34px 38px minmax(240px,2fr) minmax(150px,1fr)
-    minmax(140px,.85fr) auto;
-  gap:10px; align-items:center; padding:8px; }
+/* Header and rows share the same compact desktop column widths. */
+.utterance-list-columns, .utterance-item {
+  display:grid; grid-template-columns:34px 38px minmax(240px,1fr) 200px 120px auto;
+  gap:10px; align-items:center; padding:8px;
+}
+.utterance-list-columns { padding-bottom:0; margin-top:12px; color:#9cb4c7;
+  font-size:12px; font-weight:700; }
+.utterance-column-name { grid-column:3; }
+.utterance-column-preset { grid-column:4; }
+.utterance-column-mode { grid-column:5; }
+.utterance-list-columns + .utterance-items { margin-top:4px; }
+.utterance-row-field select { display:block; width:100%; min-width:0; height:36px;
+  padding:7px 10px; border-radius:5px; font-size:12px; }
 .utterance-item[data-drop-target="true"] { outline:2px solid #a9e7d8; outline-offset:-2px; }
 .utterance-item[data-playing="true"] { box-shadow:inset 3px 0 #a9e7d8; }
 .utterance-item-select { grid-column:3; min-width:0; }
 .utterance-row-field { display:flex; flex-direction:column; gap:4px; min-width:0;
-  padding:4px 6px; }
-.utterance-row-field-label { font-size:11px; font-weight:600; color:#9cb4c7; }
-.utterance-row-field strong { display:block; min-width:0; overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:600; }
+  margin:0; padding:0; }
+.utterance-row-field-label { display:none; font-size:11px; font-weight:600; color:#9cb4c7; }
 .utterance-row-preset { grid-column:4; grid-row:1; }
 .utterance-row-mode { grid-column:5; grid-row:1; }
 .utterance-drag-handle { grid-column:1; grid-row:1; min-height:40px; padding:5px;
@@ -388,7 +395,9 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .export-execution .primary { width:100%; }
 /* Preserve a readable WAV name and per-WAV settings when the viewport is narrower. */
 @media(max-width:1120px) {
-  .utterance-item { grid-template-columns:30px 34px minmax(0,1fr) auto; row-gap:4px; }
+  .utterance-list-columns { display:none; }
+  .utterance-row-field-label { display:block; }
+  .utterance-item { grid-template-columns:30px 34px minmax(0,1fr) auto; row-gap:6px; }
   .utterance-row-preset { grid-column:3; grid-row:2; }
   .utterance-row-mode { grid-column:3; grid-row:3; }
   .utterance-item-actions { grid-column:4; grid-row:1 / 4; align-self:center; }
@@ -403,6 +412,8 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   .export-plan-items li > span:nth-child(5) { grid-column:1 / -1; }
 }
 @media (hover:none), (pointer:coarse) {
+  .utterance-list-columns { display:none; }
+  .utterance-row-field-label { display:block; }
   .utterance-drag-handle { display:none; }
   .utterance-item { grid-template-columns:34px minmax(0,1fr) auto; }
   .utterance-item-play { grid-column:1; }
