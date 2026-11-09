@@ -9,7 +9,7 @@ import type { UnifiedPreset } from "./presetModel";
 import { matchesSource, readPresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
   createUtterance, moveUtterance, reorderUtterances, updateUtterance,
-  type ExportData, type LipMode, type UtteranceItem, type WavData,
+  type ExportData, type UtteranceItem, type WavData,
 } from "./utteranceItems";
 
 type PsdData = { fingerprint: string; layers: Layer[] };
@@ -253,10 +253,12 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件のMOV・個別OTIOの一括書き出しに対応します。aiueo・瞬き・待機・変更点・全体OTIOは後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} presets={draft?.collection.items ?? []}
+      presetsLoading={!draft && !startupError}
       selectedId={activeId} pendingPath={pendingPath}
       addingCount={addingCount} addError={addError}
       disabled={!draft || editingLocked} exportingId={exportingId} playback={playback}
-      onPathChange={setPendingPath} onAdd={addWav} onAddMany={addManyWavs} onSelect={selectItem}
+      onPathChange={setPendingPath} onAdd={addWav} onAddMany={addManyWavs}
+      onSelect={selectItem} onRevise={revise}
       onMove={(id, delta) => {
         if (editingLocked || singleExportLock.current || addingCount > 0) return;
         setItems((previous) => moveUtterance(previous, id, delta));
@@ -273,26 +275,11 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
         {!current ? <p className="hint">一覧からセリフを選択してください。</p> : <>
           <p className="hint" title={current.wavPath}>WAV: {current.wavPath}</p>
           <p className="meta">長さ {current.wav.duration_seconds.toFixed(2)}秒 ／ {current.wav.sample_rate}Hz</p>
-          <label htmlFor="speech-preset">プリセット</label>
-          <select id="speech-preset" value={current.presetId}
-            disabled={!draft || editingLocked}
-            onChange={(e) => revise(current.id, { presetId: e.target.value })}>
-            {!selected && <option value={current.presetId}>（プリセットを再選択してください）</option>}
-            {draft?.collection.items.map((preset) =>
-              <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-          </select>
-          <label htmlFor="speech-lip-mode">口パク方式</label>
-          <select id="speech-lip-mode" value={current.mode}
-            disabled={editingLocked}
-            onChange={(e) => revise(current.id, { mode: e.target.value as LipMode })}>
-            <option value="none">なし</option>
-            <option value="open">open（音量連動）</option>
-            <option value="aiueo" disabled>aiueo（後続対応）</option>
-          </select>
+          <p className="hint">プリセット・口パクは上のWAV一覧で直接変更できます。</p>
           {items.length > 1 && <div className="utterance-apply-all">
             <button type="button" disabled={editingLocked ||
               !exportReady(selected, current)}
-              onClick={applySelectedAnimationToAll}>このプリセット・口パク方式を全件に適用</button>
+              onClick={applySelectedAnimationToAll}>この設定を全件に適用</button>
             <p className="hint">口パクはWAVごとに独立しています。新規WAVの初期値は「なし」です。</p>
           </div>}
           {current.mode === "open" && !openMouthReady(selected) &&
