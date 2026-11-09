@@ -43,7 +43,7 @@ test("per-WAV editing survives reorder, duplicate registration and screen switch
   const sameNameElsewhere = "/Volumes/B/あんこもん だんもん.wav";
   await addWav(page, first);
   await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
-  await page.locator("#speech-lip-mode").selectOption("open");
+  await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
   await page.locator("#speech-basename").fill("first_line");
   await addWav(page, sameNameElsewhere);
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
@@ -57,11 +57,11 @@ test("per-WAV editing survives reorder, duplicate registration and screen switch
     "data-utterance-id", registeredIds[1]);
 
   await page.locator("[data-utterance-id]").nth(1).locator(".utterance-item-select").click();
-  await expect(page.locator("#speech-lip-mode")).toHaveValue("open");
+  await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toHaveValue("open");
   await expect(page.locator("#speech-basename")).toHaveValue("first_line");
   await expect(page.locator("#speech-fps")).toHaveValue("30");
   await page.locator("[data-utterance-id]").first().locator(".utterance-item-select").click();
-  await expect(page.locator("#speech-lip-mode")).toHaveValue("none");
+  await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toHaveValue("none");
   await expect(page.locator("#speech-basename")).toHaveValue("second_line");
   await expect(page.locator("#speech-fps")).toHaveValue("60");
 
@@ -383,20 +383,20 @@ test("batch locks the preset selector throughout an in-progress render", async (
   await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
   await addWav(page, "/tmp/b.wav");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
-  await expect(page.locator("#speech-preset option")).toHaveCount(2);
-  const assignedPreset = await page.locator("#speech-preset").inputValue();
+  await expect(page.locator('[data-selected="true"] .utterance-row-preset select option')).toHaveCount(2);
+  const assignedPreset = await page.locator('[data-selected="true"] .utterance-row-preset select').inputValue();
 
   await page.getByRole("radio", { name: /^全件/ }).check();
   await page.getByRole("button", { name: "全件を書き出す" }).click();
   await expect.poll(() => Boolean(releaseFirst)).toBe(true);
   await page.locator("[data-utterance-id]").nth(1)
     .locator(".utterance-item-select").click();
-  await expect(page.locator("#speech-preset")).toBeDisabled();
-  await expect(page.locator("#speech-preset")).toHaveValue(assignedPreset);
+  await expect(page.locator('[data-selected="true"] .utterance-row-preset select')).toBeDisabled();
+  await expect(page.locator('[data-selected="true"] .utterance-row-preset select')).toHaveValue(assignedPreset);
   releaseFirst!();
   await expect(page.getByText("一括書き出し完了：成功 2 件／失敗 0 件", { exact: false }))
     .toBeVisible();
-  await expect(page.locator("#speech-preset")).toBeEnabled();
+  await expect(page.locator('[data-selected="true"] .utterance-row-preset select')).toBeEnabled();
   expect(payloads.map((item) => item.wav)).toEqual(["/tmp/a.wav", "/tmp/b.wav"]);
 });
 
@@ -604,8 +604,8 @@ test("single export locks every WAV's edits and new additions when selection cha
   await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
   await expect.poll(() => Boolean(release)).toBe(true);
   await page.locator("[data-utterance-id]").nth(1).locator(".utterance-item-select").click();
-  await expect(page.locator("#speech-preset")).toBeDisabled();
-  await expect(page.locator("#speech-lip-mode")).toBeDisabled();
+  await expect(page.locator('[data-selected="true"] .utterance-row-preset select')).toBeDisabled();
+  await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toBeDisabled();
   await expect(page.locator("#speech-fps")).toBeDisabled();
   await expect(page.locator("#speech-basename")).toBeDisabled();
   await expect(page.locator("#speech-wav-path")).toBeDisabled();
@@ -615,7 +615,7 @@ test("single export locks every WAV's edits and new additions when selection cha
   await expect(page.locator("[data-utterance-id]").nth(1)
     .getByRole("button", { name: /ドラッグで移動:/ })).toBeDisabled();
   release!();
-  await expect(page.locator("#speech-preset")).toBeEnabled();
+  await expect(page.locator('[data-selected="true"] .utterance-row-preset select')).toBeEnabled();
   await expect(page.locator("#speech-wav-path")).toBeEnabled();
   expect(exported).toBe(1);
 });
@@ -805,37 +805,43 @@ test("WAV list shows each item's preset and lip mode after editing and reorderin
   expect(positions[0]).toBeLessThan(positions[1]);
   expect(positions[1]).toBeLessThan(positions[2]);
   expect(positions[2]).toBeLessThan(positions[3]);
-  const optionNames = await page.locator("#speech-preset option").allTextContents();
-  const optionValues = await page.locator("#speech-preset option").evaluateAll(
+  const optionNames = await page.locator('[data-selected="true"] .utterance-row-preset select option').allTextContents();
+  const optionValues = await page.locator('[data-selected="true"] .utterance-row-preset select option').evaluateAll(
     (nodes) => nodes.map((node) => (node as HTMLOptionElement).value));
   expect(optionNames).toHaveLength(2);
   expect(optionNames[0]).not.toBe(optionNames[1]);
 
   await rows.nth(0).locator(".utterance-item-select").click();
-  await page.locator("#speech-preset").selectOption(optionValues[0]);
-  await page.locator("#speech-lip-mode").selectOption("open");
+  await page.locator('[data-selected="true"] .utterance-row-preset select').selectOption(optionValues[0]);
+  await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
 
   await rows.nth(1).locator(".utterance-item-select").click();
-  await page.locator("#speech-preset").selectOption(optionValues[1]);
-  await expect(rows.nth(0).locator(".utterance-row-preset strong")).toHaveText(optionNames[0]);
-  await expect(rows.nth(1).locator(".utterance-row-preset strong")).toHaveText(optionNames[1]);
-  await expect(rows.nth(0).locator(".utterance-row-mode")).toContainText("口パク: open");
-  await expect(rows.nth(1).locator(".utterance-row-mode")).toContainText("口パク: なし");
+  await page.locator('[data-selected="true"] .utterance-row-preset select').selectOption(optionValues[1]);
+  await expect(rows.nth(0).locator(".utterance-row-preset select")).toHaveValue(optionValues[0]);
+  await expect(rows.nth(1).locator(".utterance-row-preset select")).toHaveValue(optionValues[1]);
+  await expect(rows.nth(0).locator(".utterance-row-mode select")).toHaveValue("open");
+  await expect(rows.nth(1).locator(".utterance-row-mode select")).toHaveValue("none");
 
   const originalIds = await rows.evaluateAll((nodes) =>
     nodes.map((node) => node.getAttribute("data-utterance-id")));
   await page.getByRole("button", { name: "上へ: 2 second.wav" }).click();
   await expect(rows.nth(0)).toHaveAttribute("data-utterance-id", originalIds[1]!);
   await expect(rows.nth(1)).toHaveAttribute("data-utterance-id", originalIds[0]!);
-  await expect(rows.nth(0).locator(".utterance-row-preset strong")).toHaveText(optionNames[1]);
-  await expect(rows.nth(1).locator(".utterance-row-preset strong")).toHaveText(optionNames[0]);
-  await expect(rows.nth(1).locator(".utterance-row-mode")).toContainText("口パク: open");
+  await expect(rows.nth(0).locator(".utterance-row-preset select")).toHaveValue(optionValues[1]);
+  await expect(rows.nth(1).locator(".utterance-row-preset select")).toHaveValue(optionValues[0]);
+  await expect(rows.nth(1).locator(".utterance-row-mode select")).toHaveValue("open");
 
   // An individual edit is reflected in its own row, without changing other items.
   await rows.nth(1).locator(".utterance-item-select").click();
-  await page.locator("#speech-preset").selectOption(optionValues[1]);
-  await expect(rows.nth(1).locator(".utterance-row-preset strong")).toHaveText(optionNames[1]);
-  await expect(rows.nth(0).locator(".utterance-row-preset strong")).toHaveText(optionNames[1]);
-  await expect(rows.nth(0).locator(".utterance-row-mode")).toContainText("口パク: なし");
-  await expect(rows.nth(1).locator(".utterance-row-mode")).toContainText("口パク: open");
+  await page.locator('[data-selected="true"] .utterance-row-preset select').selectOption(optionValues[1]);
+  await expect(rows.nth(1).locator(".utterance-row-preset select")).toHaveValue(optionValues[1]);
+  await expect(rows.nth(0).locator(".utterance-row-preset select")).toHaveValue(optionValues[1]);
+  await expect(rows.nth(0).locator(".utterance-row-mode select")).toHaveValue("none");
+  await expect(rows.nth(1).locator(".utterance-row-mode select")).toHaveValue("open");
+  // A change made from an unselected row switches the selected WAV.
+  await rows.nth(0).locator(".utterance-row-mode select").selectOption("open");
+  await expect(rows.nth(0)).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(0).locator(".utterance-row-mode select")).toHaveValue("open");
+  await expect(rows.nth(1).locator(".utterance-row-mode select")).toHaveValue("open");
+  await expect(page.getByRole("heading", { name: "選択中のWAV" })).toBeVisible();
 });
