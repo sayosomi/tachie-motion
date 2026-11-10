@@ -7,7 +7,7 @@ import { wavFilename, type LipMode, type UtteranceItem } from "./utteranceItems"
 type Props = {
   items: UtteranceItem[];
   presets: Pick<UnifiedPreset, "id" | "name">[];
-  presetsLoading: boolean;
+  presetStatus: "loading" | "ready" | "error";
   selectedId: string | null;
   pendingPath: string;
   addingCount: number;
@@ -19,14 +19,14 @@ type Props = {
   onAdd: (path: string) => Promise<boolean>;
   onAddMany: (paths: string[]) => Promise<boolean>;
   onSelect: (id: string) => void;
-  onRevise: (id: string, patch: Partial<UtteranceItem>) => void;
+  onRevise: (id: string, patch: Partial<UtteranceItem>) => boolean;
   onMove: (id: string, delta: -1 | 1) => void;
   onReorder: (from: string, to: string, after: boolean) => void;
   onRemove: (id: string) => void;
 };
 
 export default function UtteranceList({
-  items, presets, presetsLoading, selectedId, pendingPath, addingCount, addError, disabled,
+  items, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
   exportingId, playback, onPathChange, onAdd, onAddMany, onSelect, onRevise,
   onMove, onReorder, onRemove,
 }: Props) {
@@ -128,11 +128,12 @@ export default function UtteranceList({
               <span className="utterance-row-field-label">プリセット</span>
               <select aria-label={`プリセット: ${index + 1} ${name}`} value={item.presetId}
                 disabled={disabled} onChange={(event) => {
-                  onSelect(item.id);
-                  onRevise(item.id, { presetId: event.target.value });
+                  if (onRevise(item.id, { presetId: event.target.value })) onSelect(item.id);
                 }}>
                 {!presetFound && <option value={item.presetId} disabled>
-                  {presetsLoading ? "確認中…" : "未設定（要再選択）"}
+                  {presetStatus === "loading" ? "確認中…" :
+                    presetStatus === "error" ? "プリセットを確認できません" :
+                      "未設定（要再選択）"}
                 </option>}
                 {presets.map((entry) =>
                   <option key={entry.id} value={entry.id}>{entry.name}</option>)}
@@ -142,8 +143,7 @@ export default function UtteranceList({
               <span className="utterance-row-field-label">口パク</span>
               <select aria-label={`口パク: ${index + 1} ${name}`} value={item.mode}
                 disabled={disabled} onChange={(event) => {
-                  onSelect(item.id);
-                  onRevise(item.id, { mode: event.target.value as LipMode });
+                  if (onRevise(item.id, { mode: event.target.value as LipMode })) onSelect(item.id);
                 }}>
                 <option value="none">なし</option>
                 <option value="open">open</option>
