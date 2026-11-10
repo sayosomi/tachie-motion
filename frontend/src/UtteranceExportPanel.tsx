@@ -21,6 +21,8 @@ type Props = {
   items: UtteranceItem[];
   current: UtteranceItem | undefined;
   draftAvailable: boolean;
+  openMouthMissing: boolean;
+  blinkUnsupported: boolean;
   info: ExportDestination | undefined;
   destinationError: string;
   requiresAlternate: boolean;
@@ -37,7 +39,8 @@ type Props = {
 };
 
 export default function UtteranceExportPanel({
-  items, current, draftAvailable, info, destinationError, requiresAlternate,
+  items, current, draftAvailable, openMouthMissing, blinkUnsupported,
+  info, destinationError, requiresAlternate,
   saveAsName, outputBasename, canExport, exportingId, addingCount,
   scope, onScopeChange, onRevise, onSingleExport, batch,
 }: Props) {
@@ -60,7 +63,14 @@ export default function UtteranceExportPanel({
     </fieldset>
 
     {current ? <div className="export-current-settings">
+      <p className="hint" title={current.wavPath}>選択中のWAV：{wavFilename(current.wavPath)}</p>
       <p className="hint">選択中のセリフの保存設定です。全件を選んでも、各WAVに指定した設定を使用します。</p>
+      {openMouthMissing && <p className="hint warning">
+        このプリセットの「口パク（open）」で、異なる閉口・開口のレイヤー表示状態を設定してください。
+      </p>}
+      {blinkUnsupported && <p className="hint warning">
+        このプリセットは瞬きが有効です。瞬きの書き出しは未実装です。
+      </p>}
       <label htmlFor="speech-fps">フレームレート</label>
       <select id="speech-fps" value={current.fps}
         disabled={locked}
