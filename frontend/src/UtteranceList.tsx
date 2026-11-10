@@ -20,6 +20,8 @@ type Props = {
   onAddMany: (paths: string[]) => Promise<boolean>;
   onSelect: (id: string) => void;
   onRevise: (id: string, patch: Partial<UtteranceItem>) => boolean;
+  canApplyToAll: boolean;
+  onApplyToAll: () => void;
   onMove: (id: string, delta: -1 | 1) => void;
   onReorder: (from: string, to: string, after: boolean) => void;
   onRemove: (id: string) => void;
@@ -28,7 +30,7 @@ type Props = {
 export default function UtteranceList({
   items, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
   exportingId, playback, onPathChange, onAdd, onAddMany, onSelect, onRevise,
-  onMove, onReorder, onRemove,
+  onMove, onReorder, onRemove, canApplyToAll, onApplyToAll,
 }: Props) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
@@ -49,6 +51,8 @@ export default function UtteranceList({
           onClick={playback.playAll}>全件を連続再生</button>
         <button type="button" disabled={!playback.activeId}
           onClick={playback.stop}>停止</button>
+        {items.length > 1 && <button type="button" disabled={!canApplyToAll}
+          onClick={onApplyToAll}>選択中の設定を全件に適用</button>}
       </div>
     </div>
     <NativeFilePicker id="speech-wav-path" kind="wav" label="WAVファイルを追加"
@@ -119,7 +123,7 @@ export default function UtteranceList({
               <span className="utterance-item-details">
                 <strong title={item.wavPath}>{name}</strong>
                 <small title={item.wavPath}>{item.wavPath}</small>
-                <small>{item.wav.duration_seconds.toFixed(2)}秒
+                <small>{item.wav.duration_seconds.toFixed(2)}秒 ／ {item.wav.sample_rate}Hz
                   {item.result ? " ／ 書き出し済み" : item.error ? " ／ 書き出し失敗" : ""}
                 </small>
               </span>
