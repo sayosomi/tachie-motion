@@ -196,5 +196,6 @@ export function useBatchUtteranceExport(
     }
   }
 
-  return { running, progress, summary, run, displayed, reviewing, reviewError };
+  // Read the synchronous ref from event handlers, including before React commits running=true.
+  return { running, isBusy: () => busy.current, progress, summary, run, displayed, reviewing, reviewError };
 }
