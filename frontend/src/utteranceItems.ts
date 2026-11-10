@@ -60,6 +60,20 @@ export function moveUtterance(
   return result;
 }
 
+// Drag and drop preserves each item's ID and independent edit settings.
+export function reorderUtterances(
+  items: UtteranceItem[], sourceId: string, targetId: string, after: boolean,
+): UtteranceItem[] {
+  if (sourceId === targetId) return items;
+  const sourceIndex = items.findIndex((item) => item.id === sourceId);
+  if (sourceIndex < 0 || !items.some((item) => item.id === targetId)) return items;
+  const result = [...items];
+  const [source] = result.splice(sourceIndex, 1);
+  const targetIndex = result.findIndex((item) => item.id === targetId);
+  result.splice(targetIndex + (after ? 1 : 0), 0, source);
+  return result;
+}
+
 export function wavFilename(path: string): string {
   return path.split(/[\\/]/).at(-1) || path;
 }

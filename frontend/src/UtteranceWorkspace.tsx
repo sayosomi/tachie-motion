@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import type { Layer } from "./LayerTree";
-import NativeFilePicker from "./NativeFilePicker";
+import UtteranceExportPanel, { type ExportScope } from "./UtteranceExportPanel";
 import UtteranceList from "./UtteranceList";
+import useWavPlayback from "./WavPlayback";
+import { useBatchUtteranceExport } from "./useBatchUtteranceExport";
+import { exportPayload, exportReady } from "./utteranceExportRequest";
 import type { UnifiedPreset } from "./presetModel";
 import { matchesSource, readPresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
-  createUtterance, moveUtterance, updateUtterance,
-  type ExportData, type Fps, type LipMode, type UtteranceItem, type WavData,
+  createUtterance, moveUtterance, reorderUtterances, updateUtterance,
+  type ExportData, type UtteranceItem, type WavData,
 } from "./utteranceItems";
 
 type PsdData = { fingerprint: string; layers: Layer[] };
@@ -40,9 +43,11 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   const [pendingPath, setPendingPath] = useState("");
   const [defaultOutputDir, setDefaultOutputDir] = useState("");
   const [startupError, setStartupError] = useState("");
+  const [presetStatus, setPresetStatus] = useState<"loading" | "ready" | "error">("loading");
   const [addError, setAddError] = useState("");
   const [addingCount, setAddingCount] = useState(0);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [exportScope, setExportScope] = useState<ExportScope>("single");
   const [destination, setDestination] = useState<DestinationCheck | null>(null);
   const [destinationError, setDestinationError] = useState("");
   const [probeVersion, setProbeVersion] = useState(0);
@@ -50,6 +55,14 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   const latestAdd = useRef(0);
   const selectionEpoch = useRef(0);
   const mounted = useRef(false);
+  // Synchronous guard closes the gap before React commits exportingId state.
+  const singleExportLock = useRef(false);
+  const batch = useBatchUtteranceExport(draft, items, setItems,
+    () => setProbeVersion((previous) => previous + 1), active && exportScope === "all");
+  const playback = useWavPlayback(items);
+  const editingLocked = batch.running || batch.isBusy() || !!exportingId;
+  // A stale DOM event may run before React commits running/exportingId.
+  const isEditBusy = () => editingLocked || singleExportLock.current || batch.isBusy();
 
   useEffect(() => {
     mounted.current = true;
@@ -62,6 +75,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     if (!active) return;
     let cancelled = false;
     setStartupError("");
+    setPresetStatus("loading");
     setDraft(null); // Block export until the returning preset snapshot is revalidated.
     const load = async () => {
       try {
@@ -81,10 +95,12 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
         }
         if (cancelled) return;
         setDraft(saved);
+        setPresetStatus("ready");
         setDefaultOutputDir(health.default_output_dir);
       } catch (err) {
         if (cancelled) return;
         setDraft(null);
+        setPresetStatus("error");
         setStartupError(err instanceof Error ? err.message : String(err));
       }
     };
@@ -100,11 +116,14 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     setActiveId(id);
   }
 
-  function revise(id: string, patch: Partial<UtteranceItem>) {
+  function revise(id: string, patch: Partial<UtteranceItem>): boolean {
+    if (isEditBusy()) return false;
     setItems((previous) => updateUtterance(previous, id, patch));
+    return true;
   }
 
   async function addWav(path: string): Promise<boolean> {
+    if (isEditBusy()) return false;
     if (!draft || !path.trim()) {
       setAddError("WAVのパスを指定してください");
       return false;
@@ -146,9 +165,17 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     }
   }
 
+  async function addManyWavs(paths: string[]): Promise<boolean> {
+    if (isEditBusy()) return false;
+    // Analyze in parallel while keeping registration order by the allocated sequence ID.
+    // Partial failures remain visible with their original paths.
+    const outcomes = await Promise.all(paths.map((path) => addWav(path)));
+    return outcomes.some(Boolean);
+  }
+
   function removeItem(id: string) {
     const index = items.findIndex((item) => item.id === id);
-    if (index < 0 || exportingId === id) return;
+    if (index < 0 || isEditBusy()) return;
     setItems((previous) => previous.filter((item) => item.id !== id));
     if (activeId === id) {
       selectionEpoch.current++;
@@ -185,26 +212,22 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   const outputBasename = requiresAlternate ? saveAsName : current?.basename ?? "";
   const conflictPolicy = info?.state === "complete" && !requiresAlternate
     ? "overwrite" : "error";
-  const allowed = !!selected && !selected.blinkEnabled &&
-    (current?.mode === "none" || openMouthReady(selected));
-  const canExport = !!draft && !!current && allowed && !exportingId &&
+  const allowed = !!current && exportReady(selected, current);
+  const canExport = !!draft && !!current && allowed && !editingLocked &&
+    !singleExportLock.current && addingCount === 0 &&
     !!info && !destinationError &&
     /^[A-Za-z0-9_-]{1,64}$/.test(outputBasename) &&
     (!requiresAlternate || outputBasename !== current.basename);
 
   async function exportUtterance() {
-    if (!draft || !current || !selected || !canExport) return;
+    if (!draft || !current || !selected || !canExport || isEditBusy()) return;
+    singleExportLock.current = true;
     const itemId = current.id;
     setExportingId(itemId);
     setItems((previous) => updateUtterance(previous, itemId, {}));
     try {
-      const result = await post<ExportData>("preset-utterance-export", {
-        psd: draft.path, wav: current.wavPath, fingerprint: draft.fingerprint,
-        layers: selected.base, mouth: selected.openMouth ?? null,
-        mode: current.mode, blink_enabled: selected.blinkEnabled,
-        output_dir: current.outputDir, basename: outputBasename,
-        conflict_policy: conflictPolicy, fps: current.fps,
-      });
+      const result = await post<ExportData>("preset-utterance-export",
+        exportPayload(draft, current, selected, outputBasename, conflictPolicy));
       if (mounted.current) setItems((previous) => previous.map((item) =>
         item.id === itemId ? { ...item, result, error: "" } : item));
     } catch (err) {
@@ -212,6 +235,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
         item.id === itemId ? { ...item, result: null,
           error: err instanceof Error ? err.message : String(err) } : item));
     } finally {
+      singleExportLock.current = false;
       if (mounted.current) {
         setExportingId(null);
         setProbeVersion((previous) => previous + 1);
@@ -219,115 +243,50 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     }
   }
 
+  const canApplyToAll = !!current && !!selected && exportReady(selected, current) &&
+    !editingLocked && addingCount === 0 && items.length > 1;
+
+  function applySelectedAnimationToAll() {
+    if (!canApplyToAll || isEditBusy() || !current) return;
+    if (!window.confirm("選択中のプリセットと口パク方式を全WAVへ適用しますか？他のWAVのプリセットと口パク方式だけを変更し、fps・出力先・ファイル名は変更しません。")) return;
+    setItems((previous) => previous.map((item) =>
+      item.presetId === current.presetId && item.mode === current.mode ? item :
+        { ...item, presetId: current.presetId, mode: current.mode, result: null, error: "" }));
+  }
+
   return <main className="app utterance-workspace">
     <header className="topbar"><div className="brand"><span className="brand-mark">t</span>
       <span>tachie-motion</span></div></header>
     <div className="intro"><h1>セリフ</h1></div>
-    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・書き出します。一括出力・aiueo・瞬き・待機・変更点は後続対応です。</p>
+    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件のMOV・個別OTIOの一括書き出しに対応します。aiueo・瞬き・待機・変更点・全体OTIOは後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
-    <UtteranceList items={items} selectedId={activeId} pendingPath={pendingPath}
+    <UtteranceList items={items} presets={draft?.collection.items ?? []}
+      presetStatus={presetStatus}
+      selectedId={activeId} pendingPath={pendingPath}
       addingCount={addingCount} addError={addError}
-      disabled={!draft} exportingId={exportingId}
-      onPathChange={setPendingPath} onAdd={addWav} onSelect={selectItem}
-      onMove={(id, delta) => setItems((previous) => moveUtterance(previous, id, delta))}
-      onRemove={removeItem} />
-    <div className="utterance-columns">
-      <section className="panel">
-        <h2>選択中のWAV</h2>
-        <p className="hint">PSD: {draft?.path ?? "読み込み中…"}</p>
-        {!current ? <p className="hint">一覧からセリフを選択してください。</p> : <>
-          <p className="hint" title={current.wavPath}>WAV: {current.wavPath}</p>
-          <p className="meta">長さ {current.wav.duration_seconds.toFixed(2)}秒 ／ {current.wav.sample_rate}Hz</p>
-          <label htmlFor="speech-preset">プリセット</label>
-          <select id="speech-preset" value={current.presetId}
-            disabled={!draft || exportingId === current.id}
-            onChange={(e) => revise(current.id, { presetId: e.target.value })}>
-            {!selected && <option value={current.presetId}>（プリセットを再選択してください）</option>}
-            {draft?.collection.items.map((preset) =>
-              <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-          </select>
-          <label htmlFor="speech-lip-mode">口パク方式</label>
-          <select id="speech-lip-mode" value={current.mode}
-            disabled={exportingId === current.id}
-            onChange={(e) => revise(current.id, { mode: e.target.value as LipMode })}>
-            <option value="none">なし</option>
-            <option value="open">open（音量連動）</option>
-            <option value="aiueo" disabled>aiueo（後続対応）</option>
-          </select>
-          {current.mode === "open" && !openMouthReady(selected) &&
-            <p className="hint warning">このプリセットの「口パク（open）」で、異なる閉口・開口のレイヤー表示状態を設定してください。</p>}
-          {selected?.blinkEnabled &&
-            <p className="hint warning">このプリセットは瞬きが有効です。瞬きの書き出しは未実装です。</p>}
-        </>}
-      </section>
-      <section className="panel">
-        <h2>個別書き出し</h2>
-        {!current ? <>
-          <p className="hint">セリフを選択すると書き出し設定を編集できます。</p>
-          <button type="button" className="primary" disabled>MOVとOTIOを書き出す</button>
-        </> : <>
-          <label htmlFor="speech-fps">フレームレート</label>
-          <select id="speech-fps" value={current.fps}
-            disabled={exportingId === current.id}
-            onChange={(e) => revise(current.id, { fps: Number(e.target.value) as Fps })}>
-            <option value={24}>24 fps</option><option value={30}>30 fps</option><option value={60}>60 fps</option>
-          </select>
-          <NativeFilePicker id="speech-output-dir" kind="output_dir" label="出力フォルダ"
-            value={current.outputDir} disabled={exportingId === current.id}
-            onChange={(path) => revise(current.id, { outputDir: path, saveAsName: null })}
-            onSelected={(path) => revise(current.id, { outputDir: path, saveAsName: null })} />
-          <label htmlFor="speech-basename">ファイル名（英数字・-・_）</label>
-          <input id="speech-basename" value={current.basename}
-            disabled={exportingId === current.id}
-            onChange={(e) => revise(current.id, { basename: e.target.value, saveAsName: null })} />
-          {destinationError && <p className="hint warning" role="alert">{destinationError}</p>}
-          {info?.state === "complete" && <>
-            <p className="hint">同名のMOV・OTIOがあります。</p>
-            <fieldset className="output-conflict-choice">
-              <legend>保存方法</legend>
-              <label><input type="radio" name="speech-conflict" value="overwrite"
-                checked={current.conflictChoice === "overwrite"}
-                disabled={exportingId === current.id}
-                onChange={() => revise(current.id, { conflictChoice: "overwrite" })} />上書きする</label>
-              <label><input type="radio" name="speech-conflict" value="rename"
-                checked={current.conflictChoice === "rename"}
-                disabled={exportingId === current.id}
-                onChange={() => revise(current.id, { conflictChoice: "rename" })} />別名で書き出す</label>
-            </fieldset>
-          </>}
-          {info && info.state !== "available" && info.state !== "complete" &&
-            <p className="hint warning" role="status">
-              {info.state === "partial"
-                ? "同名のMOV・OTIOの片方だけがあります。安全のため上書きできません。"
-                : info.state === "unsafe"
-                  ? "同名の出力先が通常ファイルではありません。上書きできません。"
-                  : "前回の書き出しで復旧確認が必要なファイルが残っています。同名への書き出しは停止します。"}
-            </p>}
-          {requiresAlternate && <div className="output-save-as">
-            <label htmlFor="speech-save-as">別名のファイル名</label>
-            <input id="speech-save-as" value={saveAsName}
-              disabled={exportingId === current.id}
-              onChange={(e) => revise(current.id, { saveAsName: e.target.value })} />
-            <p className="hint">元のMOV・OTIOは残します。</p>
-          </div>}
-          {info && <p className="hint" aria-label="出力予定ファイル">
-            出力予定：{outputBasename || "（未入力）"}.mov ／ {outputBasename || "（未入力）"}.otio
-          </p>}
-          <button type="button" className="primary" disabled={!canExport}
-            onClick={() => { void exportUtterance(); }}>
-            {exportingId === current.id ? "処理中…" : requiresAlternate ? "別名で書き出す"
-              : info?.state === "complete" ? "上書きして書き出す" : "MOVとOTIOを書き出す"}
-          </button>
-          <p className="hint">選択中の1セリフのみ出力します。元PSD・WAVは変更しません。</p>
-          {current.error && <p className="hint warning" role="alert">{current.error}</p>}
-          {current.result && <div className="success" role="status">
-            <strong>書き出し完了・{current.result.frames}フレーム</strong>
-            <p>MOV: <code>{current.result.mov}</code></p>
-            <p>OTIO: <code>{current.result.otio}</code></p>
-            {current.result.warning && <p className="hint warning" role="alert">{current.result.warning}</p>}
-          </div>}
-        </>}
-      </section>
-    </div>
+      disabled={!draft || editingLocked} exportingId={exportingId} playback={playback}
+      onPathChange={setPendingPath} onAdd={addWav} onAddMany={addManyWavs}
+      onSelect={selectItem} onRevise={revise}
+      onMove={(id, delta) => {
+        if (isEditBusy() || addingCount > 0) return;
+        setItems((previous) => moveUtterance(previous, id, delta));
+      }}
+      onReorder={(from, to, after) => {
+        if (isEditBusy() || addingCount > 0) return;
+        setItems((previous) => reorderUtterances(previous, from, to, after));
+      }}
+      onRemove={removeItem} canApplyToAll={canApplyToAll}
+      onApplyToAll={applySelectedAnimationToAll} />
+    <UtteranceExportPanel
+        items={items} current={current} draftAvailable={!!draft}
+        openMouthMissing={current?.mode === "open" && !openMouthReady(selected)}
+        blinkUnsupported={!!selected?.blinkEnabled}
+        info={info} destinationError={destinationError}
+        requiresAlternate={requiresAlternate} saveAsName={saveAsName}
+        outputBasename={outputBasename} canExport={canExport}
+        exportingId={exportingId} addingCount={addingCount}
+        scope={exportScope} onScopeChange={setExportScope}
+        onRevise={revise} onSingleExport={() => { void exportUtterance(); }}
+        batch={batch} />
   </main>;
 }
