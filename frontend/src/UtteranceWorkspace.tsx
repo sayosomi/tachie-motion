@@ -43,6 +43,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   const [pendingPath, setPendingPath] = useState("");
   const [defaultOutputDir, setDefaultOutputDir] = useState("");
   const [startupError, setStartupError] = useState("");
+  const [presetStatus, setPresetStatus] = useState<"loading" | "ready" | "error">("loading");
   const [addError, setAddError] = useState("");
   const [addingCount, setAddingCount] = useState(0);
   const [exportingId, setExportingId] = useState<string | null>(null);
@@ -59,7 +60,9 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   const batch = useBatchUtteranceExport(draft, items, setItems,
     () => setProbeVersion((previous) => previous + 1), active && exportScope === "all");
   const playback = useWavPlayback(items);
-  const editingLocked = batch.running || !!exportingId;
+  const editingLocked = batch.running || batch.isBusy() || !!exportingId;
+  // A stale DOM event may run before React commits running/exportingId.
+  const isEditBusy = () => editingLocked || singleExportLock.current || batch.isBusy();
 
   useEffect(() => {
     mounted.current = true;
@@ -72,6 +75,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     if (!active) return;
     let cancelled = false;
     setStartupError("");
+    setPresetStatus("loading");
     setDraft(null); // Block export until the returning preset snapshot is revalidated.
     const load = async () => {
       try {
@@ -91,10 +95,12 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
         }
         if (cancelled) return;
         setDraft(saved);
+        setPresetStatus("ready");
         setDefaultOutputDir(health.default_output_dir);
       } catch (err) {
         if (cancelled) return;
         setDraft(null);
+        setPresetStatus("error");
         setStartupError(err instanceof Error ? err.message : String(err));
       }
     };
@@ -110,13 +116,14 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     setActiveId(id);
   }
 
-  function revise(id: string, patch: Partial<UtteranceItem>) {
-    if (editingLocked || singleExportLock.current) return;
+  function revise(id: string, patch: Partial<UtteranceItem>): boolean {
+    if (isEditBusy()) return false;
     setItems((previous) => updateUtterance(previous, id, patch));
+    return true;
   }
 
   async function addWav(path: string): Promise<boolean> {
-    if (editingLocked || singleExportLock.current) return false;
+    if (isEditBusy()) return false;
     if (!draft || !path.trim()) {
       setAddError("WAVのパスを指定してください");
       return false;
@@ -159,7 +166,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   }
 
   async function addManyWavs(paths: string[]): Promise<boolean> {
-    if (editingLocked || singleExportLock.current) return false;
+    if (isEditBusy()) return false;
     // Analyze in parallel while keeping registration order by the allocated sequence ID.
     // Partial failures remain visible with their original paths.
     const outcomes = await Promise.all(paths.map((path) => addWav(path)));
@@ -168,7 +175,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
 
   function removeItem(id: string) {
     const index = items.findIndex((item) => item.id === id);
-    if (index < 0 || editingLocked || singleExportLock.current) return;
+    if (index < 0 || isEditBusy()) return;
     setItems((previous) => previous.filter((item) => item.id !== id));
     if (activeId === id) {
       selectionEpoch.current++;
@@ -213,8 +220,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     (!requiresAlternate || outputBasename !== current.basename);
 
   async function exportUtterance() {
-    if (!draft || !current || !selected || !canExport ||
-        singleExportLock.current || editingLocked) return;
+    if (!draft || !current || !selected || !canExport || isEditBusy()) return;
     singleExportLock.current = true;
     const itemId = current.id;
     setExportingId(itemId);
@@ -239,7 +245,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
 
   function applySelectedAnimationToAll() {
     if (!current || !selected || !exportReady(selected, current) ||
-        editingLocked || singleExportLock.current || items.length < 2) return;
+        isEditBusy() || items.length < 2) return;
     if (!window.confirm("選択中のプリセットと口パク方式を全WAVへ適用しますか？他のWAVのプリセットと口パク方式だけを変更し、fps・出力先・ファイル名は変更しません。")) return;
     setItems((previous) => previous.map((item) =>
       item.presetId === current.presetId && item.mode === current.mode ? item :
@@ -253,18 +259,18 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件のMOV・個別OTIOの一括書き出しに対応します。aiueo・瞬き・待機・変更点・全体OTIOは後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} presets={draft?.collection.items ?? []}
-      presetsLoading={!draft && !startupError}
+      presetStatus={presetStatus}
       selectedId={activeId} pendingPath={pendingPath}
       addingCount={addingCount} addError={addError}
       disabled={!draft || editingLocked} exportingId={exportingId} playback={playback}
       onPathChange={setPendingPath} onAdd={addWav} onAddMany={addManyWavs}
       onSelect={selectItem} onRevise={revise}
       onMove={(id, delta) => {
-        if (editingLocked || singleExportLock.current || addingCount > 0) return;
+        if (isEditBusy() || addingCount > 0) return;
         setItems((previous) => moveUtterance(previous, id, delta));
       }}
       onReorder={(from, to, after) => {
-        if (editingLocked || singleExportLock.current || addingCount > 0) return;
+        if (isEditBusy() || addingCount > 0) return;
         setItems((previous) => reorderUtterances(previous, from, to, after));
       }}
       onRemove={removeItem} />
