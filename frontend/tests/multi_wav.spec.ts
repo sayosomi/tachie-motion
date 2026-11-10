@@ -897,6 +897,20 @@ test("an edit in the same JS turn as starting batch export is rejected by the sy
   await openSpeech(page);
   await addWav(page, "/tmp/first.wav");
   await addWav(page, "/tmp/second.wav");
+  let releaseExport: (() => void) | undefined;
+  let exportsStarted = 0;
+  await page.route("**/api/preset-utterance-export", async (route) => {
+    exportsStarted++;
+    if (exportsStarted === 1) {
+      await new Promise<void>((resolve) => { releaseExport = resolve; });
+    }
+    const payload = route.request().postDataJSON() as { basename: string };
+    await route.fulfill({ json: {
+      mov: "/tmp/output/" + payload.basename + ".mov",
+      otio: "/tmp/output/" + payload.basename + ".otio",
+      frames: 30, sample_count: 800,
+    } });
+  });
   const first = page.locator("[data-utterance-id]").first().locator(".utterance-row-mode select");
   const second = page.locator("[data-utterance-id]").nth(1).locator(".utterance-row-mode select");
   // Verify that a direct DOM change is a real React change event before trying the race.
@@ -921,10 +935,13 @@ test("an edit in the same JS turn as starting batch export is rejected by the sy
     select.value = "open";
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
+  await expect.poll(() => Boolean(releaseExport)).toBe(true);
   await expect(first).toHaveValue("none");
   await expect(second).toHaveValue("none");
   await expect(page.locator("[data-utterance-id]").nth(1))
     .toHaveAttribute("data-selected", "true");
+  await expect(page.locator(".utterance-row-mode select:disabled")).toHaveCount(2);
+  releaseExport!();
   await expect(page.getByText("一括書き出し完了：成功 2 件／失敗 0 件", { exact: false }))
     .toBeVisible();
 });
