@@ -852,7 +852,20 @@ test("WAV list shows each item's preset and lip mode after editing and reorderin
   await expect(rows.nth(1)).toHaveAttribute("data-selected", "false");
   await expect(rows.nth(0).locator(".utterance-row-mode select")).toHaveValue("open");
   await expect(rows.nth(1).locator(".utterance-row-mode select")).toHaveValue("open");
-  await expect(page.getByRole("heading", { name: "選択中のWAV" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "選択中のWAV" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "書き出し", exact: true })).toBeVisible();
+  await expect(page.locator(".utterance-list-toolbar").getByRole("button", {
+    name: "選択中の設定を全件に適用",
+  })).toBeVisible();
+  const width = await page.evaluate(() => {
+    const list = document.querySelector(".utterance-list-panel")!.getBoundingClientRect();
+    const exportPanel = document.querySelector(".utterance-export-panel")!.getBoundingClientRect();
+    return { list: list.width, export: exportPanel.width,
+      left: Math.abs(list.left - exportPanel.left), vertical: exportPanel.top > list.bottom };
+  });
+  expect(Math.abs(width.list - width.export)).toBeLessThanOrEqual(2);
+  expect(width.left).toBeLessThanOrEqual(2);
+  expect(width.vertical).toBe(true);
 });
 
 
@@ -972,4 +985,49 @@ test("preset verification failure is not displayed as a missing assigned preset"
   await expect(preset.locator("option:checked")).toHaveText("プリセットを確認できません");
   await expect(preset).toBeDisabled();
   await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+});
+
+
+test("removing the selected-WAV panel retains row details, list bulk apply, and export warnings", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
+  }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/first.wav");
+  await addWav(page, "/tmp/second.wav");
+  const list = page.locator(".utterance-list-panel");
+  const exportPanel = page.locator(".utterance-export-panel");
+  await expect(page.getByRole("heading", { name: "選択中のWAV" })).toHaveCount(0);
+  await expect(exportPanel).toHaveCount(1);
+  await expect(list.locator(".utterance-item")).toHaveCount(2);
+  await expect(list.locator(".utterance-item").first()).toContainText("8000Hz");
+  const apply = list.getByRole("button", { name: "選択中の設定を全件に適用" });
+  await expect(apply).toBeEnabled();
+  await expect(exportPanel.getByText("選択中のWAV：second.wav")).toBeVisible();
+  await expect(exportPanel.locator("#speech-fps")).toHaveValue("30");
+  await expect(exportPanel.locator("#speech-basename")).toHaveValue("speech_002");
+
+  // The only state change from bulk apply is preset/mode; each WAV retains save settings.
+  await page.locator(".utterance-item").first().locator(".utterance-item-select").click();
+  await page.locator("#speech-fps").selectOption("60");
+  await page.locator("#speech-basename").fill("different_name");
+  await page.locator(".utterance-item").nth(1).locator(".utterance-item-select").click();
+  const dialog = page.waitForEvent("dialog").then(async (d) => {
+    expect(d.message()).toContain("プリセットと口パク方式");
+    await d.accept();
+  });
+  await apply.click();
+  await dialog;
+  await page.locator(".utterance-item").first().locator(".utterance-item-select").click();
+  await expect(page.locator("#speech-fps")).toHaveValue("60");
+  await expect(page.locator("#speech-basename")).toHaveValue("different_name");
+  await expect(list.getByRole("button", { name: "選択中の設定を全件に適用" }))
+    .toBeEnabled();
+
+  // Mouth mappings are absent in this test fixture: warnings must still be visible.
+  await list.locator(".utterance-item").first().locator(".utterance-row-mode select")
+    .selectOption("open");
+  await expect(exportPanel.getByText("異なる閉口・開口", { exact: false })).toBeVisible();
+  await expect(exportPanel.getByRole("button", { name: "MOVとOTIOを書き出す" }))
+    .toBeDisabled();
 });
