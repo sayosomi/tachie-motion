@@ -854,3 +854,116 @@ test("WAV list shows each item's preset and lip mode after editing and reorderin
   await expect(rows.nth(1).locator(".utterance-row-mode select")).toHaveValue("open");
   await expect(page.getByRole("heading", { name: "選択中のWAV" })).toBeVisible();
 });
+
+
+test("desktop WAV headers align with dropdown columns both with and without a list scrollbar", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
+  }));
+  await openSpeech(page);
+  const aligned = async () => page.evaluate(() => {
+    const positions = (selector: string) =>
+      document.querySelector(selector)!.getBoundingClientRect().left;
+    return {
+      preset: positions(".utterance-column-preset") - positions(".utterance-row-preset"),
+      mode: positions(".utterance-column-mode") - positions(".utterance-row-mode"),
+      scrollable: (() => {
+        const list = document.querySelector(".utterance-items")!;
+        return list.scrollHeight > list.clientHeight;
+      })(),
+    };
+  });
+  await addWav(page, "/tmp/first.wav");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  let widths = await aligned();
+  expect(widths.scrollable).toBe(false);
+  expect(Math.abs(widths.preset)).toBeLessThanOrEqual(2);
+  expect(Math.abs(widths.mode)).toBeLessThanOrEqual(2);
+  for (let i = 2; i <= 9; i++) {
+    await addWav(page, "/tmp/voice_" + i + ".wav");
+  }
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(9);
+  widths = await aligned();
+  expect(widths.scrollable).toBe(true);
+  expect(Math.abs(widths.preset)).toBeLessThanOrEqual(2);
+  expect(Math.abs(widths.mode)).toBeLessThanOrEqual(2);
+});
+
+test("an edit in the same JS turn as starting batch export is rejected by the synchronous lock", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
+  }));
+  let release: (() => void) | undefined;
+  await page.route("**/api/preset-utterance-destination", async (route) => {
+    // Delay execution preflight, but keep initial preview preflights immediate.
+    if (release) await new Promise<void>((resolve) => {
+      const previous = release!;
+      release = () => { previous(); resolve(); };
+    });
+    await route.fulfill({ json: {
+      state: "available", suggested_basename: "alternate_002",
+      canonical_output_dir: "/tmp/output",
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/first.wav");
+  await addWav(page, "/tmp/second.wav");
+  const first = page.locator("[data-utterance-id]").first().locator(".utterance-row-mode select");
+  const second = page.locator("[data-utterance-id]").nth(1).locator(".utterance-row-mode select");
+  // Verify that a direct DOM change is a real React change event before trying the race.
+  await first.evaluate((node) => {
+    const el = node as HTMLSelectElement;
+    el.value = "open";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await expect(first).toHaveValue("open");
+  await first.selectOption("none");
+  await expect(first).toHaveValue("none");
+
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeEnabled();
+  await page.evaluate(() => {
+    const run = [...document.querySelectorAll("button")].find((button) =>
+      button.textContent?.trim() === "全件を書き出す")!;
+    // A synthetic event intentionally bypasses disabled UI, in the same JS turn.
+    run.click();
+    const select = document.querySelector(".utterance-row-mode select") as HTMLSelectElement;
+    select.value = "open";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await expect(first).toHaveValue("none");
+  await expect(second).toHaveValue("none");
+  await expect(page.locator("[data-utterance-id]").nth(1))
+    .toHaveAttribute("data-selected", "true");
+  await expect(page.getByText("一括書き出し完了：成功 2 件／失敗 0 件", { exact: false }))
+    .toBeVisible();
+});
+
+test("preset verification failure is not displayed as a missing assigned preset", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
+  }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/voice.wav");
+  const preset = page.locator("[data-utterance-id] .utterance-row-preset select");
+  await expect(preset).toBeEnabled();
+
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  let release: (() => void) | undefined;
+  await page.route("**/api/psd", async (route) => {
+    await new Promise<void>((resolve) => { release = resolve; });
+    await route.fulfill({ json: {
+      width: 64, height: 64, fingerprint: "changed-source", preview: png, layers,
+    } });
+  });
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await expect(preset).toBeDisabled();
+  await expect(preset.locator("option:checked")).toHaveText("確認中…");
+  await expect.poll(() => Boolean(release)).toBe(true);
+  release!();
+  await expect(page.getByRole("alert")).toContainText("PSDが変更");
+  await expect(preset.locator("option:checked")).toHaveText("プリセットを確認できません");
+  await expect(preset).toBeDisabled();
+  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+});
