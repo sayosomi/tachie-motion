@@ -47,11 +47,12 @@ test("new preset-backed none/open utterance workflow sends exact preset snapshot
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await page.getByRole("button", { name: "セリフ", exact: true }).click();
   await expect(page.getByRole("heading", { name: "セリフ" })).toBeVisible();
-  await expect(page.getByText("PSD: /tmp/character.psd")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "選択中のWAV" })).toHaveCount(0);
+  await expect(page.locator(".utterance-list-panel")).toBeVisible();
   await page.locator("#speech-wav-path-advanced").evaluate((el) => { (el as HTMLDetailsElement).open = true; });
   await page.locator("#speech-wav-path").fill("/tmp/voice.wav");
   await page.getByRole("button", { name: "WAVを確認" }).click();
-  await expect(page.getByText("長さ 1.00秒")).toBeVisible();
+  await expect(page.locator(".utterance-item").first()).toContainText("1.00秒 ／ 1000Hz");
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
   await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
   await expect(page.getByRole("status")).toContainText("書き出し完了");
