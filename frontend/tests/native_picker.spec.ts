@@ -57,7 +57,7 @@ test("Finder-first picker selects PSD/WAV/output folder without direct path typi
   await page.getByRole("button", { name: "セリフ", exact: true }).click();
   await expect(page.getByRole("button", { name: "Finderで選ぶ" })).toBeEnabled();
   await page.getByRole("button", { name: "Finderで選ぶ" }).click();
-  await expect(page.getByText("長さ 1.00秒")).toBeVisible();
+  await expect(page.locator(".utterance-item").first()).toContainText("1.00秒 ／ 1000Hz");
   await page.getByRole("button", { name: "フォルダを選ぶ" }).click();
   await expect(page.getByText("Movies", { exact: true })).toBeVisible();
   expect(picked).toEqual([
