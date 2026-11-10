@@ -330,11 +330,14 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .utterance-list-toolbar .meta { margin-right:8px; }
 /* Header and rows share the same compact desktop column widths. */
 .utterance-list-columns, .utterance-item {
-  display:grid; grid-template-columns:34px 38px minmax(240px,1fr) 200px 120px auto;
+  display:grid; grid-template-columns:34px 38px minmax(240px,1fr) 200px 120px 132px;
   gap:10px; align-items:center; padding:8px;
 }
 .utterance-list-columns { padding-bottom:0; margin-top:12px; color:#9cb4c7;
-  font-size:12px; font-weight:700; }
+  font-size:12px; font-weight:700; overflow-y:auto; scrollbar-gutter:stable; }
+/* Both the scrollable rows and their separate header reserve the same scrollbar gutter. */
+.utterance-items { scrollbar-gutter:stable; }
+.utterance-item-actions { min-width:0; }
 .utterance-column-name { grid-column:3; }
 .utterance-column-preset { grid-column:4; }
 .utterance-column-mode { grid-column:5; }
