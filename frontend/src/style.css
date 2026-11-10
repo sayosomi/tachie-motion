@@ -199,10 +199,8 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 /* Full-width desktop workspace; WAV rows include separate preset and lip columns. */
 .utterance-workspace { max-width:1720px; }
 .utterance-scope { margin:0 0 18px; overflow-wrap:anywhere; }
-.utterance-columns { display:grid; grid-template-columns:minmax(450px,1.1fr) minmax(350px,.9fr);
-  gap:22px; align-items:start; }
-.utterance-columns .panel { min-width:0; }
-.utterance-columns .hint { overflow-wrap:anywhere; }
+.utterance-export-panel { width:100%; min-width:0; }
+.utterance-export-panel .hint { overflow-wrap:anywhere; }
 .mouth-editor { margin-top:22px; padding-top:20px; border-top:1px solid #32445a; }
 .mouth-editor h3 { font-size:16px; margin:0 0 8px; }
 .mouth-editor > input { margin:10px 0; }
@@ -216,7 +214,6 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .mouth-target-row input { width:19px; height:19px; accent-color:#86dbbe; }
 .mouth-target-name { min-width:0; overflow-wrap:anywhere; }
 .mouth-target-name small { color:#91a6bf; }
-@media(max-width:900px) { .utterance-columns { grid-template-columns:1fr; } }
 
 /* Mac desktop: Finder selection is primary; raw paths stay in a disclosure. */
 .native-file-picker { margin:16px 0 8px; min-width:0; }
@@ -370,10 +367,7 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .utterance-loading-label { color:#b6e4d8; font-size:12px; line-height:1.5; }
 .utterance-audio-status { margin:8px 0 0; overflow-wrap:anywhere; }
 .utterance-playback { display:none; }
-.utterance-apply-all { margin-top:12px; padding:12px; border:1px solid #365269;
-  border-radius:6px; }
-.utterance-apply-all button { font-size:12px; }
-.utterance-apply-all .hint { margin:7px 0 0; }
+.utterance-list-toolbar button { min-height:36px; }
 
 .utterance-export-panel .export-scope { display:flex; align-items:center; gap:16px;
   padding:10px 12px; margin:12px 0; border:1px solid #476478; border-radius:6px; }
@@ -381,7 +375,7 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .export-scope label { display:flex; align-items:center; gap:5px; margin:0;
   cursor:pointer; font-size:13px; }
 .export-scope input[type="radio"] { width:auto; margin:0; }
-.export-current-settings { margin-top:12px; }
+.export-current-settings { margin-top:12px; max-width:760px; }
 .export-overview { margin-top:15px; padding:12px; border:1px solid #39556b; border-radius:6px; }
 .export-overview h3 { margin:0 0 8px; font-size:14px; }
 .export-plan-items { list-style:decimal; padding-left:23px; max-height:200px; overflow:auto;
@@ -395,7 +389,7 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .export-plan-items .export-plan-name { font-weight:600; }
 .export-plan-items li > span:nth-child(5) { grid-column:1 / 3; }
 .export-execution { margin-top:15px; }
-.export-execution .primary { width:100%; }
+.export-execution .primary { width:100%; max-width:760px; }
 /* Preserve a readable WAV name and per-WAV settings when the viewport is narrower. */
 @media(max-width:1120px) {
   .utterance-list-columns { display:none; }
