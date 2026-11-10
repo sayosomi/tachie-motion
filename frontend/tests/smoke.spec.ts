@@ -83,7 +83,7 @@ test("stale PSD and missing mouth mappings block export", async ({ page }) => {
   await page.getByRole("button", { name: "WAVを確認" }).click();
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
   await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
-  await expect(page.getByText("異なる閉口・開口")).toBeVisible();
+  await expect(page.locator(".utterance-export-panel").getByText("異なる閉口・開口", { exact: false })).toBeVisible();
 
   await page.route("**/api/psd", (route) => route.fulfill({ json: {
     width: 64, height: 64, fingerprint: "source-changed", preview: png, layers,
@@ -213,8 +213,8 @@ test("one WAV sends identical open-mouth render settings through single and all 
   await expect(page.locator("[data-utterance-id]").nth(1)
     .locator(".utterance-row-mode select")).toHaveValue("none");
   page.once("dialog", (dialog) => void dialog.accept());
-  await page.getByRole("button", {
-    name: "この設定を全件に適用",
+  await page.locator(".utterance-list-panel").getByRole("button", {
+    name: "選択中の設定を全件に適用",
   }).click();
   await expect(page.locator("[data-utterance-id]").nth(1)
     .locator(".utterance-row-mode select")).toHaveValue("open");
