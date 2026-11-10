@@ -295,3 +295,30 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .profile-file-actions input[type="file"] { display:none; }
 .character-profile-actions .profile-hint { margin:0; }
 .character-profile-actions .profile-status { margin:10px 0 0; color:#b4eedb; }
+
+/* Issue #4: compact, independently editable utterance items (desktop-first). */
+.utterance-list-panel { margin:0 0 20px; }
+.utterance-list-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.utterance-list-header .meta { margin:0; }
+.utterance-items { list-style:none; padding:0; margin:15px 0 0; max-height:350px;
+  overflow-y:auto; border:1px solid #31465b; border-radius:9px; }
+.utterance-item { display:grid; grid-template-columns:minmax(0,1fr) auto;
+  align-items:center; gap:8px; padding:7px; border-bottom:1px solid #263a4b; }
+.utterance-item:last-child { border-bottom:0; }
+.utterance-item[data-selected="true"] { background:#203c50; box-shadow:inset 3px 0 #89dcc7; }
+.utterance-item-select { display:flex; width:100%; min-width:0; gap:12px; align-items:center;
+  text-align:left; border:0; background:transparent; padding:6px; border-radius:5px; }
+.utterance-item-select[aria-current="true"] { color:#d8fff1; }
+.utterance-item-index { color:#97b3c6; font-variant-numeric:tabular-nums; min-width:24px; text-align:right; }
+.utterance-item-details { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.utterance-item-details strong, .utterance-item-details small { overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.utterance-item-details strong { font-size:13px; }
+.utterance-item-details small { color:#9eafc2; font-size:11px; }
+.utterance-item-actions { display:flex; gap:5px; }
+.utterance-item-actions button { padding:6px 9px; font-size:12px; }
+.utterance-item-select:focus-visible { outline:2px solid #a8e8d4; outline-offset:1px; }
+@media(max-width:650px) {
+  .utterance-item { grid-template-columns:1fr; }
+  .utterance-item-actions { justify-content:flex-end; }
+}
