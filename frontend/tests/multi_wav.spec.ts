@@ -894,18 +894,6 @@ test("an edit in the same JS turn as starting batch export is rejected by the sy
   await page.route("**/api/wav", (route) => route.fulfill({
     json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
   }));
-  let release: (() => void) | undefined;
-  await page.route("**/api/preset-utterance-destination", async (route) => {
-    // Delay execution preflight, but keep initial preview preflights immediate.
-    if (release) await new Promise<void>((resolve) => {
-      const previous = release!;
-      release = () => { previous(); resolve(); };
-    });
-    await route.fulfill({ json: {
-      state: "available", suggested_basename: "alternate_002",
-      canonical_output_dir: "/tmp/output",
-    } });
-  });
   await openSpeech(page);
   await addWav(page, "/tmp/first.wav");
   await addWav(page, "/tmp/second.wav");
@@ -920,6 +908,7 @@ test("an edit in the same JS turn as starting batch export is rejected by the sy
   await expect(first).toHaveValue("open");
   await first.selectOption("none");
   await expect(first).toHaveValue("none");
+  await page.locator("[data-utterance-id]").nth(1).locator(".utterance-item-select").click();
 
   await page.getByRole("radio", { name: /^全件/ }).check();
   await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeEnabled();
