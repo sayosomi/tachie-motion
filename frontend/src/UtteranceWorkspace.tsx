@@ -243,9 +243,11 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     }
   }
 
+  const canApplyToAll = !!current && !!selected && exportReady(selected, current) &&
+    !editingLocked && addingCount === 0 && items.length > 1;
+
   function applySelectedAnimationToAll() {
-    if (!current || !selected || !exportReady(selected, current) ||
-        isEditBusy() || items.length < 2) return;
+    if (!canApplyToAll || isEditBusy() || !current) return;
     if (!window.confirm("選択中のプリセットと口パク方式を全WAVへ適用しますか？他のWAVのプリセットと口パク方式だけを変更し、fps・出力先・ファイル名は変更しません。")) return;
     setItems((previous) => previous.map((item) =>
       item.presetId === current.presetId && item.mode === current.mode ? item :
@@ -273,29 +275,12 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
         if (isEditBusy() || addingCount > 0) return;
         setItems((previous) => reorderUtterances(previous, from, to, after));
       }}
-      onRemove={removeItem} />
-    <div className="utterance-columns">
-      <section className="panel">
-        <h2>選択中のWAV</h2>
-        <p className="hint">PSD: {draft?.path ?? "読み込み中…"}</p>
-        {!current ? <p className="hint">一覧からセリフを選択してください。</p> : <>
-          <p className="hint" title={current.wavPath}>WAV: {current.wavPath}</p>
-          <p className="meta">長さ {current.wav.duration_seconds.toFixed(2)}秒 ／ {current.wav.sample_rate}Hz</p>
-          <p className="hint">プリセット・口パクは上のWAV一覧で直接変更できます。</p>
-          {items.length > 1 && <div className="utterance-apply-all">
-            <button type="button" disabled={editingLocked ||
-              !exportReady(selected, current)}
-              onClick={applySelectedAnimationToAll}>この設定を全件に適用</button>
-            <p className="hint">口パクはWAVごとに独立しています。新規WAVの初期値は「なし」です。</p>
-          </div>}
-          {current.mode === "open" && !openMouthReady(selected) &&
-            <p className="hint warning">このプリセットの「口パク（open）」で、異なる閉口・開口のレイヤー表示状態を設定してください。</p>}
-          {selected?.blinkEnabled &&
-            <p className="hint warning">このプリセットは瞬きが有効です。瞬きの書き出しは未実装です。</p>}
-        </>}
-      </section>
-      <UtteranceExportPanel
+      onRemove={removeItem} canApplyToAll={canApplyToAll}
+      onApplyToAll={applySelectedAnimationToAll} />
+    <UtteranceExportPanel
         items={items} current={current} draftAvailable={!!draft}
+        openMouthMissing={current?.mode === "open" && !openMouthReady(selected)}
+        blinkUnsupported={!!selected?.blinkEnabled}
         info={info} destinationError={destinationError}
         requiresAlternate={requiresAlternate} saveAsName={saveAsName}
         outputBasename={outputBasename} canExport={canExport}
@@ -303,6 +288,5 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
         scope={exportScope} onScopeChange={setExportScope}
         onRevise={revise} onSingleExport={() => { void exportUtterance(); }}
         batch={batch} />
-    </div>
   </main>;
 }
