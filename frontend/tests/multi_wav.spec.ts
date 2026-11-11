@@ -290,6 +290,8 @@ test("batch exports every WAV in list order and retains individual failures", as
     json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
   }));
   const requests: Array<Record<string, unknown>> = [];
+
+  await openSpeech(page);
   await page.route("**/api/preset-batch-mov-export", (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
     requests.push(payload);
@@ -301,7 +303,6 @@ test("batch exports every WAV in list order and retains individual failures", as
       frames: 30, sample_count: 800, sample_rate: 8000,
     } });
   });
-  await openSpeech(page);
   await addWav(page, "/tmp/a.wav");
   await addWav(page, "/tmp/b.wav");
   await addWav(page, "/tmp/c.wav");
@@ -374,6 +375,8 @@ test("batch locks the preset selector throughout an in-progress render", async (
   }));
   let releaseFirst: (() => void) | undefined;
   const payloads: Array<Record<string, unknown>> = [];
+
+  await openSpeech(page);
   await page.route("**/api/preset-batch-mov-export", async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
     payloads.push(payload);
@@ -385,7 +388,6 @@ test("batch locks the preset selector throughout an in-progress render", async (
       frames: 30, sample_count: 800, sample_rate: 8000,
     } });
   });
-  await openSpeech(page);
   await page.getByRole("button", { name: "プリセット", exact: true }).click();
   await page.getByRole("button", { name: "＋ 作成" }).click();
   await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();

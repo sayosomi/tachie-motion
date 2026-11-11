@@ -27,7 +27,7 @@ export function validateOutputName(value: string): string {
       new TextEncoder().encode(value).length > 180 ||
       value === "." || value === ".." || value.startsWith(".") ||
       /[ .]$/.test(value) || /[\\/:\*\?"<>\|]/u.test(value) ||
-      [...value].some((char) => /\p{Cc}|\p{Cf}|\p{Cs}|\p{Co}/u.test(char)) ||
+      [...value].some((char) => /\p{C}/u.test(char)) ||
       /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/i.test(value)) {
     throw new Error("保存名に使用できない文字・長さがあります：" + value);
   }
