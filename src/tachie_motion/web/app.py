@@ -19,6 +19,7 @@ from tachie_motion.web.preset_utterance import export_preset_utterance
 from tachie_motion.web.output_destinations import destination_info, validate_basename
 from tachie_motion.web.solo_output import validate_media_basename, single_destination
 from tachie_motion.web.combined_otio import create_combined_otio
+from tachie_motion.web.batch_session import BatchCoordinator, validate_names
 from tachie_motion.web.service import (
     describe_psd, describe_wav, load_psd, local_file, preview_mouth,
 )
@@ -82,6 +83,37 @@ class PresetUtteranceRequest(BaseModel):
 
 
 
+class BatchNameRequest(BaseModel):
+    basenames: list[str]
+    timeline_basename: str
+
+
+class BatchPlannedMedia(BaseModel):
+    basename: str
+    wav: str
+    source_identity: str
+    fps: int
+    samples: int
+    sample_rate: int
+    conflict_policy: str
+
+
+class BatchStartRequest(BaseModel):
+    output_dir: str
+    timeline_basename: str
+    timeline_policy: str
+    entries: list[BatchPlannedMedia]
+
+
+class BatchIdentifier(BaseModel):
+    batch_id: str
+
+
+class BatchMovRequest(PresetUtteranceRequest):
+    batch_id: str
+    batch_index: int
+
+
 class CombinedMedia(BaseModel):
     basename: str
     frames: int
@@ -92,6 +124,7 @@ class CombinedMedia(BaseModel):
 
 class CombinedOtioRequest(DestinationRequest):
     entries: list[CombinedMedia]
+    batch_id: str
     conflict_policy: str = "error"
 
 
@@ -102,6 +135,7 @@ if TAILSCALE_ORIGIN is not None:
     allowed_hosts.append(urlsplit(TAILSCALE_ORIGIN).hostname)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 app.state.export_lock = asyncio.Lock()
+app.state.batch = BatchCoordinator()
 FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 if (FRONTEND_DIST / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
@@ -273,6 +307,36 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
             )
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-batch-check-names")
+def preset_batch_check_names(payload: BatchNameRequest):
+    try:
+        validate_names(payload.basenames, payload.timeline_basename)
+        return {"valid": True}
+    except (ValueError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-batch-start")
+async def preset_batch_start(payload: BatchStartRequest):
+    try:
+        folder = Path(payload.output_dir).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise ValueError("Output folder must already exist")
+        async with app.state.export_lock:
+            token = await asyncio.to_thread(
+                app.state.batch.start, folder, payload.timeline_basename,
+                payload.timeline_policy, [entry.model_dump() for entry in payload.entries])
+            return {"batch_id": token}
+    except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-batch-cancel")
+async def preset_batch_cancel(payload: BatchIdentifier):
+    async with app.state.export_lock:
+        return {"released": app.state.batch.release(payload.batch_id)}
 
 
 @app.post("/api/preset-batch-mov-destination")
