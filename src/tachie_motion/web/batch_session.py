@@ -100,6 +100,8 @@ class BatchCoordinator:
             ):
                 raise ValueError("Invalid registered WAV timing")
             timing = probe_wav(wav)
+            if source_token(wav) != identity:
+                raise ValueError("WAV changed while validating batch sources")
             if timing.samples != samples or timing.sample_rate != sample_rate:
                 raise ValueError("WAV timing changed since registration")
             prior = initial_single_identity(
