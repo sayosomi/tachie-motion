@@ -93,6 +93,9 @@ async function saved(page: Page): Promise<any> {
   });
 }
 async function importProject(page: Page, value: unknown) {
+  // On reload the speech workspace asynchronously verifies the PSD; the
+  // native file input is disabled until that completes. Never race that gate.
+  await expect(page.getByRole("button", { name: "JSONを読み込む" })).toBeEnabled();
   await page.locator("#project-file-input").setInputFiles({
     name: "project.json", mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(value)),
