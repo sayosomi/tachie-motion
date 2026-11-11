@@ -20,6 +20,13 @@ async function mockPsd(page: import("@playwright/test").Page, fingerprint = "sna
   }}));
   await page.route("**/api/preset-utterance-destination", (route) =>
     route.fulfill({ json: { state: "available", suggested_basename: "speech_001" } }));
+  await page.route("**/api/preset-batch-check-names", (route) =>
+    route.fulfill({ json: { valid: true } }));
+  await page.route("**/api/preset-batch-start", (route) =>
+    route.fulfill({ json: { batch_id: "test-session" } }));
+  await page.route("**/api/preset-batch-cancel", (route) =>
+    route.fulfill({ json: { released: true } }));
+
 }
 
 test("new preset-backed none/open utterance workflow sends exact preset snapshot", async ({ page }) => {

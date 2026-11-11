@@ -115,3 +115,16 @@ test("v1 project imports naming defaults without changing saved WAV settings", (
   expect(parsed.naming.otioTemplate).toBe("{プロジェクト名}");
   expect(parsed.items[0].wavPath).toBe(wavPath);
 });
+
+test("a v1 project with zero WAVs can migrate and be re-saved as v2", () => {
+  const legacy = valid();
+  legacy.version = 1;
+  legacy.items = [];
+  legacy.selectedId = null;
+  delete legacy.naming;
+  const converted = parseProjectFile(JSON.stringify(legacy));
+  expect(converted.naming.outputDir).toBe("");
+  const restoredDraft = projectPresetDraft(converted);
+  const next = serializeProjectFile(restoredDraft, layers, [], null, converted.naming);
+  expect(parseProjectFile(next).items).toEqual([]);
+});

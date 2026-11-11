@@ -31,6 +31,12 @@ async function openSpeech(page: Page) {
     return route.fulfill({ json: { mov: "/tmp/output/" + body.basename + ".mov",
       frames: 30, sample_count: 800, sample_rate: 8000 } });
   });
+  await page.route("**/api/preset-batch-check-names", (route) =>
+    route.fulfill({ json: { valid: true } }));
+  await page.route("**/api/preset-batch-start", (route) =>
+    route.fulfill({ json: { batch_id: "test-session" } }));
+  await page.route("**/api/preset-batch-cancel", (route) =>
+    route.fulfill({ json: { released: true } }));
   await page.goto("/");
   await page.locator("#preset-psd-path-advanced").evaluate(
     (el) => { (el as HTMLDetailsElement).open = true; });

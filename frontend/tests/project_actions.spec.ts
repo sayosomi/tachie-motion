@@ -58,6 +58,12 @@ async function mock(page: Page): Promise<Mock> {
   await page.route("**/api/preset-utterance-destination", (route) => route.fulfill({
     json: { state: "available", suggested_basename: "alt_002" },
   }));
+  await page.route("**/api/preset-batch-check-names", (route) =>
+    route.fulfill({ json: { valid: true } }));
+  await page.route("**/api/preset-batch-start", (route) =>
+    route.fulfill({ json: { batch_id: "test-session" } }));
+  await page.route("**/api/preset-batch-cancel", (route) =>
+    route.fulfill({ json: { released: true } }));
   return state;
 }
 async function openSpeech(page: Page) {
