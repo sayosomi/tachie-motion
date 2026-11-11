@@ -140,5 +140,21 @@ class CombinedOtioTests(unittest.TestCase):
                     probe_embedded_pcm(movie)
 
 
+    def test_probe_real_ffmpeg_pcm_mov_sample_count(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            movie = Path(tmp) / "test.mov"
+            run = subprocess.run([
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "color=c=red:s=32x32:d=1:r=30",
+                "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+                "-c:v", "prores_ks", "-profile:v", "4",
+                "-c:a", "pcm_s16le", "-frames:v", "30", "-t", "1",
+                str(movie),
+            ], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(probe_embedded_pcm(movie), WaveTiming(48000, 48000))
+
+
 if __name__ == "__main__":
     unittest.main()

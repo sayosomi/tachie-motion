@@ -169,5 +169,53 @@ class OfficialOtioRoundtrip(unittest.TestCase):
             self.assertEqual(reparsed.tracks[1][0].media_reference.target_url, str(mov.resolve()))
 
 
+    def test_combined_timeline_roundtrip_keeps_order_and_sample_boundaries(self):
+        from tachie_motion.timeline.otio_json import build_combined_utterances
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = root / "001_あんこもん_最初.mov"
+            second = root / "002_ずんだもん_e\u0301.mov"
+            first.touch()
+            second.touch()
+            combined = build_combined_utterances([
+                (first, MovieTiming(31, 30), WaveTiming(48001, 48000)),
+                (second, MovieTiming(30, 30), WaveTiming(48000, 48000)),
+            ])
+            file = root / "作品.otio"
+            write_otio(combined, file)
+            result = otio.adapters.read_from_file(str(file))
+            self.assertEqual(len(result.tracks), 2)
+            self.assertEqual([track.kind for track in result.tracks],
+                             [otio.schema.TrackKind.Video, otio.schema.TrackKind.Audio])
+            for track in result.tracks:
+                self.assertEqual(len(track), 2)
+                self.assertEqual(
+                    [clip.source_range.duration.value for clip in track],
+                    [48001, 48000],
+                )
+                self.assertEqual(
+                    [clip.source_range.duration.rate for clip in track],
+                    [48000, 48000],
+                )
+                self.assertAlmostEqual(track[1].range_in_parent().start_time.to_seconds(),
+                                       48001 / 48000, places=6)
+            for i, mov in enumerate((first, second)):
+                self.assertEqual(
+                    result.tracks[0][i].media_reference.target_url,
+                    mov.resolve().as_uri(),
+                )
+                self.assertEqual(
+                    result.tracks[1][i].media_reference.target_url,
+                    str(mov.resolve()),
+                )
+            encoded = otio.adapters.write_to_string(result, "otio_json")
+            decoded = otio.adapters.read_from_string(encoded, "otio_json")
+            self.assertEqual(len(decoded.tracks[1]), 2)
+            self.assertEqual(
+                decoded.tracks[1][1].media_reference.target_url,
+                str(second.resolve()),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
