@@ -296,6 +296,7 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
         wav = local_file(payload.wav, ".wav")
         folder = folder.resolve(strict=True)
         async with app.state.export_lock:
+            app.state.batch.require_idle()
             return await asyncio.to_thread(
                 export_preset_utterance,
                 psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
@@ -368,7 +369,7 @@ def preset_combined_otio_destination(payload: DestinationRequest):
 
 
 @app.post("/api/preset-batch-mov-export")
-async def preset_batch_mov_export(payload: PresetUtteranceRequest):
+async def preset_batch_mov_export(payload: BatchMovRequest):
     try:
         validate_media_basename(payload.basename)
         folder = Path(payload.output_dir).expanduser()
@@ -380,14 +381,25 @@ async def preset_batch_mov_export(payload: PresetUtteranceRequest):
         wav = local_file(payload.wav, ".wav")
         canonical = folder.resolve(strict=True)
         async with app.state.export_lock:
-            return await asyncio.to_thread(
-                export_preset_utterance,
-                psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
-                layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
-                blink_enabled=payload.blink_enabled, conflict_policy=payload.conflict_policy,
-                mov=canonical / (payload.basename + ".mov"), otio=None,
-                fps=payload.fps, source_identity=payload.source_identity,
-            )
+            if payload.source_identity is None:
+                raise ValueError("Registered WAV identity is required for batch")
+            app.state.batch.before(
+                payload.batch_id, payload.batch_index, canonical, payload.basename,
+                wav, payload.source_identity, payload.fps, payload.conflict_policy)
+            try:
+                result = await asyncio.to_thread(
+                    export_preset_utterance,
+                    psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
+                    layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
+                    blink_enabled=payload.blink_enabled, conflict_policy=payload.conflict_policy,
+                    mov=canonical / (payload.basename + ".mov"), otio=None,
+                    fps=payload.fps, source_identity=payload.source_identity,
+                )
+                app.state.batch.succeeded(payload.batch_id, payload.batch_index, result)
+                return result
+            except (ValueError, FileExistsError, OSError, RuntimeError, TypeError):
+                app.state.batch.failed(payload.batch_id, payload.batch_index)
+                raise
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 
@@ -402,10 +414,15 @@ async def preset_combined_otio(payload: CombinedOtioRequest):
         canonical = folder.resolve(strict=True)
         entries = [entry.model_dump() for entry in payload.entries]
         async with app.state.export_lock:
-            return await asyncio.to_thread(
+            expected = app.state.batch.before_timeline(
+                payload.batch_id, canonical, payload.basename,
+                payload.conflict_policy, entries)
+            result = await asyncio.to_thread(
                 create_combined_otio, canonical, payload.basename,
-                entries, payload.conflict_policy,
+                entries, payload.conflict_policy, expected_identities=expected,
             )
+            app.state.batch.release(payload.batch_id)
+            return result
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 
@@ -428,6 +445,7 @@ async def export(payload: ExportRequest):
         # Use the same metadata-only PSD load and 60 MP cap as preview endpoints.
         # This Web API bound deliberately does not change the existing CLI contract.
         async with app.state.export_lock:
+            app.state.batch.require_idle()
             await asyncio.to_thread(load_psd, str(psd))
             result = await asyncio.to_thread(
                 export_mouth_animation,
