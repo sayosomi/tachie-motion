@@ -46,7 +46,7 @@ function item(value: unknown, ids: Set<string>): ProjectUtterance {
     "mode", "fps", "outputDir", "basename", "conflictChoice", "saveAsName"]);
   if (typeof value.id !== "string" || !value.id.trim() || value.id.length > 256 ||
       Object.hasOwn(Object.prototype, value.id) || ids.has(value.id) ||
-      !Number.isSafeInteger(value.registrationOrder) ||
+      typeof value.registrationOrder !== "number" || !Number.isSafeInteger(value.registrationOrder) ||
       (value.registrationOrder as number) < 1 ||
       !absolutePath(value.wavPath) ||
       typeof value.presetId !== "string" ||
@@ -63,8 +63,8 @@ function item(value: unknown, ids: Set<string>): ProjectUtterance {
   }
   fields(value.wav, ["samples", "sample_rate", "duration_seconds", "source_identity"]);
   const w = value.wav;
-  if (!Number.isSafeInteger(w.samples) || (w.samples as number) < 1 ||
-      !Number.isSafeInteger(w.sample_rate) || (w.sample_rate as number) < 1 ||
+  if (typeof w.samples !== "number" || !Number.isSafeInteger(w.samples) || (w.samples as number) < 1 ||
+      typeof w.sample_rate !== "number" || !Number.isSafeInteger(w.sample_rate) || (w.sample_rate as number) < 1 ||
       typeof w.duration_seconds !== "number" || !Number.isFinite(w.duration_seconds) ||
       Math.abs(w.duration_seconds - (w.samples as number) / (w.sample_rate as number)) > 0.001 ||
       typeof w.source_identity !== "string" ||
