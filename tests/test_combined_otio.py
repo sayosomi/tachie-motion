@@ -98,8 +98,10 @@ class CombinedOtioTests(unittest.TestCase):
                 publish_single(stage, target, policy="overwrite", prior=prior)
             self.assertEqual(target.read_bytes(), b"CHANGED")
             prior = initial_single_identity(target, "overwrite")
-            publish_single(stage, target, policy="overwrite", prior=prior)
-            self.assertEqual(target.read_bytes(), b"NEW")
+            replacement = folder / "replacement.mov"
+            replacement.write_bytes(b"NEW-VERSION")
+            publish_single(replacement, target, policy="overwrite", prior=prior)
+            self.assertEqual(target.read_bytes(), b"NEW-VERSION")
             self.assertFalse((folder / ".001.mov.single-backup").exists())
             symlink = folder / "symlink.mov"
             symlink.symlink_to(target)

@@ -43,6 +43,12 @@ def initial_single_identity(path: Path, policy: str):
         raise ValueError("Unsupported output conflict policy")
     if recovery(path).exists() or recovery(path).is_symlink():
         raise RuntimeError("Previous export needs recovery: " + str(recovery(path)))
+    # A MOV might have been exported by the existing individual MOV+OTIO
+    # publisher; never ignore its separate recovery namespace.
+    if path.suffix.lower() == ".mov":
+        from tachie_motion.web.output_destinations import recovery_locations
+        if recovery_locations(path):
+            raise RuntimeError("Previous individual export needs recovery")
     prior = _identity(path)
     if prior is None and policy == "overwrite":
         raise ValueError("No existing file to overwrite")
@@ -54,6 +60,10 @@ def initial_single_identity(path: Path, policy: str):
 def single_destination(path: Path) -> dict:
     if recovery(path).exists() or recovery(path).is_symlink():
         return {"state": "recovery_required"}
+    if path.suffix.lower() == ".mov":
+        from tachie_motion.web.output_destinations import recovery_locations
+        if recovery_locations(path):
+            return {"state": "recovery_required"}
     try:
         existing = _identity(path)
     except ValueError:

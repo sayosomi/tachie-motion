@@ -60,15 +60,23 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
         if (movie.frames != entry["frames"] or movie.fps != entry["fps"] or
             audio.samples != entry["samples"] or audio.sample_rate != entry["sample_rate"]):
             raise ValueError("MOV has changed since export: " + name)
-        verified.append((mov, movie, audio))
+        identity = (mov.stat().st_dev, mov.stat().st_ino, mov.stat().st_size,
+                    mov.stat().st_mtime_ns)
+        verified.append((mov, movie, audio, identity))
 
-    document = build_combined_utterances(verified)
+    document = build_combined_utterances([(mov, movie, audio)
+                                         for mov, movie, audio, _ in verified])
     with tempfile.TemporaryDirectory(prefix=".tachie-timeline-", dir=folder) as tmp:
         staged = Path(tmp) / "timeline.otio"
         write_otio(document, staged)
         # Reconfirm MOV metadata while exporting: never claim success if a
         # previously rendered source has been replaced in the meantime.
-        for mov, timing, audio in verified:
+        for mov, timing, audio, identity in verified:
+            if mov.is_symlink():
+                raise ValueError("MOV became a symlink during export")
+            info = mov.stat()
+            if (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != identity:
+                raise ValueError("MOV changed during timeline preparation")
             if probe_movie(mov) != timing or probe_embedded_pcm(mov) != audio:
                 raise ValueError("MOV changed while preparing combined OTIO")
         warning = publish_single(staged, target, policy=conflict_policy, prior=prior)

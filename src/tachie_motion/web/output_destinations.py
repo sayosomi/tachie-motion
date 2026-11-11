@@ -54,6 +54,9 @@ def recovery_locations(mov: Path) -> tuple[Path, ...]:
 
 
 def target_state(mov: Path, otio: Path) -> tuple[str, tuple | None]:
+    from tachie_motion.web.solo_output import recovery
+    if recovery(mov).exists() or recovery(mov).is_symlink():
+        return "recovery_required", None
     if recovery_locations(mov):
         return "recovery_required", None
     try:
