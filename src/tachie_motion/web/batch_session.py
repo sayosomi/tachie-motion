@@ -122,6 +122,16 @@ class BatchCoordinator:
         session.deadline = time.monotonic() + IDLE_SECONDS
         return session
 
+    def _finish_render_session(self, token: str) -> Session:
+        # A legitimate render can take longer than the idle-session timeout.
+        # The app holds export_lock for the entire render; do not expire the
+        # owner before recording a MOV that may already have been published.
+        session = self.active
+        if session is None or not secrets.compare_digest(session.token, token):
+            raise RuntimeError("Batch render ownership was lost")
+        session.deadline = time.monotonic() + IDLE_SECONDS
+        return session
+
     def before(self, token: str, index: int, folder: Path, basename: str, wav: Path,
                source_identity: str, fps: int, policy: str) -> None:
         session = self._session(token)
@@ -139,7 +149,7 @@ class BatchCoordinator:
             raise ValueError("MOV destination changed after batch approval")
 
     def succeeded(self, token: str, index: int, result: dict) -> None:
-        session = self._session(token)
+        session = self._finish_render_session(token)
         planned = session.entries[index]
         if index != session.next_index or (
             result["sample_count"], result["sample_rate"]) != (
@@ -158,7 +168,7 @@ class BatchCoordinator:
         session.next_index += 1
 
     def failed(self, token: str, index: int) -> None:
-        session = self._session(token)
+        session = self._finish_render_session(token)
         if index == session.next_index:
             session.results.append(None)
             session.next_index += 1
