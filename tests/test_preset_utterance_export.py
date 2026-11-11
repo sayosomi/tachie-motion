@@ -105,6 +105,19 @@ class PresetExportApiTests(unittest.TestCase):
         return self.client.post("/api/preset-utterance-export",
                                 json={**self.body, **changes})
 
+    def test_api_rejects_identity_omission_before_overwrite(self):
+        mov = self.root / "speech.mov"
+        otio = self.root / "speech.otio"
+        mov.write_bytes(b"prior MOV")
+        otio.write_bytes(b"prior OTIO")
+        no_identity = {key: value for key, value in self.body.items()
+                       if key != "source_identity"}
+        response = self.client.post("/api/preset-utterance-export",
+                                    json={**no_identity, "conflict_policy": "overwrite"})
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(mov.read_bytes(), b"prior MOV")
+        self.assertEqual(otio.read_bytes(), b"prior OTIO")
+
     def test_destination_probe_is_non_mutating(self):
         response = self.client.post("/api/preset-utterance-destination",
                                     json={"output_dir": str(self.root),

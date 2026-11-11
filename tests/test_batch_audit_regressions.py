@@ -14,7 +14,7 @@ from tachie_motion.web.output_destinations import (
 )
 from tachie_motion.web.preset_utterance import export_preset_utterance
 from tachie_motion.web.solo_output import (
-    initial_single_identity, publish_single, recovery, single_destination,
+    initial_single_identity, publish_single, published_media_identity, recovery, single_destination,
 )
 
 
@@ -137,6 +137,98 @@ class BatchBlockingAuditTests(unittest.TestCase):
                 "error", [{"basename": planned["basename"], "frames": 30,
                            "fps": 30, "samples": 48000, "sample_rate": 48000}])), 1)
             self.assertTrue(guard.release(token))
+
+
+    def test_same_inode_same_size_restored_mtime_mutation_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            wav = folder / "voice.wav"
+            make_wav(wav)
+            planned = entry(wav)
+            guard = BatchCoordinator()
+            token = guard.start(folder, "timeline", "error", [planned])
+            guard.before(token, 0, folder, planned["basename"], wav,
+                         planned["source_identity"], 30, "error")
+            mov = folder / (planned["basename"] + ".mov")
+            mov.write_bytes(b"OLD MOV SAME SIZE")
+            guard.succeeded(token, 0, {
+                "frames": 30, "sample_count": 48000, "sample_rate": 48000,
+            })
+            recorded = published_media_identity(mov)
+            old = mov.stat()
+            with mov.open("r+b") as stream:
+                stream.write(b"NEW")
+            os.utime(mov, ns=(old.st_atime_ns, old.st_mtime_ns))
+            current = published_media_identity(mov)
+            self.assertEqual(recorded[0:2], current[0:2])
+            self.assertEqual(recorded[3:], current[3:])
+            self.assertNotEqual(recorded[2], current[2])
+            entries = [{"basename": planned["basename"], "frames": 30, "fps": 30,
+                        "samples": 48000, "sample_rate": 48000}]
+            with self.assertRaisesRegex(ValueError, "replaced"):
+                guard.before_timeline(token, folder, "timeline", "error", entries)
+            self.assertTrue(guard.release(token))
+
+    def test_existing_timeline_overwrite_refused_without_touching_old_generation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            wav = folder / "voice.wav"
+            make_wav(wav)
+            first = folder / "first.mov"
+            second = folder / "second.mov"
+            timeline = folder / "作品.otio"
+            first.write_bytes(b"OLD-FIRST")
+            second.write_bytes(b"OLD-SECOND")
+            timeline.write_bytes(b"OLD-TIMELINE")
+            entries = [
+                {**entry(wav, "first"), "conflict_policy": "overwrite"},
+                {**entry(wav, "second"), "conflict_policy": "overwrite"},
+            ]
+            guard = BatchCoordinator()
+            with self.assertRaisesRegex(ValueError, "cannot be batch-overwritten"):
+                guard.start(folder, "作品", "overwrite", entries)
+            self.assertIsNone(guard.active)
+            self.assertEqual([first.read_bytes(), second.read_bytes(), timeline.read_bytes()],
+                             [b"OLD-FIRST", b"OLD-SECOND", b"OLD-TIMELINE"])
+            # A renamed timeline would not save an old document with another name.
+            with self.assertRaisesRegex(ValueError, "Existing OTIO may reference"):
+                guard.start(folder, "新しい", "error", entries)
+            self.assertEqual([first.read_bytes(), second.read_bytes(), timeline.read_bytes()],
+                             [b"OLD-FIRST", b"OLD-SECOND", b"OLD-TIMELINE"])
+
+    @unittest.skipUnless(__import__("shutil").which("ffmpeg") and __import__("shutil").which("ffprobe"),
+                         "FFmpeg required for individual OTIO fault injection")
+    def test_wav_replaced_during_individual_otio_staging_preserves_old_pair(self):
+        import shutil
+        from test_web_api import fixture
+        from tachie_motion.web.service import describe_psd
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            psd, wav, _, _ = fixture(folder)
+            meta = describe_psd(str(psd))
+            identity = source_token(wav)
+            mov, otio = folder / "scene.mov", folder / "scene.otio"
+            mov.write_bytes(b"ORIGINAL MOV")
+            otio.write_bytes(b"ORIGINAL OTIO")
+            def mutate_wav(_document, output):
+                Path(output).write_text("{}", encoding="utf-8")
+                replacement = folder / "changed.wav"
+                shutil.copyfile(wav, replacement)
+                os.replace(replacement, wav)
+            layers = [{"path": layer["path"], "visible": layer["visible"]}
+                      for layer in meta["layers"]]
+            with patch("tachie_motion.web.preset_utterance.write_otio",
+                       side_effect=mutate_wav):
+                with self.assertRaisesRegex(ValueError, "WAV changed"):
+                    export_preset_utterance(
+                        psd_path=psd, wav=wav, fingerprint=meta["fingerprint"],
+                        layers=layers, mouth=None, mode="none", blink_enabled=False,
+                        mov=mov, otio=otio, fps=30, conflict_policy="overwrite",
+                        source_identity=identity,
+                    )
+            self.assertEqual(mov.read_bytes(), b"ORIGINAL MOV")
+            self.assertEqual(otio.read_bytes(), b"ORIGINAL OTIO")
+            self.assertFalse((folder / ".scene.tachie-backup").exists())
 
     def test_missing_and_reversed_order_reject_before_next_movie(self):
         with tempfile.TemporaryDirectory() as tmp:

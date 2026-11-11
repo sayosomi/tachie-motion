@@ -1069,3 +1069,24 @@ test("batch naming shows exact preview and creates one combined OTIO for reorder
   expect(timelinePayload?.basename).toBe("さよそみ動画");
   expect(timelinePayload?.entries.map((x) => x.basename)).toEqual(order);
 });
+
+test("existing combined OTIO blocks unsafe batch overwrite before any MOV export", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 800, sample_rate: 8000, duration_seconds: 0.1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/voice.wav");
+  let renders = 0;
+  await page.route("**/api/preset-batch-mov-export", (route) => {
+    renders++;
+    return route.fulfill({ status: 500, json: { detail: "must not be called" } });
+  });
+  await page.route("**/api/preset-combined-otio-destination", (route) =>
+    route.fulfill({ json: { state: "complete", canonical_output_dir: "/tmp/output" } }));
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await expect(page.getByRole("alert")).toContainText(
+    "既存の全体OTIOを伴う一括上書きは安全のため未対応");
+  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeDisabled();
+  expect(renders).toBe(0);
+});
