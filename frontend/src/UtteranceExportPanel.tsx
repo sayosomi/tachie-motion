@@ -37,6 +37,7 @@ type Props = {
   onRevise: (id: string, patch: Partial<UtteranceItem>) => void;
   onSingleExport: () => void;
   batch: BatchStatus;
+  disabled: boolean;
   naming: BatchNaming;
   onNamingChange: (naming: BatchNaming) => void;
 };
@@ -45,9 +46,9 @@ export default function UtteranceExportPanel({
   items, current, draftAvailable, openMouthMissing, blinkUnsupported,
   info, destinationError, requiresAlternate,
   saveAsName, outputBasename, canExport, exportingId, addingCount,
-  scope, onScopeChange, onRevise, onSingleExport, batch, naming, onNamingChange,
+  scope, onScopeChange, onRevise, onSingleExport, batch, disabled, naming, onNamingChange,
 }: Props) {
-  const locked = batch.running || !!exportingId;
+  const locked = batch.running || !!exportingId || disabled;
   const noneCount = items.filter((item) => item.mode === "none").length;
   const canSubmit = scope === "single" ? canExport :
     draftAvailable && items.length > 0 && !!batch.displayed && !batch.reviewing &&

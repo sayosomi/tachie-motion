@@ -70,7 +70,9 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   // Synchronous guard closes the gap before React commits exportingId state.
   const singleExportLock = useRef(false);
   const batch = useBatchUtteranceExport(draft, items, setItems,
-    () => setProbeVersion((previous) => previous + 1), active && exportScope === "all", naming);
+    () => setProbeVersion((previous) => previous + 1),
+    active && exportScope === "all" && !projectBusy && !exportingId,
+    naming, () => projectBusyRef.current || singleExportLock.current);
   const playback = useWavPlayback(items);
   const editingLocked = batch.running || batch.isBusy() || !!exportingId || projectBusy;
   const projectLock = (locked: boolean) => {
@@ -350,6 +352,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         exportingId={exportingId} addingCount={addingCount}
         scope={exportScope} onScopeChange={setExportScope}
         onRevise={revise} onSingleExport={() => { void exportUtterance(); }}
-        batch={batch} naming={naming} onNamingChange={setNaming} />
+        batch={batch} disabled={editingLocked || addingCount > 0}
+        naming={naming} onNamingChange={setNaming} />
   </main>;
 }

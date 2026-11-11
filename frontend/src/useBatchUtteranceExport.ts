@@ -123,6 +123,7 @@ export function useBatchUtteranceExport(
   draft: PresetDraft | null, items: UtteranceItem[],
   setItems: Dispatch<SetStateAction<UtteranceItem[]>>,
   onFinished: () => void, enabled: boolean, naming: BatchNaming,
+  otherBusy: () => boolean,
 ) {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState("");
@@ -153,7 +154,7 @@ export function useBatchUtteranceExport(
 
   const displayed = enabled && review?.key === key ? review.prepared : null;
   async function run() {
-    if (busy.current || running || !draft || items.length === 0 || !displayed) return;
+    if (busy.current || otherBusy() || running || !draft || items.length === 0 || !displayed) return;
     busy.current = true;
     setRunning(true);
     setSummary("");
