@@ -101,9 +101,15 @@ def preview_mouth(raw: str, closed: str, opened: str, state: str) -> dict:
 
 def describe_wav(raw: str) -> dict:
     path = local_file(raw, ".wav")
+    before = file_identity(path)
     timing = probe_wav(path)
+    if file_identity(path) != before:
+        raise ValueError("WAV changed during inspection")
     return {
         "samples": timing.samples,
         "sample_rate": timing.sample_rate,
         "duration_seconds": timing.samples / timing.sample_rate,
+        # Full stat identity detects edits/replacements missed by duration and
+        # sample-rate checks. Never treat sample counts alone as file identity.
+        "source_identity": ":".join(map(str, before)),
     }

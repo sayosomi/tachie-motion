@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import NativeFilePicker from "./NativeFilePicker";
 import type { WavPlaybackControls } from "./WavPlayback";
 import type { UnifiedPreset } from "./presetModel";
 import { wavFilename, type LipMode, type UtteranceItem } from "./utteranceItems";
 
 type Props = {
+  projectControls?: ReactNode;
   items: UtteranceItem[];
   presets: Pick<UnifiedPreset, "id" | "name">[];
   presetStatus: "loading" | "ready" | "error";
@@ -28,7 +29,7 @@ type Props = {
 };
 
 export default function UtteranceList({
-  items, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
+  projectControls, items, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
   exportingId, playback, onPathChange, onAdd, onAddMany, onSelect, onRevise,
   onMove, onReorder, onRemove, canApplyToAll, onApplyToAll,
 }: Props) {
@@ -55,6 +56,7 @@ export default function UtteranceList({
           onClick={onApplyToAll}>選択中の設定を全件に適用</button>}
       </div>
     </div>
+    {projectControls}
     <NativeFilePicker id="speech-wav-path" kind="wav" label="WAVファイルを追加"
       value={pendingPath} disabled={disabled} multiple
       onSelectedMany={onAddMany}

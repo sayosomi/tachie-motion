@@ -9,6 +9,14 @@
 - Browser E2E: Playwright import/preview/toggle/change-point/save/export with deterministic fixtures.
 - CI: Linux unit jobs plus macOS/Windows where dependencies allow; manual Resolve import is a separate human gate.
 
+## Public Issue #16 — 制作プロジェクトJSON（単一キャラ・複数WAV）
+
+- バージョン付きJSONとキャラクター設定JSONを区別し、複数WAVの順序・安定ID・同一パス重複登録・口パク方式・fps・出力設定・キャラクター設定スナップショットの往復をPlaywrightで確認する。元素材・プレビュー・出力成功結果をJSONに含めない。
+- UTF-8/Unicode NFD、未知のバージョン、破損JSON、過大サイズ、重複ID・順序・不正プリセット参照・絶対パスでない入力を拒否。Python unittestではWAVのファイルstat同一性取得と解析中の差し替えを検査する。
+- PSD指紋／index-path一致、WAVの有効性と同一性を復元前に再確認。参照切れ・変更は差し替え／明示承認を要求し、未解決なら既存のWAV一覧・プリセット／ブラウザ復旧内容を変更しない。
+- 標準Saveダイアログ成功・キャンセル・非対応、ローカルストレージ書込み失敗、二重クリック、読込み確認拒否、保存／読込み中の編集ロックと後着する旧WAV解析結果を自動検査する。
+- Mac Humanは実素材で保存先・ファイル名、ブラウザリロード後の読み込み、参照修正の分かりやすさ、一覧画面内での操作性のみを評価。自動テスト済みの異常系を人手で反復しない。ProRes／PCM／OTIOのエンコード契約に変更なし。独立レビュー・CI・Mac Humanを別々のゲートにする。
+
 ## Phase 1 Slice 1 — PCM WAV音量・口状態スケジューラ
 
 - 合成整数PCM WAV（8/16/24/32-bit、mono/stereo、逆位相stereo）からフレーム別RMSを独立検査。
