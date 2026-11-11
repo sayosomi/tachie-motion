@@ -110,6 +110,17 @@ class BatchCoordinator:
                                    sample_rate, raw["conflict_policy"], prior))
         timeline_prior = initial_single_identity(
             folder / (timeline_name + ".otio"), timeline_policy)
+        # No multi-file atomic replacement exists yet; never leave an older
+        # combined OTIO pointing at a mix of new and old MOV generations.
+        if timeline_policy == "overwrite":
+            raise ValueError(
+                "Existing combined OTIO cannot be batch-overwritten safely; "
+                "choose a different project name or output folder")
+        if (any(item.conflict_policy == "overwrite" for item in planned)
+                and any(path.suffix.lower() == ".otio" for path in folder.iterdir())):
+            raise ValueError(
+                "Existing OTIO may reference an overwritten MOV; "
+                "choose new MOV names or a different output folder")
         token = secrets.token_urlsafe(32)
         self.active = Session(token, folder, timeline_name, timeline_policy,
                               timeline_prior, planned, time.monotonic() + IDLE_SECONDS)

@@ -348,8 +348,12 @@ def preset_batch_mov_destination(payload: DestinationRequest):
         if not folder.is_absolute() or not folder.is_dir():
             raise ValueError("Output folder must already exist")
         canonical = folder.resolve(strict=True)
-        return {**single_destination(canonical / (payload.basename + ".mov")),
-                "canonical_output_dir": str(canonical)}
+        result = single_destination(canonical / (payload.basename + ".mov"))
+        if result["state"] == "complete" and any(
+                path.suffix.lower() == ".otio" for path in canonical.iterdir()):
+            # Another combined timeline may refer to this existing MOV.
+            return {"state": "unsafe", "canonical_output_dir": str(canonical)}
+        return {**result, "canonical_output_dir": str(canonical)}
     except (ValueError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 

@@ -95,7 +95,9 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
       basename.normalize("NFC").toLocaleLowerCase())) {
     throw new Error("全体OTIOとMOVの保存名が重複します：" + basename);
   }
-  if (policy === "overwrite") overwrites++;
+  if (policy === "overwrite") {
+    throw new Error("既存の全体OTIOを伴う一括上書きは安全のため未対応です。別のプロジェクト名または出力フォルダを指定してください。");
+  }
   if (plans.some((plan) => plan.canonicalOutputDir !== dest.canonical_output_dir)) {
     throw new Error("一括MOVと全体OTIOの出力先が一致しません");
   }
