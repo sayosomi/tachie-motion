@@ -115,6 +115,29 @@ class BatchBlockingAuditTests(unittest.TestCase):
             self.assertTrue(guard.release(token))
             guard.require_idle()
 
+    def test_render_longer_than_idle_timeout_keeps_owned_session(self):
+        import time
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            wav = folder / "voice.wav"
+            make_wav(wav)
+            planned = entry(wav)
+            guard = BatchCoordinator()
+            token = guard.start(folder, "timeline", "error", [planned])
+            guard.before(token, 0, folder, planned["basename"], wav,
+                         planned["source_identity"], 30, "error")
+            movie = folder / (planned["basename"] + ".mov")
+            movie.write_bytes(b"slow rendered media")
+            # Simulate the server's locked render lasting beyond the idle TTL.
+            guard.active.deadline = time.monotonic() - 10
+            guard.succeeded(token, 0, {
+                "frames": 30, "sample_count": 48000, "sample_rate": 48000,
+            })
+            self.assertEqual(len(guard.before_timeline(token, folder, "timeline",
+                "error", [{"basename": planned["basename"], "frames": 30,
+                           "fps": 30, "samples": 48000, "sample_rate": 48000}])), 1)
+            self.assertTrue(guard.release(token))
+
     def test_missing_and_reversed_order_reject_before_next_movie(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
