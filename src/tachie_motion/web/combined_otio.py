@@ -63,8 +63,9 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
         if (movie.frames != entry["frames"] or movie.fps != entry["fps"] or
             audio.samples != entry["samples"] or audio.sample_rate != entry["sample_rate"]):
             raise ValueError("MOV has changed since export: " + name)
-        identity = (mov.stat().st_dev, mov.stat().st_ino, mov.stat().st_size,
-                    mov.stat().st_mtime_ns)
+        info = mov.stat()
+        identity = (info.st_dev, info.st_ino, info.st_ctime_ns,
+                    info.st_size, info.st_mtime_ns)
         verified.append((mov, movie, audio, identity))
 
     document = build_combined_utterances([(mov, movie, audio)
@@ -78,7 +79,8 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
             if mov.is_symlink():
                 raise ValueError("MOV became a symlink during export")
             info = mov.stat()
-            if (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != identity:
+            if (info.st_dev, info.st_ino, info.st_ctime_ns,
+                info.st_size, info.st_mtime_ns) != identity:
                 raise ValueError("MOV changed during timeline preparation")
             if expected_identities is not None and _identity(mov) != expected_identities.get(mov.stem):
                 raise ValueError("MOV was replaced after rendering by this batch")

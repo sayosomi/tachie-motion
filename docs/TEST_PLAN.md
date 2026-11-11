@@ -24,6 +24,7 @@
 - PythonでPCM内包MOVの連続タイムラインJSONを構築し、映像・音声トラックが同じMOVを参照し、各発話のPCMサンプル時間を厳密に保持することをテスト。MOVが1件でも失敗した場合に全体OTIOを出さない。
 - 個別出力のMOV＋個別OTIOを変えず、一括出力で個別OTIOファイルを作らない。テストは公式OTIOが利用可能なCI jobでroundtrip検査し、Mac Resolve Humanは取り込み・見た目・実際の音声同期を別判定。
 - 既存JSON v1の読み込みと、新v2での命名設定保存／復元をテスト。元PSD/WAV/LAB不変、ProRes全フレーム検査とPCMロスレス検証を維持。
+- PR #19独立監査HIGH-01 / MEDIUM-01〜03 / LOW-01〜02の回帰：WAVの登録時と公開前のstat同一性、MOV/OTIO両方式の復旧場所、NFC+casefold、別タブのバッチ占有と生成MOV inode検査、0 WAVの旧v1移行、os.link/renameとバックアップ削除失敗をPythonとPlaywrightで検査。
 
 ## Phase 1 Slice 1 — PCM WAV音量・口状態スケジューラ
 

@@ -108,7 +108,7 @@ def initial_target_identity(mov: Path, otio: Path, policy: str) -> tuple | None:
     if state == "recovery_required":
         raise RuntimeError(
             "Previous export needs recovery; inspect "
-            + ", ".join(str(path) for path in recovery_locations(mov))
+            + ", ".join(str(path) for path in all_output_recovery(mov))
             + " before exporting to this filename"
         )
     if state == "unsafe":
