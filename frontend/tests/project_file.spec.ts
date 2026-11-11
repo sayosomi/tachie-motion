@@ -63,7 +63,7 @@ test("project JSON keeps duplicate WAV registrations, Unicode and exact settings
 test("project parser rejects malformed IDs, paths, versions, references and signatures", () => {
   const base = valid();
   const cases: ((v: Record<string, any>) => void)[] = [
-    (v) => { v.version = 2; },
+    (v) => { v.version = 999; },
     (v) => { v.items[1].id = "a"; },
     (v) => { v.items[1].registrationOrder = 1; },
     (v) => { v.items[0].id = "__proto__"; },
@@ -103,4 +103,15 @@ test("project snapshot returned for editing cannot mutate parsed source", () => 
   const next = projectPresetDraft(parsed);
   next.collection.items[0].name = "変更した設定";
   expect(parsed.character.collection.items[0].name).toBe("通常");
+});
+
+test("v1 project imports naming defaults without changing saved WAV settings", () => {
+  const v1 = valid();
+  v1.version = 1;
+  delete v1.naming;
+  const parsed = parseProjectFile(JSON.stringify(v1));
+  expect(parsed.version).toBe(2);
+  expect(parsed.naming.movTemplate).toBe("{番号}_{キャラ名}_{WAV名}");
+  expect(parsed.naming.otioTemplate).toBe("{プロジェクト名}");
+  expect(parsed.items[0].wavPath).toBe(wavPath);
 });

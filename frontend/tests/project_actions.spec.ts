@@ -109,7 +109,7 @@ test("project save, reload, restore preserves ordered WAV edits and character sn
   await page.getByRole("button", { name: "上へ: 2 別の音声.wav" }).click();
   const project = await saved(page);
   expect(project.format).toBe("tachie-motion-project");
-  expect(project.version).toBe(1);
+  expect(project.version).toBe(2);
   expect(project.items.map((item: any) => item.wavPath)).toEqual([otherWav, wavPath]);
   expect(project.items[1].mode).toBe("open");
   expect(project.items[1].basename).toBe("first");

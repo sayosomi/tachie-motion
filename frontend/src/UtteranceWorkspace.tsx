@@ -5,6 +5,7 @@ import UtteranceList from "./UtteranceList";
 import ProjectActions from "./ProjectActions";
 import { projectPresetDraft, type ProjectFile } from "./projectFile";
 import type { ProjectInspection } from "./projectRestore";
+import { initialNaming, type BatchNaming } from "./nameTemplate";
 import useWavPlayback from "./WavPlayback";
 import { useBatchUtteranceExport } from "./useBatchUtteranceExport";
 import { exportPayload, exportReady } from "./utteranceExportRequest";
@@ -45,6 +46,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
 }) {
   const [draft, setDraft] = useState<PresetDraft | null>(null);
   const [psdLayers, setPsdLayers] = useState<Layer[]>([]);
+  const [naming, setNaming] = useState<BatchNaming>(initialNaming());
   const [projectBusy, setProjectBusy] = useState(false);
   const projectBusyRef = useRef(false);
   const [items, setItems] = useState<UtteranceItem[]>([]);
@@ -68,7 +70,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   // Synchronous guard closes the gap before React commits exportingId state.
   const singleExportLock = useRef(false);
   const batch = useBatchUtteranceExport(draft, items, setItems,
-    () => setProbeVersion((previous) => previous + 1), active && exportScope === "all");
+    () => setProbeVersion((previous) => previous + 1), active && exportScope === "all", naming);
   const playback = useWavPlayback(items);
   const editingLocked = batch.running || batch.isBusy() || !!exportingId || projectBusy;
   const projectLock = (locked: boolean) => {
@@ -115,6 +117,12 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         setPsdLayers(psd.layers);
         setPresetStatus("ready");
         setDefaultOutputDir(health.default_output_dir);
+        setNaming((previous) => ({
+          ...previous,
+          characterName: previous.characterName === "character"
+            ? initialNaming(saved.path).characterName : previous.characterName,
+          outputDir: previous.outputDir || health.default_output_dir,
+        }));
       } catch (err) {
         if (cancelled) return;
         setDraft(null);
@@ -140,6 +148,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     catalogEpoch.current++;
     selectionEpoch.current++;
     sequence.current = Math.max(0, ...project.items.map((item) => item.registrationOrder));
+    setNaming(project.naming);
     setItems(project.items.map((item) => ({
       ...item, wavPath: wavPaths[item.id] ?? item.wavPath,
       wav: inspected.wavs[item.id], result: null, error: "",
@@ -308,11 +317,11 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     <header className="topbar"><div className="brand"><span className="brand-mark">t</span>
       <span>tachie-motion</span></div></header>
     <div className="intro"><h1>セリフ</h1></div>
-    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件のMOV・個別OTIOの一括書き出しに対応します。aiueo・瞬き・待機・変更点・全体OTIOは後続対応です。</p>
+    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件はMOVと全体OTIO 1本を生成します。aiueo・瞬き・待機・変更点は後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} presets={draft?.collection.items ?? []}
       projectControls={<ProjectActions
-        draft={draft} layers={psdLayers} items={items} selectedId={activeId}
+        draft={draft} layers={psdLayers} items={items} selectedId={activeId} naming={naming}
         disabled={editingLocked || addingCount > 0 || presetStatus === "loading"}
         onBusyChange={projectLock} onRestore={restoreProject} />}
       presetStatus={presetStatus}
@@ -341,6 +350,6 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         exportingId={exportingId} addingCount={addingCount}
         scope={exportScope} onScopeChange={setExportScope}
         onRevise={revise} onSingleExport={() => { void exportUtterance(); }}
-        batch={batch} />
+        batch={batch} naming={naming} onNamingChange={setNaming} />
   </main>;
 }
