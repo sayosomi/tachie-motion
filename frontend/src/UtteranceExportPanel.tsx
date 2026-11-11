@@ -140,7 +140,7 @@ export default function UtteranceExportPanel({
         <label htmlFor="batch-otio-template">全体OTIOのファイル名テンプレート</label>
         <input id="batch-otio-template" value={naming.otioTemplate} disabled={locked}
           onChange={(event) => onNamingChange({ ...naming, otioTemplate: event.target.value })} />
-        <p className="hint">使える項目：{番号}・{WAV名}・{キャラ名}・{プロジェクト名}。OTIOでは{プロジェクト名}のみ。</p>
+        <p className="hint">使える項目：{"{番号}"}・{"{WAV名}"}・{"{キャラ名}"}・{"{プロジェクト名}"}。OTIOでは{"{プロジェクト名}"}のみ。</p>
       </div>
       {noneCount > 0 && <p className="hint warning" role="note">
         口パク「なし」が{noneCount}件あります。口を動かす場合は各WAVの方式をopenにしてください。

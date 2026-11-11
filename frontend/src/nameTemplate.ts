@@ -80,7 +80,7 @@ export function validateBatchNaming(value: unknown): BatchNaming {
       keys.some((key) => typeof o[key] !== "string" || (o[key] as string).length > 8192)) {
     throw new Error("制作プロジェクトの命名設定が不正です");
   }
-  const result = o as BatchNaming;
+  const result = o as unknown as BatchNaming;
   validateOutputName(result.projectName);
   validateOutputName(result.characterName);
   movName(result.movTemplate, 1, "/tmp/example.wav",
