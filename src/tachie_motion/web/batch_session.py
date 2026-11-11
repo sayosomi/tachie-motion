@@ -11,6 +11,7 @@ import time
 import unicodedata
 
 from tachie_motion.web.preview_frame import file_identity
+from tachie_motion.timeline.media import probe_wav
 from tachie_motion.web.service import local_file
 from tachie_motion.web.solo_output import (
     _identity, initial_single_identity, validate_media_basename,
@@ -98,6 +99,9 @@ class BatchCoordinator:
                 or samples <= 0 or sample_rate <= 0
             ):
                 raise ValueError("Invalid registered WAV timing")
+            timing = probe_wav(wav)
+            if timing.samples != samples or timing.sample_rate != sample_rate:
+                raise ValueError("WAV timing changed since registration")
             prior = initial_single_identity(
                 folder / (raw["basename"] + ".mov"), raw["conflict_policy"])
             planned.append(Planned(raw["basename"], wav, identity, fps, samples,
