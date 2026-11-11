@@ -47,19 +47,19 @@ def _has_sibling_file(path: Path) -> bool:
     return sibling.exists() or sibling.is_symlink()
 
 
+def _recovery_paths(path: Path) -> tuple[Path, ...]:
+    from tachie_motion.web.output_destinations import all_output_recovery
+    return all_output_recovery(path.with_suffix(".mov"))
+
+
 def initial_single_identity(path: Path, policy: str):
     if policy not in ("error", "overwrite"):
         raise ValueError("Unsupported output conflict policy")
-    if recovery(path).exists() or recovery(path).is_symlink():
-        raise RuntimeError("Previous export needs recovery: " + str(recovery(path)))
+    if _recovery_paths(path):
+        raise RuntimeError("Previous export needs recovery: " +
+                           ", ".join(map(str, _recovery_paths(path))))
     if _has_sibling_file(path):
         raise ValueError("Output name belongs to a MOV/OTIO pair; choose another name")
-    # A MOV might have been exported by the existing individual MOV+OTIO
-    # publisher; never ignore its separate recovery namespace.
-    if path.suffix.lower() == ".mov":
-        from tachie_motion.web.output_destinations import recovery_locations
-        if recovery_locations(path):
-            raise RuntimeError("Previous individual export needs recovery")
     prior = _identity(path)
     if prior is None and policy == "overwrite":
         raise ValueError("No existing file to overwrite")
@@ -69,14 +69,10 @@ def initial_single_identity(path: Path, policy: str):
 
 
 def single_destination(path: Path) -> dict:
+    if _recovery_paths(path):
+        return {"state": "recovery_required"}
     if _has_sibling_file(path):
         return {"state": "unsafe"}
-    if recovery(path).exists() or recovery(path).is_symlink():
-        return {"state": "recovery_required"}
-    if path.suffix.lower() == ".mov":
-        from tachie_motion.web.output_destinations import recovery_locations
-        if recovery_locations(path):
-            return {"state": "recovery_required"}
     try:
         existing = _identity(path)
     except ValueError:
@@ -86,8 +82,9 @@ def single_destination(path: Path) -> dict:
 
 def publish_single(staged: Path, target: Path, *, policy: str, prior) -> str | None:
     """Exclusive creation for fresh files, hardlink-backed rollback for overwrite."""
-    if recovery(target).exists() or recovery(target).is_symlink():
-        raise RuntimeError("Previous export needs recovery: " + str(recovery(target)))
+    if _recovery_paths(target):
+        raise RuntimeError("Previous export needs recovery: " +
+                           ", ".join(map(str, _recovery_paths(target))))
     if _has_sibling_file(target):
         raise ValueError("Output is paired with another file; refusing single-file overwrite")
     if _identity(target) != prior:

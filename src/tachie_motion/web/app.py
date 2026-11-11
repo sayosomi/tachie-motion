@@ -78,6 +78,7 @@ class PresetUtteranceRequest(BaseModel):
     output_dir: str
     basename: str
     fps: int = 30
+    source_identity: str | None = None
 
 
 
@@ -268,7 +269,7 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
                 blink_enabled=payload.blink_enabled, conflict_policy=payload.conflict_policy,
                 mov=folder / (payload.basename + ".mov"),
                 otio=folder / (payload.basename + ".otio"),
-                fps=payload.fps,
+                fps=payload.fps, source_identity=payload.source_identity,
             )
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
@@ -321,7 +322,7 @@ async def preset_batch_mov_export(payload: PresetUtteranceRequest):
                 layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
                 blink_enabled=payload.blink_enabled, conflict_policy=payload.conflict_policy,
                 mov=canonical / (payload.basename + ".mov"), otio=None,
-                fps=payload.fps,
+                fps=payload.fps, source_identity=payload.source_identity,
             )
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc

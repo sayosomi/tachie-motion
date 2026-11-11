@@ -86,7 +86,7 @@ export function validateBatchNaming(value: unknown): BatchNaming {
   movName(result.movTemplate, 1, "/tmp/example.wav",
     result.characterName, result.projectName);
   otioName(result.otioTemplate, result.projectName);
-  if (!result.outputDir || !(
+  if (result.outputDir && !(
     result.outputDir.startsWith("/") ||
     /^[A-Za-z]:[\\/]/.test(result.outputDir) ||
     result.outputDir.startsWith("\\\\")

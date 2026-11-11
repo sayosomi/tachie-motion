@@ -20,6 +20,12 @@ from tachie_motion.web.preset_preview import psd_snapshot_token
 from tachie_motion.web.output_destinations import initial_target_identity, publish_pair
 from tachie_motion.web.solo_output import initial_single_identity, publish_single
 from tachie_motion.web.service import load_psd
+from tachie_motion.web.preview_frame import file_identity
+
+
+def verify_wav_source(path: Path, expected: str) -> None:
+    if ':'.join(map(str, file_identity(path))) != expected:
+        raise ValueError('WAV changed since registration; nothing was published')
 
 
 def validated_snapshot(psd_path: Path, fingerprint: str, layers: list[dict]):
@@ -82,6 +88,7 @@ def export_preset_utterance(
     *, psd_path: Path, wav: Path, fingerprint: str, layers: list[dict],
     mouth: dict | None, mode: str, blink_enabled: bool,
     mov: Path, otio: Path | None, fps: int = 30, conflict_policy: str = "error",
+    source_identity: str | None = None,
 ):
     """Generate one preset-backed PCM-in-MOV and synchronized OTIO.
 
@@ -98,12 +105,19 @@ def export_preset_utterance(
         raise ValueError("Expected MOV and OTIO destinations")
     if otio is not None and mov.parent != otio.parent:
         raise ValueError("MOV and OTIO must be in one output directory")
+    if source_identity is not None:
+        import re
+        if not re.fullmatch(r'[0-9]+(:[0-9]+){4}', source_identity):
+            raise ValueError('Invalid registered WAV identity')
+        verify_wav_source(wav, source_identity)
     prior = (initial_target_identity(mov, otio, conflict_policy)
              if otio is not None else initial_single_identity(mov, conflict_policy))
 
     psd, base = validated_snapshot(psd_path, fingerprint, layers)
     shapes = validate_open_mouth(psd, base, mouth) if mode == "open" else None
     schedule = analyze_wav(wav, fps=fps)
+    if source_identity is not None:
+        verify_wav_source(wav, source_identity)
     indices = tuple(1 if shapes and frame.mouth == "open" else 0
                     for frame in schedule.frames)
     work = tempfile.TemporaryDirectory(prefix=".tachie-preset-", dir=mov.parent)
@@ -138,6 +152,9 @@ def export_preset_utterance(
             expected_sample_width_bits=schedule.sample_width_bits,
             expected_pcm_sha256=schedule.pcm_sha256,
         )
+        if source_identity is not None:
+            # Nothing may reach the public output names after the WAV changes.
+            verify_wav_source(wav, source_identity)
         if otio is not None:
             # The individual route retains its existing exact MOV+OTIO contract.
             document = build_rounded_utterance(

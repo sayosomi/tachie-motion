@@ -53,11 +53,21 @@ def recovery_locations(mov: Path) -> tuple[Path, ...]:
     return tuple(sorted(found))
 
 
+def all_output_recovery(mov: Path) -> tuple[Path, ...]:
+    """Recovery paths for BOTH publication protocols for one basename."""
+    if mov.suffix.lower() != ".mov":
+        mov = mov.with_suffix(".mov")
+    otio = mov.with_suffix(".otio")
+    found = list(recovery_locations(mov))
+    for path in (mov, otio):
+        candidate = path.parent / ("." + path.name + ".single-backup")
+        if candidate.exists() or candidate.is_symlink():
+            found.append(candidate)
+    return tuple(sorted(found))
+
+
 def target_state(mov: Path, otio: Path) -> tuple[str, tuple | None]:
-    from tachie_motion.web.solo_output import recovery
-    if recovery(mov).exists() or recovery(mov).is_symlink():
-        return "recovery_required", None
-    if recovery_locations(mov):
+    if all_output_recovery(mov):
         return "recovery_required", None
     try:
         a, b = _regular_identity(mov), _regular_identity(otio)
