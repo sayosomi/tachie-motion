@@ -62,6 +62,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const [probeVersion, setProbeVersion] = useState(0);
   const sequence = useRef(0);
   const latestAdd = useRef(0);
+  const catalogEpoch = useRef(0);
   const selectionEpoch = useRef(0);
   const mounted = useRef(false);
   // Synchronous guard closes the gap before React commits exportingId state.
@@ -72,6 +73,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const editingLocked = batch.running || batch.isBusy() || !!exportingId || projectBusy;
   const projectLock = (locked: boolean) => {
     projectBusyRef.current = locked;
+    if (locked) catalogEpoch.current++; // Invalidate any older asynchronous WAV addition.
     setProjectBusy(locked);
     onProjectBusyChange?.(locked);
   };
@@ -135,6 +137,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     writePresetDraft(nextDraft);
     playback.stop();
     latestAdd.current++;
+    catalogEpoch.current++;
     selectionEpoch.current++;
     sequence.current = Math.max(0, ...project.items.map((item) => item.registrationOrder));
     setItems(project.items.map((item) => ({
@@ -176,11 +179,12 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     }
     const request = ++latestAdd.current;
     const atEpoch = selectionEpoch.current;
+    const atCatalog = catalogEpoch.current;
     const ordinal = ++sequence.current;
     setAddingCount((count) => count + 1);
     try {
       const wav = await post<WavData>("wav", { path });
-      if (!mounted.current) return false;
+      if (!mounted.current || atCatalog !== catalogEpoch.current) return false;
       const id = crypto.randomUUID();
       const presetId = draft.collection.defaultId ?? draft.collection.items[0].id;
       const item = createUtterance(id, path, wav, presetId, defaultOutputDir, ordinal);
@@ -196,7 +200,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
       setPendingPath((value) => value === path ? "" : value);
       return true;
     } catch (err) {
-      if (mounted.current) {
+      if (mounted.current && atCatalog === catalogEpoch.current) {
         const reason = err instanceof Error ? err.message : String(err);
         // A newer WAV may have succeeded before this request failed.
         // Preserve every failure with its source path instead of dropping stale responses.
