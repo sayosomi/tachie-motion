@@ -224,3 +224,44 @@ test("Save dialog cancel does not claim success; held writer locks conflicting e
   expect(await page.evaluate(() =>
     (window as Window & { __projectProbe: Probe }).__projectProbe.saved.length)).toBe(1);
 });
+
+
+test("changed PSD rejects restoration without replacing current state", async ({ page }) => {
+  const state = await mock(page);
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  const project = await saved(page);
+  await addWav(page, otherWav);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+  state.fingerprint = "1000:3000";
+  await importProject(page, project);
+  await expect(page.locator(".project-repair")).toContainText("PSDの内容またはレイヤー構造");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+  await page.getByRole("button", { name: "読み込みを取り消す" }).click();
+  await expect(page.locator(".project-repair")).toHaveCount(0);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+});
+
+test("failed browser recovery write is non-destructive after user confirms", async ({ page }) => {
+  await mock(page);
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  const project = await saved(page);
+  await addWav(page, otherWav);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+  const before = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === "tachie-motion.preset-draft.v1") throw new Error("容量不足");
+      return original.call(this, key, value);
+    };
+  });
+  await agreeToReplace(page);
+  await importProject(page, project);
+  await expect(page.getByRole("alert")).toContainText("容量不足");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(before);
+});
