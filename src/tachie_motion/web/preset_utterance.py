@@ -172,6 +172,8 @@ def export_preset_utterance(
             audio_ref["name"] = mov.name
             staged_otio = directory / "staged.otio"
             write_otio(document, staged_otio)
+            if source_identity is not None:
+                verify_wav_source(wav, source_identity)
             warning = publish_pair(
                 pcm_mov, staged_otio, mov, otio,
                 policy=conflict_policy, prior=prior,

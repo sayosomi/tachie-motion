@@ -9,7 +9,7 @@ import unicodedata
 from tachie_motion.timeline.media import MovieTiming, WaveTiming, probe_movie
 from tachie_motion.timeline.otio_json import build_combined_utterances, write_otio
 from tachie_motion.web.solo_output import (
-    _identity, initial_single_identity, publish_single, validate_media_basename,
+    _identity, initial_single_identity, published_media_identity, publish_single, validate_media_basename,
 )
 
 
@@ -56,7 +56,7 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
         mov = folder / (name + ".mov")
         if not mov.is_file() or mov.is_symlink():
             raise ValueError("Missing or unsafe MOV: " + name)
-        if expected_identities is not None and _identity(mov) != expected_identities.get(name):
+        if expected_identities is not None and published_media_identity(mov) != expected_identities.get(name):
             raise ValueError("MOV does not belong to this batch: " + name)
         movie = probe_movie(mov)
         audio = probe_embedded_pcm(mov)
@@ -82,7 +82,7 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
             if (info.st_dev, info.st_ino, info.st_ctime_ns,
                 info.st_size, info.st_mtime_ns) != identity:
                 raise ValueError("MOV changed during timeline preparation")
-            if expected_identities is not None and _identity(mov) != expected_identities.get(mov.stem):
+            if expected_identities is not None and published_media_identity(mov) != expected_identities.get(mov.stem):
                 raise ValueError("MOV was replaced after rendering by this batch")
             if probe_movie(mov) != timing or probe_embedded_pcm(mov) != audio:
                 raise ValueError("MOV changed while preparing combined OTIO")

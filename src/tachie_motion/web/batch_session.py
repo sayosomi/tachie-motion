@@ -14,7 +14,7 @@ from tachie_motion.web.preview_frame import file_identity
 from tachie_motion.timeline.media import probe_wav
 from tachie_motion.web.service import local_file
 from tachie_motion.web.solo_output import (
-    _identity, initial_single_identity, validate_media_basename,
+    _identity, initial_single_identity, published_media_identity, validate_media_basename,
 )
 
 # The lease is renewed on each operation, after the current render completes.
@@ -156,7 +156,7 @@ class BatchCoordinator:
                 planned.samples, planned.sample_rate):
             raise RuntimeError("Batch output does not match the registered WAV")
         path = session.folder / (planned.basename + ".mov")
-        identity = _identity(path)
+        identity = published_media_identity(path)
         if identity is None:
             raise RuntimeError("Batch MOV disappeared after publication")
         session.identities[planned.basename] = identity
@@ -186,7 +186,7 @@ class BatchCoordinator:
         if now != session.timeline_original:
             raise ValueError("OTIO destination changed after batch approval")
         for name, identity in session.identities.items():
-            if _identity(folder / (name + ".mov")) != identity:
+            if published_media_identity(folder / (name + ".mov")) != identity:
                 raise ValueError("Batch MOV was replaced after rendering: " + name)
         return dict(session.identities)
 

@@ -79,7 +79,7 @@ class PresetUtteranceRequest(BaseModel):
     output_dir: str
     basename: str
     fps: int = 30
-    source_identity: str | None = None
+    source_identity: str
 
 
 

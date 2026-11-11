@@ -41,6 +41,22 @@ def _identity(path: Path) -> tuple[int, int, int, int] | None:
 
 
 
+def published_media_identity(path: Path) -> tuple[int, int, int, int, int] | None:
+    """Stable snapshot after a published MOV's staging hardlink is cleaned up.
+
+    Not used during hardlink-backed rollback: creating/removing a backup link
+    intentionally updates ctime, even when the file's contents are unchanged.
+    """
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError("Published MOV is not a regular file")
+    return (info.st_dev, info.st_ino, info.st_ctime_ns,
+            info.st_size, info.st_mtime_ns)
+
+
 def _has_sibling_file(path: Path) -> bool:
     """Do not overwrite one half of an existing MOV/OTIO pair."""
     if path.suffix.lower() not in (".mov", ".otio"):

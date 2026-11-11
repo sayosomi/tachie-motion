@@ -10,7 +10,7 @@ import unittest
 from tachie_motion.web.preset_utterance import (
     validated_snapshot, validate_open_mouth,
 )
-from tachie_motion.web.service import describe_psd
+from tachie_motion.web.service import describe_psd, describe_wav
 from tachie_motion.render.prores import read_rgba_states
 from test_web_api import fixture
 
@@ -98,6 +98,7 @@ class PresetExportApiTests(unittest.TestCase):
             "psd": str(self.psd), "wav": str(self.wav), "fingerprint": meta["fingerprint"],
             "layers": base, "mode": "none", "blink_enabled": False,
             "output_dir": str(self.root), "basename": "speech", "fps": 30,
+            "source_identity": describe_wav(str(self.wav))["source_identity"],
         }
 
     def post(self, **changes):
