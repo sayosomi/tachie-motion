@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import type { Layer } from "./LayerTree";
 import UtteranceExportPanel, { type ExportScope } from "./UtteranceExportPanel";
 import UtteranceList from "./UtteranceList";
+import ProjectActions from "./ProjectActions";
+import { projectPresetDraft, type ProjectFile } from "./projectFile";
+import type { ProjectInspection } from "./projectRestore";
 import useWavPlayback from "./WavPlayback";
 import { useBatchUtteranceExport } from "./useBatchUtteranceExport";
 import { exportPayload, exportReady } from "./utteranceExportRequest";
 import type { UnifiedPreset } from "./presetModel";
-import { matchesSource, readPresetDraft, type PresetDraft } from "./presetDraftStorage";
+import { matchesSource, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
   createUtterance, moveUtterance, reorderUtterances, updateUtterance,
   type ExportData, type UtteranceItem, type WavData,
@@ -36,8 +39,14 @@ function openMouthReady(preset?: UnifiedPreset): boolean {
     JSON.stringify(mouth.closed) !== JSON.stringify(mouth.opened));
 }
 
-export default function UtteranceWorkspace({ active = true }: { active?: boolean }) {
+export default function UtteranceWorkspace({ active = true, onProjectBusyChange }: {
+  active?: boolean;
+  onProjectBusyChange?: (busy: boolean) => void;
+}) {
   const [draft, setDraft] = useState<PresetDraft | null>(null);
+  const [psdLayers, setPsdLayers] = useState<Layer[]>([]);
+  const [projectBusy, setProjectBusy] = useState(false);
+  const projectBusyRef = useRef(false);
   const [items, setItems] = useState<UtteranceItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [pendingPath, setPendingPath] = useState("");
@@ -60,9 +69,15 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
   const batch = useBatchUtteranceExport(draft, items, setItems,
     () => setProbeVersion((previous) => previous + 1), active && exportScope === "all");
   const playback = useWavPlayback(items);
-  const editingLocked = batch.running || batch.isBusy() || !!exportingId;
+  const editingLocked = batch.running || batch.isBusy() || !!exportingId || projectBusy;
+  const projectLock = (locked: boolean) => {
+    projectBusyRef.current = locked;
+    setProjectBusy(locked);
+    onProjectBusyChange?.(locked);
+  };
   // A stale DOM event may run before React commits running/exportingId.
-  const isEditBusy = () => editingLocked || singleExportLock.current || batch.isBusy();
+  const isEditBusy = () => editingLocked || projectBusyRef.current ||
+    singleExportLock.current || batch.isBusy();
 
   useEffect(() => {
     mounted.current = true;
@@ -95,6 +110,7 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
         }
         if (cancelled) return;
         setDraft(saved);
+        setPsdLayers(psd.layers);
         setPresetStatus("ready");
         setDefaultOutputDir(health.default_output_dir);
       } catch (err) {
@@ -107,6 +123,36 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     void load();
     return () => { cancelled = true; };
   }, [active]);
+
+  // Commit a validated project snapshot only after the browser storage write
+  // succeeds. Failed imports leave WAV rows and preset recovery untouched.
+  function restoreProject(project: ProjectFile, inspected: ProjectInspection,
+    psdPath: string, wavPaths: Record<string, string>) {
+    if (!inspected.psd || inspected.problems.length) {
+      throw new Error("素材の確認が完了していません");
+    }
+    const nextDraft = projectPresetDraft(project, psdPath);
+    writePresetDraft(nextDraft);
+    playback.stop();
+    latestAdd.current++;
+    selectionEpoch.current++;
+    sequence.current = Math.max(0, ...project.items.map((item) => item.registrationOrder));
+    setItems(project.items.map((item) => ({
+      ...item, wavPath: wavPaths[item.id] ?? item.wavPath,
+      wav: inspected.wavs[item.id], result: null, error: "",
+    })));
+    setActiveId(project.selectedId);
+    setDraft(nextDraft);
+    setPsdLayers(inspected.psd.layers);
+    setPresetStatus("ready");
+    setStartupError("");
+    setAddError("");
+    setPendingPath("");
+    setExportScope("single");
+    setDestination(null);
+    setDestinationError("");
+    setProbeVersion((previous) => previous + 1);
+  }
 
   const current = items.find((item) => item.id === activeId);
   const selected = draft?.collection.items.find((preset) => preset.id === current?.presetId);
@@ -261,6 +307,10 @@ export default function UtteranceWorkspace({ active = true }: { active?: boolean
     <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件のMOV・個別OTIOの一括書き出しに対応します。aiueo・瞬き・待機・変更点・全体OTIOは後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} presets={draft?.collection.items ?? []}
+      projectControls={<ProjectActions
+        draft={draft} layers={psdLayers} items={items} selectedId={activeId}
+        disabled={editingLocked || addingCount > 0 || presetStatus === "loading"}
+        onBusyChange={projectLock} onRestore={restoreProject} />}
       presetStatus={presetStatus}
       selectedId={activeId} pendingPath={pendingPath}
       addingCount={addingCount} addError={addError}
