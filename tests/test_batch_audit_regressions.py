@@ -199,5 +199,39 @@ class BatchBlockingAuditTests(unittest.TestCase):
             self.assertTrue((recovery(old) / "saved").exists())
 
 
+    @unittest.skipUnless(__import__("shutil").which("ffmpeg") and __import__("shutil").which("ffprobe"),
+                         "FFmpeg required for before-publication race injection")
+    def test_source_replacement_during_mux_is_rejected_before_mov_overwrite(self):
+        import shutil
+        from test_web_api import fixture
+        from tachie_motion.web.service import describe_psd
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            psd, wav, _, _ = fixture(folder)
+            meta = describe_psd(str(psd))
+            original_identity = source_token(wav)
+            existing = folder / "scene.mov"
+            existing.write_bytes(b"ORIGINAL MOV")
+            def change_source(_video, _wav, output, **_):
+                Path(output).write_bytes(b"synthetic staged mux")
+                replacement = folder / "updated.wav"
+                shutil.copyfile(wav, replacement)
+                os.replace(replacement, wav)
+            base = [{"path": layer["path"], "visible": layer["visible"]}
+                    for layer in meta["layers"]]
+            with patch("tachie_motion.web.preset_utterance.mux_verified_pcm",
+                       side_effect=change_source):
+                with self.assertRaisesRegex(ValueError, "WAV changed"):
+                    export_preset_utterance(
+                        psd_path=psd, wav=wav, fingerprint=meta["fingerprint"],
+                        layers=base, mouth=None, mode="none",
+                        blink_enabled=False, mov=existing, otio=None,
+                        fps=30, conflict_policy="overwrite",
+                        source_identity=original_identity,
+                    )
+            self.assertEqual(existing.read_bytes(), b"ORIGINAL MOV")
+            self.assertFalse(recovery(existing).exists())
+
+
 if __name__ == "__main__":
     unittest.main()
