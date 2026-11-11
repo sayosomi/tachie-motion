@@ -17,6 +17,8 @@ from tachie_motion.web.browser_preview_assets import layer_preview_assets, previ
 from tachie_motion.web.preset_preview import preview_base_preset
 from tachie_motion.web.preset_utterance import export_preset_utterance
 from tachie_motion.web.output_destinations import destination_info, validate_basename
+from tachie_motion.web.solo_output import validate_media_basename, single_destination
+from tachie_motion.web.combined_otio import create_combined_otio
 from tachie_motion.web.service import (
     describe_psd, describe_wav, load_psd, local_file, preview_mouth,
 )
@@ -76,6 +78,20 @@ class PresetUtteranceRequest(BaseModel):
     output_dir: str
     basename: str
     fps: int = 30
+
+
+
+class CombinedMedia(BaseModel):
+    basename: str
+    frames: int
+    fps: int
+    samples: int
+    sample_rate: int
+
+
+class CombinedOtioRequest(DestinationRequest):
+    entries: list[CombinedMedia]
+    conflict_policy: str = "error"
 
 
 app = FastAPI(title="tachie-motion local web", docs_url=None, redoc_url=None)
@@ -253,6 +269,77 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
                 mov=folder / (payload.basename + ".mov"),
                 otio=folder / (payload.basename + ".otio"),
                 fps=payload.fps,
+            )
+    except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-batch-mov-destination")
+def preset_batch_mov_destination(payload: DestinationRequest):
+    try:
+        validate_media_basename(payload.basename)
+        folder = Path(payload.output_dir).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise ValueError("Output folder must already exist")
+        canonical = folder.resolve(strict=True)
+        return {**single_destination(canonical / (payload.basename + ".mov")),
+                "canonical_output_dir": str(canonical)}
+    except (ValueError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-combined-otio-destination")
+def preset_combined_otio_destination(payload: DestinationRequest):
+    try:
+        validate_media_basename(payload.basename)
+        folder = Path(payload.output_dir).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise ValueError("Output folder must already exist")
+        canonical = folder.resolve(strict=True)
+        return {**single_destination(canonical / (payload.basename + ".otio")),
+                "canonical_output_dir": str(canonical)}
+    except (ValueError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-batch-mov-export")
+async def preset_batch_mov_export(payload: PresetUtteranceRequest):
+    try:
+        validate_media_basename(payload.basename)
+        folder = Path(payload.output_dir).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise ValueError("Output folder must already exist")
+        if payload.fps not in (24, 30, 60):
+            raise ValueError("FPS must be 24, 30 or 60")
+        psd = local_file(payload.psd, ".psd")
+        wav = local_file(payload.wav, ".wav")
+        canonical = folder.resolve(strict=True)
+        async with app.state.export_lock:
+            return await asyncio.to_thread(
+                export_preset_utterance,
+                psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
+                layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
+                blink_enabled=payload.blink_enabled, conflict_policy=payload.conflict_policy,
+                mov=canonical / (payload.basename + ".mov"), otio=None,
+                fps=payload.fps,
+            )
+    except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-combined-otio")
+async def preset_combined_otio(payload: CombinedOtioRequest):
+    try:
+        validate_media_basename(payload.basename)
+        folder = Path(payload.output_dir).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise ValueError("Output folder must already exist")
+        canonical = folder.resolve(strict=True)
+        entries = [entry.model_dump() for entry in payload.entries]
+        async with app.state.export_lock:
+            return await asyncio.to_thread(
+                create_combined_otio, canonical, payload.basename,
+                entries, payload.conflict_policy,
             )
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc

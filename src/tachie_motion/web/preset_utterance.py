@@ -18,6 +18,7 @@ from tachie_motion.timeline.media import MovieTiming, WaveTiming
 from tachie_motion.timeline.otio_json import build_rounded_utterance, write_otio
 from tachie_motion.web.preset_preview import psd_snapshot_token
 from tachie_motion.web.output_destinations import initial_target_identity, publish_pair
+from tachie_motion.web.solo_output import initial_single_identity, publish_single
 from tachie_motion.web.service import load_psd
 
 
@@ -80,7 +81,7 @@ def validate_open_mouth(psd, base: dict, mouth: dict | None):
 def export_preset_utterance(
     *, psd_path: Path, wav: Path, fingerprint: str, layers: list[dict],
     mouth: dict | None, mode: str, blink_enabled: bool,
-    mov: Path, otio: Path, fps: int = 30, conflict_policy: str = "error",
+    mov: Path, otio: Path | None, fps: int = 30, conflict_policy: str = "error",
 ):
     """Generate one preset-backed PCM-in-MOV and synchronized OTIO.
 
@@ -93,11 +94,12 @@ def export_preset_utterance(
         raise ValueError("Blink export is not implemented")
     if fps not in (24, 30, 60):
         raise ValueError("Unsupported frame rate")
-    if mov.suffix.lower() != ".mov" or otio.suffix.lower() != ".otio":
+    if mov.suffix.lower() != ".mov" or (otio is not None and otio.suffix.lower() != ".otio"):
         raise ValueError("Expected MOV and OTIO destinations")
-    if mov.parent != otio.parent:
+    if otio is not None and mov.parent != otio.parent:
         raise ValueError("MOV and OTIO must be in one output directory")
-    prior = initial_target_identity(mov, otio, conflict_policy)
+    prior = (initial_target_identity(mov, otio, conflict_policy)
+             if otio is not None else initial_single_identity(mov, conflict_policy))
 
     psd, base = validated_snapshot(psd_path, fingerprint, layers)
     shapes = validate_open_mouth(psd, base, mouth) if mode == "open" else None
@@ -136,28 +138,32 @@ def export_preset_utterance(
             expected_sample_width_bits=schedule.sample_width_bits,
             expected_pcm_sha256=schedule.pcm_sha256,
         )
-        # Stage OTIO against existing muxed media; remap BOTH tracks to the
-        # final MOV, never to the source WAV or a temporary output.
-        document = build_rounded_utterance(
-            pcm_mov, wav, MovieTiming(report.frames, fps),
-            WaveTiming(schedule.sample_count, schedule.sample_rate),
-            embedded_audio=True,
-        )
-        video_ref = document["tracks"]["children"][0]["children"][0][
-            "media_references"]["DEFAULT_MEDIA"]
-        video_ref["target_url"] = mov.as_uri()
-        video_ref["name"] = mov.name
-        audio_ref = document["tracks"]["children"][1]["children"][0][
-            "media_references"]["DEFAULT_MEDIA"]
-        audio_ref["target_url"] = str(mov.absolute())
-        audio_ref["name"] = mov.name
-        staged_otio = directory / "staged.otio"
-        write_otio(document, staged_otio)
-        # Validate and stage both outputs BEFORE touching any published media.
-        warning = publish_pair(
-            pcm_mov, staged_otio, mov, otio,
-            policy=conflict_policy, prior=prior,
-        )
+        if otio is not None:
+            # The individual route retains its existing exact MOV+OTIO contract.
+            document = build_rounded_utterance(
+                pcm_mov, wav, MovieTiming(report.frames, fps),
+                WaveTiming(schedule.sample_count, schedule.sample_rate),
+                embedded_audio=True,
+            )
+            video_ref = document["tracks"]["children"][0]["children"][0][
+                "media_references"]["DEFAULT_MEDIA"]
+            video_ref["target_url"] = mov.as_uri()
+            video_ref["name"] = mov.name
+            audio_ref = document["tracks"]["children"][1]["children"][0][
+                "media_references"]["DEFAULT_MEDIA"]
+            audio_ref["target_url"] = str(mov.absolute())
+            audio_ref["name"] = mov.name
+            staged_otio = directory / "staged.otio"
+            write_otio(document, staged_otio)
+            warning = publish_pair(
+                pcm_mov, staged_otio, mov, otio,
+                policy=conflict_policy, prior=prior,
+            )
+        else:
+            # Batch route produces only media; one shared OTIO follows after all MOVs.
+            warning = publish_single(
+                pcm_mov, mov, policy=conflict_policy, prior=prior,
+            )
         committed = True
     finally:
         try:
@@ -169,8 +175,10 @@ def export_preset_utterance(
                 "MOV and OTIO were saved, but temporary render files could not "
                 "be fully removed: " + work.name
             )
-    result = {"mov": str(mov), "otio": str(otio), "frames": report.frames,
-              "sample_count": schedule.sample_count}
+    result = {"mov": str(mov), "frames": report.frames,
+              "sample_count": schedule.sample_count, "sample_rate": schedule.sample_rate}
+    if otio is not None:
+        result["otio"] = str(otio)
     warnings = [message for message in (warning, cleanup_warning) if message]
     if warnings:
         result["warning"] = " ".join(warnings)
