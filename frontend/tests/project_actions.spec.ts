@@ -80,7 +80,7 @@ async function addWav(page: Page, path: string) {
 }
 async function saved(page: Page): Promise<any> {
   await page.getByRole("button", { name: "JSONを保存" }).click();
-  await expect(page.getByRole("status")).toContainText("制作プロジェクトを保存しました");
+  await expect(page.getByRole("status").filter({ hasText: "制作プロジェクトを保存しました" })).toBeVisible();
   return page.evaluate(() => {
     const p = (window as Window & { __projectProbe: Probe }).__projectProbe;
     return JSON.parse(p.saved.at(-1)!);
@@ -220,7 +220,7 @@ test("Save dialog cancel does not claim success; held writer locks conflicting e
   await page.evaluate(() => {
     (window as Window & { __projectProbe: Probe }).__projectProbe.release?.();
   });
-  await expect(page.getByRole("status")).toContainText("制作プロジェクトを保存しました");
+  await expect(page.getByRole("status").filter({ hasText: "制作プロジェクトを保存しました" })).toBeVisible();
   expect(await page.evaluate(() =>
     (window as Window & { __projectProbe: Probe }).__projectProbe.saved.length)).toBe(1);
 });
@@ -321,6 +321,6 @@ test("project saving locks batch execution controls until the writer completes",
   await page.evaluate(() => {
     (window as Window & { __projectProbe: Probe }).__projectProbe.release?.();
   });
-  await expect(page.getByRole("status")).toContainText("制作プロジェクトを保存しました");
+  await expect(page.getByRole("status").filter({ hasText: "制作プロジェクトを保存しました" })).toBeVisible();
   await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeEnabled();
 });
