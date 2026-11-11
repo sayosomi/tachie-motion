@@ -56,6 +56,16 @@ function allowedDestination(response: Destination, name: string): Conflict {
 async function prepare(items: UtteranceItem[], draft: PresetDraft,
   naming: BatchNaming): Promise<PreparedBatch> {
   validateBatchNaming(naming);
+  const movieNames = items.map((item, index) => movName(
+    naming.movTemplate, index + 1, item.wavPath,
+    naming.characterName, naming.projectName,
+  ));
+  const timelineName = otioName(naming.otioTemplate, naming.projectName);
+  // Python's NFC+casefold is authoritative for collision detection on macOS,
+  // Linux and Windows (JS toLocaleLowerCase has different Unicode semantics).
+  await post<{ valid: boolean }>("preset-batch-check-names", {
+    basenames: movieNames, timeline_basename: timelineName,
+  });
   const plans: Plan[] = [];
   const used = new Set<string>();
   let overwrites = 0;
@@ -64,8 +74,7 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
     if (!preset || !exportReady(preset, item)) {
       throw new Error(item.wavPath + " — 口パク・プリセットの設定を確認してください");
     }
-    const basename = movName(naming.movTemplate, index + 1, item.wavPath,
-      naming.characterName, naming.projectName);
+    const basename = movieNames[index];
     const key = basename.normalize("NFC").toLocaleLowerCase();
     if (used.has(key)) throw new Error("MOVの保存名が重複します：" + basename);
     used.add(key);
@@ -77,7 +86,7 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
     plans.push({ item, preset, basename, conflict_policy,
       canonicalOutputDir: destination.canonical_output_dir });
   }
-  const basename = otioName(naming.otioTemplate, naming.projectName);
+  const basename = timelineName;
   const dest = await post<Destination>("preset-combined-otio-destination", {
     output_dir: naming.outputDir, basename,
   });
@@ -159,6 +168,7 @@ export function useBatchUtteranceExport(
     setRunning(true);
     setSummary("");
     setProgress("出力先と保存名を再確認中…");
+    let sessionId: string | null = null;
     try {
       const refreshed = await prepare([...items], draft, naming);
       if (planKey(draft, refreshed) !== planKey(draft, displayed)) {
@@ -172,6 +182,19 @@ export function useBatchUtteranceExport(
         setSummary("一括書き出しをキャンセルしました。");
         return;
       }
+      const session = await post<{ batch_id: string }>("preset-batch-start", {
+        output_dir: timeline.canonicalOutputDir,
+        timeline_basename: timeline.basename,
+        timeline_policy: timeline.conflict_policy,
+        entries: plans.map((plan) => ({
+          basename: plan.basename, wav: plan.item.wavPath,
+          source_identity: plan.item.wav.source_identity, fps: plan.item.fps,
+          samples: plan.item.wav.samples, sample_rate: plan.item.wav.sample_rate,
+          conflict_policy: plan.conflict_policy,
+        })),
+      });
+      sessionId = session.batch_id;
+      if (!sessionId) throw new Error("一括書き出しのセッションを開始できません");
       let successes = 0;
       let failures = 0;
       const complete: { basename: string; frames: number; fps: number;
@@ -185,7 +208,9 @@ export function useBatchUtteranceExport(
           const payload = exportPayload(draft, {
             ...item, outputDir: plan.canonicalOutputDir,
           }, plan.preset, plan.basename, plan.conflict_policy);
-          const result = await post<MovieResult>("preset-batch-mov-export", payload);
+          const result = await post<MovieResult>("preset-batch-mov-export", {
+            ...payload, batch_id: sessionId, batch_index: index,
+          });
           const expected = plan.canonicalOutputDir + "/" + plan.basename + ".mov";
           if (result.mov !== expected ||
               result.sample_count !== item.wav.samples ||
@@ -216,6 +241,7 @@ export function useBatchUtteranceExport(
       const done = await post<TimelineResult>("preset-combined-otio", {
         output_dir: timeline.canonicalOutputDir, basename: timeline.basename,
         conflict_policy: timeline.conflict_policy, entries: complete,
+        batch_id: sessionId,
       });
       if (done.otio !== timeline.canonicalOutputDir + "/" + timeline.basename + ".otio" ||
           done.entries !== complete.length) {
@@ -226,9 +252,19 @@ export function useBatchUtteranceExport(
         (notes.length ? " ／ 注意：" + notes.join(" ") : ""));
       onFinished();
     } catch (error) {
-      setSummary("全体OTIOを生成できませんでした。MOVは既に作成された可能性があります：" +
+      setSummary("一括書き出しを完了できませんでした。MOVは既に作成された可能性があります：" +
         (error instanceof Error ? error.message : String(error)));
     } finally {
+      // Release the server-wide lease on every completion/cancel/failure path.
+      // A stale tab cannot release a different session's unpredictable token.
+      if (sessionId) {
+        try {
+          await post<{ released: boolean }>("preset-batch-cancel", { batch_id: sessionId });
+        } catch {
+          setSummary((previous) => previous +
+            " ／ サーバー側の一括ロック解除を確認できません。再実行する前に状態を確認してください。");
+        }
+      }
       setProgress("");
       busy.current = false;
       setRunning(false);
