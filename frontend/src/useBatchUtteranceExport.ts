@@ -82,6 +82,10 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
     output_dir: naming.outputDir, basename,
   });
   const policy = allowedDestination(dest, basename);
+  if (plans.some((plan) => plan.basename.normalize("NFC").toLocaleLowerCase() ===
+      basename.normalize("NFC").toLocaleLowerCase())) {
+    throw new Error("全体OTIOとMOVの保存名が重複します：" + basename);
+  }
   if (policy === "overwrite") overwrites++;
   if (plans.some((plan) => plan.canonicalOutputDir !== dest.canonical_output_dir)) {
     throw new Error("一括MOVと全体OTIOの出力先が一致しません");

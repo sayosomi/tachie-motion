@@ -156,5 +156,22 @@ class CombinedOtioTests(unittest.TestCase):
             self.assertEqual(probe_embedded_pcm(movie), WaveTiming(48000, 48000))
 
 
+    def test_batch_mov_and_combined_otio_cannot_overwrite_one_half_of_pair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            mov = folder / "existing.mov"
+            otio = folder / "existing.otio"
+            mov.write_bytes(b"MOV")
+            otio.write_bytes(b"OTIO")
+            self.assertEqual(single_destination(mov)["state"], "unsafe")
+            self.assertEqual(single_destination(otio)["state"], "unsafe")
+            with self.assertRaisesRegex(ValueError, "pair"):
+                initial_single_identity(mov, "overwrite")
+            with self.assertRaisesRegex(ValueError, "pair"):
+                initial_single_identity(otio, "overwrite")
+            self.assertEqual(mov.read_bytes(), b"MOV")
+            self.assertEqual(otio.read_bytes(), b"OTIO")
+
+
 if __name__ == "__main__":
     unittest.main()

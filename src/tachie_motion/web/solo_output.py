@@ -38,11 +38,22 @@ def _identity(path: Path) -> tuple[int, int, int, int] | None:
     return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns
 
 
+
+def _has_sibling_file(path: Path) -> bool:
+    """Do not overwrite one half of an existing MOV/OTIO pair."""
+    if path.suffix.lower() not in (".mov", ".otio"):
+        return False
+    sibling = path.with_suffix(".otio" if path.suffix.lower() == ".mov" else ".mov")
+    return sibling.exists() or sibling.is_symlink()
+
+
 def initial_single_identity(path: Path, policy: str):
     if policy not in ("error", "overwrite"):
         raise ValueError("Unsupported output conflict policy")
     if recovery(path).exists() or recovery(path).is_symlink():
         raise RuntimeError("Previous export needs recovery: " + str(recovery(path)))
+    if _has_sibling_file(path):
+        raise ValueError("Output name belongs to a MOV/OTIO pair; choose another name")
     # A MOV might have been exported by the existing individual MOV+OTIO
     # publisher; never ignore its separate recovery namespace.
     if path.suffix.lower() == ".mov":
@@ -58,6 +69,8 @@ def initial_single_identity(path: Path, policy: str):
 
 
 def single_destination(path: Path) -> dict:
+    if _has_sibling_file(path):
+        return {"state": "unsafe"}
     if recovery(path).exists() or recovery(path).is_symlink():
         return {"state": "recovery_required"}
     if path.suffix.lower() == ".mov":
@@ -75,6 +88,8 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior) -> str | N
     """Exclusive creation for fresh files, hardlink-backed rollback for overwrite."""
     if recovery(target).exists() or recovery(target).is_symlink():
         raise RuntimeError("Previous export needs recovery: " + str(recovery(target)))
+    if _has_sibling_file(target):
+        raise ValueError("Output is paired with another file; refusing single-file overwrite")
     if _identity(target) != prior:
         raise FileExistsError("Output changed while rendering; nothing published")
     if prior is None:
