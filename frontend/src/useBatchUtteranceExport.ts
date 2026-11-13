@@ -179,7 +179,7 @@ export function useBatchUtteranceExport(
       }
       const { plans, timeline, overwrites } = displayed;
       if (overwrites && !window.confirm(
-        "既存のMOV／全体OTIOを" + overwrites + "件上書きします。続行しますか？"
+        "既存のMOVを" + overwrites + "件上書きします。続行しますか？"
       )) {
         setSummary("一括書き出しをキャンセルしました。");
         return;

@@ -365,7 +365,7 @@ test("batch export requires confirmation before overwriting existing output pair
   await addWav(page, "/tmp/voice.wav");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
   const dialog = page.waitForEvent("dialog").then(async (shown) => {
-    expect(shown.message()).toContain("既存のMOV／全体OTIOを1件上書き");
+    expect(shown.message()).toContain("既存のMOVを1件上書き");
     await shown.dismiss();
   });
   await page.getByRole("radio", { name: /^全件/ }).check();
