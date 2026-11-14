@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from tachie_motion.web import batch_publish
 from tachie_motion.web.batch_publish import (
-    RECOVERY_PREFIX, STAGE_PREFIX, STAGE_MARKER, STAGE_SIGNATURE,
+    RECOVERY_PREFIX, STAGE_PREFIX, STAGE_MARKER, STAGE_SIGNATURE, STAGE_ALLOWLIST,
     create_stage, discard_stage, publish_batch, recovery_directories,
     require_batch_recovery_clear,
 )
@@ -243,32 +243,33 @@ class BatchPublicationTests(unittest.TestCase):
         self.assert_old()
         self.assertEqual(recovery_directories(self.folder), ())
 
+    def abandon_stage(self, allowed_files: list[str]) -> Path:
+        """Simulate process death without running discard_stage."""
+        stage = create_stage(self.folder, allowed_files=allowed_files)
+        os.close(batch_publish._stage_fds.pop(stage))
+        return stage
+
     @unittest.skipUnless(batch_publish.fcntl is not None, "flock required")
-    def test_restart_cleans_only_signed_unlocked_stages_not_live_or_unknown(self):
-        orphan = self.folder / (STAGE_PREFIX + "orphan")
-        orphan.mkdir()
-        (orphan / STAGE_MARKER).write_bytes(STAGE_SIGNATURE)
-        (orphan / "large.mov").write_bytes(b"abandoned render")
+    def test_restart_cleans_only_signed_indexed_unlocked_stages(self):
         unsigned = self.folder / (STAGE_PREFIX + "unsigned")
         unsigned.mkdir()
         (unsigned / "large.mov").write_bytes(b"not recognized")
-        foreign = self.folder / (STAGE_PREFIX + "foreign")
-        foreign.mkdir()
-        (foreign / STAGE_MARKER).write_bytes(STAGE_SIGNATURE)
+        foreign = self.abandon_stage(["large.mov"])
         (foreign / "customer.txt").write_bytes(b"must not delete")
+        orphan = self.abandon_stage(["large.mov", "missing.otio"])
+        (orphan / "large.mov").write_bytes(b"abandoned render")
         other = create_stage(self.folder)
         self.assertFalse(orphan.exists())
         self.assertTrue(self.stage.exists(), "active stage must retain its live lease")
         self.assertTrue(unsigned.exists())
         self.assertTrue(foreign.exists())
+        self.assertEqual((foreign / "customer.txt").read_bytes(), b"must not delete")
         discard_stage(other)
 
     @unittest.skipUnless(batch_publish.fcntl is not None, "flock required")
     def test_live_other_process_stage_lease_blocks_orphan_cleanup(self):
-        live = self.folder / (STAGE_PREFIX + "other-process")
-        live.mkdir()
+        live = self.abandon_stage(["speech.mov"])
         marker = live / STAGE_MARKER
-        marker.write_bytes(STAGE_SIGNATURE)
         (live / "speech.mov").write_bytes(b"pending media")
         fd = os.open(marker, os.O_RDONLY)
         try:
@@ -305,6 +306,126 @@ class BatchPublicationTests(unittest.TestCase):
                 self.publish(originals, staged)
         self.assert_old()
         self.assertEqual(recovery_directories(self.folder), ())
+
+
+    @unittest.skipUnless(batch_publish.fcntl is not None and hasattr(os, "mkfifo"),
+                         "POSIX FIFO and flock required")
+    def test_fifo_owner_marker_does_not_block_or_reap_stage(self):
+        orphan = self.abandon_stage(["speech.mov"])
+        marker = orphan / STAGE_MARKER
+        marker.unlink()
+        os.mkfifo(marker)
+        (orphan / "speech.mov").write_bytes(b"keep staged output")
+        real_open = os.open
+        def guarded_open(path, flags, *args, **kwargs):
+            if path == STAGE_MARKER:
+                self.assertTrue(flags & os.O_NONBLOCK, "FIFO open must be nonblocking")
+            return real_open(path, flags, *args, **kwargs)
+        with patch("tachie_motion.web.batch_publish.os.open", side_effect=guarded_open):
+            next_stage = create_stage(self.folder)
+        discard_stage(next_stage)
+        self.assertTrue(stat.S_ISFIFO(marker.lstat().st_mode))
+        self.assertEqual((orphan / "speech.mov").read_bytes(), b"keep staged output")
+
+    @unittest.skipUnless(batch_publish.fcntl is not None, "flock required")
+    def test_stage_with_directory_or_symlink_marker_is_preserved(self):
+        stage_dir = self.abandon_stage(["speech.mov"])
+        (stage_dir / STAGE_MARKER).unlink()
+        (stage_dir / STAGE_MARKER).mkdir()
+        stage_link = self.abandon_stage(["speech.mov"])
+        (stage_link / STAGE_MARKER).unlink()
+        (stage_link / STAGE_MARKER).symlink_to(self.folder / "missing")
+        next_stage = create_stage(self.folder)
+        discard_stage(next_stage)
+        self.assertTrue((stage_dir / STAGE_MARKER).is_dir())
+        self.assertTrue((stage_link / STAGE_MARKER).is_symlink())
+
+    @unittest.skipUnless(batch_publish.fcntl is not None, "flock required")
+    def test_unlisted_same_extension_and_nested_unknown_files_are_preserved(self):
+        foreign_mov = self.abandon_stage(["approved.mov"])
+        (foreign_mov / "approved.mov").write_bytes(b"approved")
+        (foreign_mov / "unlisted.mov").write_bytes(b"unrelated same-extension movie")
+        nested = self.abandon_stage(["approved.mov"])
+        (nested / "approved.mov").write_bytes(b"approved")
+        temporary = nested / ".tachie-preset-random"
+        temporary.mkdir()
+        (temporary / "staged.mov").write_bytes(b"temporary")
+        (temporary / "user-notes.txt").write_bytes(b"personal notes")
+        other = create_stage(self.folder)
+        discard_stage(other)
+        self.assertEqual((foreign_mov / "unlisted.mov").read_bytes(),
+                         b"unrelated same-extension movie")
+        self.assertEqual((foreign_mov / "approved.mov").read_bytes(), b"approved")
+        self.assertEqual((temporary / "user-notes.txt").read_bytes(), b"personal notes")
+        self.assertEqual((nested / "approved.mov").read_bytes(), b"approved")
+
+    @unittest.skipUnless(batch_publish.fcntl is not None, "flock required")
+    def test_unknown_symlink_and_missing_allowlist_are_preserved(self):
+        stage_link = self.abandon_stage(["approved.mov"])
+        (stage_link / "approved.mov").symlink_to(self.folder / "unrelated.mov")
+        legacy = self.folder / (STAGE_PREFIX + "legacy")
+        legacy.mkdir()
+        (legacy / STAGE_MARKER).write_bytes(STAGE_SIGNATURE)
+        (legacy / "old.mov").write_bytes(b"unindexed output")
+        invalid = self.abandon_stage(["approved.mov"])
+        (invalid / STAGE_ALLOWLIST).write_bytes(b"not JSON")
+        other = create_stage(self.folder)
+        discard_stage(other)
+        self.assertTrue((stage_link / "approved.mov").is_symlink())
+        self.assertTrue(legacy.exists())
+        self.assertEqual((legacy / "old.mov").read_bytes(), b"unindexed output")
+        self.assertTrue(invalid.exists())
+
+    @unittest.skipUnless(batch_publish.fcntl is not None, "flock required")
+    def test_late_unknown_file_during_cleanup_is_not_deleted(self):
+        orphan = self.abandon_stage(["approved.mov"])
+        (orphan / "approved.mov").write_bytes(b"approved")
+        real_unlink = os.unlink
+        injected = False
+        def add_unknown_before_unlink(path, *args, **kwargs):
+            nonlocal injected
+            if path == "approved.mov" and kwargs.get("dir_fd") is not None and not injected:
+                injected = True
+                (orphan / "notes.txt").write_bytes(b"preserve me")
+            return real_unlink(path, *args, **kwargs)
+        with patch("tachie_motion.web.batch_publish.os.unlink",
+                   side_effect=add_unknown_before_unlink):
+            other = create_stage(self.folder)
+        discard_stage(other)
+        self.assertTrue(injected)
+        self.assertEqual((orphan / "notes.txt").read_bytes(), b"preserve me")
+        self.assertTrue(orphan.exists())
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO required")
+    def test_media_swapped_to_fifo_at_sync_open_does_not_block_or_publish(self):
+        original, staged = self.manifest()
+        movie = self.stage / self.names[0]
+        real_open = os.open
+        swapped = False
+        def swap_to_fifo(path, flags, *args, **kwargs):
+            nonlocal swapped
+            if Path(path) == movie:
+                self.assertTrue(flags & os.O_NONBLOCK, "media sync open must not block")
+                if not swapped:
+                    swapped = True
+                    movie.unlink()
+                    os.mkfifo(movie)
+            return real_open(path, flags, *args, **kwargs)
+        with patch("tachie_motion.web.batch_publish.os.open", side_effect=swap_to_fifo):
+            with self.assertRaises((FileExistsError, ValueError)):
+                self.publish(original, staged)
+        self.assertTrue(swapped)
+        self.assertTrue(stat.S_ISFIFO(movie.lstat().st_mode))
+        self.assert_old()
+        self.assertEqual(recovery_directories(self.folder), ())
+
+    def test_stage_artifact_names_reject_path_traversal_and_duplicate_targets(self):
+        for names in (["../outside.mov"], ["folder/inside.otio"], ["hack\\\\file.mov"],
+                      ["a.mov", "a.mov"], ["bad\\x00name.mov"]):
+            with self.subTest(names=names):
+                with self.assertRaises(ValueError):
+                    create_stage(self.folder, allowed_files=names)
+        self.assertTrue(self.stage.exists(), "existing live stage remains unchanged")
 
 
 if __name__ == "__main__":
