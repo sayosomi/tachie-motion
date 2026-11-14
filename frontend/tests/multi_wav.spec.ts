@@ -322,7 +322,7 @@ test("batch exports every WAV in list order and retains individual failures", as
   expect(requests.map((r) => r.wav)).toEqual(["/tmp/a.wav", "/tmp/b.wav", "/tmp/c.wav"]);
   expect(requests.map((r) => r.basename)).toEqual(["001_character_a", "002_character_b", "003_character_c"]);
   await expect(page.locator("[data-utterance-id]").nth(1)).toContainText("書き出し失敗");
-  await expect(page.locator("[data-utterance-id]").nth(2)).toContainText("書き出し済み");
+  await expect(page.locator("[data-utterance-id]").nth(2)).not.toContainText("書き出し済み");
 });
 
 test("batch preflight blocks colliding output filenames before generating MOVs", async ({ page }) => {
@@ -568,7 +568,7 @@ test("batch destination rejects unsafe and recovery-required names before any MO
   for (const unsafe of ["unsafe", "recovery_required", "partial"]) {
     await page.route("**/api/preset-batch-mov-destination", (route) =>
       route.fulfill({ json: { state: unsafe, canonical_output_dir: "/tmp/output" } }));
-    await page.locator("#batch-mov-template").fill("bad_" + unsafe);
+    await page.locator("#batch-mov-template").fill("{番号}_bad_" + unsafe);
     await expect(page.getByText("出力先の安全確認に失敗", { exact: false })).toBeVisible();
     await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeDisabled();
   }
