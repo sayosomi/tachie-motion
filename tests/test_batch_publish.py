@@ -6,9 +6,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from tachie_motion.web import batch_publish
 from tachie_motion.web.batch_publish import (
-    RECOVERY_PREFIX, create_stage, discard_stage, publish_batch,
-    recovery_directories, require_batch_recovery_clear,
+    RECOVERY_PREFIX, STAGE_PREFIX, STAGE_MARKER, STAGE_SIGNATURE,
+    create_stage, discard_stage, publish_batch, recovery_directories,
+    require_batch_recovery_clear,
 )
 from tachie_motion.web.solo_output import _identity, published_media_identity, single_destination
 
@@ -238,6 +240,46 @@ class BatchPublicationTests(unittest.TestCase):
                 self.publish(originals, staged)
         self.assert_old()
         self.assertEqual(recovery_directories(self.folder), ())
+
+    @unittest.skipUnless(batch_publish.fcntl is not None, "flock required")
+    def test_restart_cleans_only_signed_unlocked_stages_not_live_or_unknown(self):
+        orphan = self.folder / (STAGE_PREFIX + "orphan")
+        orphan.mkdir()
+        (orphan / STAGE_MARKER).write_bytes(STAGE_SIGNATURE)
+        (orphan / "large.mov").write_bytes(b"abandoned render")
+        unsigned = self.folder / (STAGE_PREFIX + "unsigned")
+        unsigned.mkdir()
+        (unsigned / "large.mov").write_bytes(b"not recognized")
+        foreign = self.folder / (STAGE_PREFIX + "foreign")
+        foreign.mkdir()
+        (foreign / STAGE_MARKER).write_bytes(STAGE_SIGNATURE)
+        (foreign / "customer.txt").write_bytes(b"must not delete")
+        other = create_stage(self.folder)
+        self.assertFalse(orphan.exists())
+        self.assertTrue(self.stage.exists(), "active stage must retain its live lease")
+        self.assertTrue(unsigned.exists())
+        self.assertTrue(foreign.exists())
+        discard_stage(other)
+
+    @unittest.skipUnless(batch_publish.fcntl is not None, "flock required")
+    def test_live_other_process_stage_lease_blocks_orphan_cleanup(self):
+        live = self.folder / (STAGE_PREFIX + "other-process")
+        live.mkdir()
+        marker = live / STAGE_MARKER
+        marker.write_bytes(STAGE_SIGNATURE)
+        (live / "speech.mov").write_bytes(b"pending media")
+        fd = os.open(marker, os.O_RDONLY)
+        try:
+            batch_publish.fcntl.flock(fd, batch_publish.fcntl.LOCK_EX)
+            other = create_stage(self.folder)
+            discard_stage(other)
+            self.assertTrue(live.exists(), "a live stage must not be reaped")
+        finally:
+            batch_publish.fcntl.flock(fd, batch_publish.fcntl.LOCK_UN)
+            os.close(fd)
+        another = create_stage(self.folder)
+        self.assertFalse(live.exists(), "an unlocked orphan should be cleaned")
+        discard_stage(another)
 
     def test_backup_cleanup_failure_reports_warning_and_preserves_old_copy(self):
         originals, staged = self.manifest()
