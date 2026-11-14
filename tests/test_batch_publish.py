@@ -234,6 +234,70 @@ class BatchPublicationTests(unittest.TestCase):
     def test_stage_mov_replaced_at_public_link_leaves_new_targets_unpublished(self):
         self._assert_link_time_stage_replacement_is_preserved(existing=False)
 
+    @unittest.skipUnless(os.name == "posix" and hasattr(os, "mkfifo"),
+                         "POSIX FIFO and hardlink support required")
+    def test_fifo_substituted_at_public_link_is_quarantined_and_restored(self):
+        for existing in (True, False):
+            with self.subTest(existing=existing):
+                # Use a separate output directory per case so preserved
+                # recovery folders do not affect the next publication.
+                with tempfile.TemporaryDirectory() as tmp:
+                    folder = Path(tmp)
+                    stage = create_stage(folder)
+                    original = {}
+                    expected_stage = {}
+                    for i, name in enumerate(self.names):
+                        source = stage / name
+                        source.write_bytes(("NEW-%s-" % i).encode())
+                        destination = folder / name
+                        if existing:
+                            destination.write_bytes(("OLD-%s-" % i).encode())
+                        original[name] = _identity(destination)
+                        expected_stage[name] = published_media_identity(source)
+
+                    source = stage / self.names[0]
+                    target = folder / self.names[0]
+                    real_link = os.link
+                    swapped = False
+
+                    def swap_to_fifo_before_link(src, dst):
+                        nonlocal swapped
+                        if not swapped and Path(src) == source and Path(dst) == target:
+                            swapped = True
+                            source.unlink()
+                            os.mkfifo(source)
+                        return real_link(src, dst)
+
+                    with patch("tachie_motion.web.batch_publish.os.link",
+                               side_effect=swap_to_fifo_before_link):
+                        with self.assertRaisesRegex(RuntimeError,
+                                                    "external writer preserved"):
+                            publish_batch(
+                                folder=folder, stage=stage,
+                                movie_names=self.mov_names, timeline_name=self.otio,
+                                original=original, expected_stage=expected_stage,
+                            )
+                    self.assertTrue(swapped)
+                    recovered = recovery_directories(folder)
+                    self.assertEqual(len(recovered), 1)
+                    quarantined = recovered[0] / "new-0"
+                    self.assertTrue(stat.S_ISFIFO(quarantined.lstat().st_mode),
+                                    "a foreign FIFO must be retained as an inode")
+                    self.assertTrue(stat.S_ISFIFO(source.lstat().st_mode))
+                    if existing:
+                        for i, name in enumerate(self.names):
+                            self.assertEqual((folder / name).read_bytes(),
+                                             ("OLD-%s-" % i).encode())
+                        self.assertEqual((recovered[0] / "old-0").read_bytes(),
+                                         b"OLD-0-")
+                    else:
+                        for name in self.names:
+                            self.assertFalse((folder / name).exists(),
+                                             "no foreign FIFO may remain published")
+                    with self.assertRaisesRegex(RuntimeError, "recovery"):
+                        require_batch_recovery_clear(folder)
+                    discard_stage(stage)
+
     def test_external_file_during_backup_remains_in_recovery(self):
         originals, staged = self.manifest()
         target = self.folder / self.names[0]
