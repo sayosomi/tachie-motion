@@ -30,7 +30,6 @@ STAGE_MARKER = ".tachie-stage-owner"
 STAGE_SIGNATURE = b"tachie-motion-batch-stage-v1\n"
 STAGE_ALLOWLIST = ".tachie-stage-artifacts.json"
 _STAGE_MANIFEST_FORMAT = "tachie-batch-stage-artifacts-v1"
-_STAGE_MANIFEST_LIMIT = 1_048_576
 _stage_fds: dict[Path, int] = {}
 
 
@@ -69,21 +68,10 @@ def _write_stage_allowlist(stage: Path, names: tuple[str, ...]) -> None:
         os.fsync(out.fileno())
 
 
-def _reap_orphaned_stages(folder: Path) -> None:
-    """Do not auto-delete crash-orphaned media without recorded inode identities.
-
-    Names, signatures and extensions do not prove ownership. In particular
-    stat+unlink can remove a replacement created by another process. The
-    orphan's files stay available for inspection/manual cleanup.
-    """
-    # Deliberately no-op: cleanup requires trusted live-session identities.
-    return
-
-
 def create_stage(folder: Path, *, allowed_files: list[str] | tuple[str, ...] = ()) -> Path:
     allowed = _stage_artifact_names(allowed_files)
     require_batch_recovery_clear(folder)
-    _reap_orphaned_stages(folder)
+    # Never inspect or purge an older stage during another batch's start.
     stage = Path(tempfile.mkdtemp(prefix=STAGE_PREFIX, dir=folder))
     try:
         fd = os.open(stage / STAGE_MARKER, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
