@@ -17,10 +17,18 @@ import shutil
 import stat
 import tempfile
 
+try:
+    import fcntl  # POSIX flock: live batches keep their stage from being swept.
+except ImportError:  # Platforms without flock do not auto-collect orphan stages.
+    fcntl = None
+
 from tachie_motion.web.solo_output import _identity, published_media_identity
 
 RECOVERY_PREFIX = ".tachie-batch-recovery-"
 STAGE_PREFIX = ".tachie-batch-stage-"
+STAGE_MARKER = ".tachie-stage-owner"
+STAGE_SIGNATURE = b"tachie-motion-batch-stage-v1\n"
+_stage_fds: dict[Path, int] = {}
 
 
 def recovery_directories(folder: Path) -> tuple[Path, ...]:
@@ -35,15 +43,91 @@ def require_batch_recovery_clear(folder: Path) -> None:
                            ", ".join(map(str, existing)))
 
 
+def _known_stage_contents(stage: Path) -> bool:
+    """Never delete unrecognized user files from a stale-looking directory."""
+    for entry in stage.iterdir():
+        if entry.is_symlink():
+            return False
+        if entry.name == STAGE_MARKER:
+            if not entry.is_file():
+                return False
+        elif entry.suffix.lower() in (".mov", ".otio"):
+            if not entry.is_file():
+                return False
+        elif entry.name.startswith((".tachie-preset-", ".tachie-timeline-")):
+            if not entry.is_dir():
+                return False
+        else:
+            return False
+    return True
+
+
+def _reap_orphaned_stages(folder: Path) -> None:
+    """Remove only our signed, unlocked orphan staging directories.
+
+    A live batch in another server process holds the flock until it exits.
+    Legacy or unknown directories are left untouched for manual inspection.
+    Recovery directories are never eligible for this cleanup.
+    """
+    if fcntl is None:
+        return
+    for stage in folder.iterdir():
+        if (not stage.name.startswith(STAGE_PREFIX) or stage.is_symlink()
+                or not stage.is_dir() or stage in _stage_fds):
+            continue
+        marker = stage / STAGE_MARKER
+        try:
+            fd = os.open(marker, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+        try:
+            data = os.fstat(fd)
+            if not stat.S_ISREG(data.st_mode) or data.st_size != len(STAGE_SIGNATURE):
+                continue
+            if os.read(fd, len(STAGE_SIGNATURE)) != STAGE_SIGNATURE:
+                continue
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (BlockingIOError, OSError):
+                continue
+            if _known_stage_contents(stage):
+                shutil.rmtree(stage)
+        finally:
+            os.close(fd)
+
+
 def create_stage(folder: Path) -> Path:
     require_batch_recovery_clear(folder)
-    return Path(tempfile.mkdtemp(prefix=STAGE_PREFIX, dir=folder))
+    _reap_orphaned_stages(folder)
+    stage = Path(tempfile.mkdtemp(prefix=STAGE_PREFIX, dir=folder))
+    try:
+        fd = os.open(stage / STAGE_MARKER, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+        try:
+            os.write(fd, STAGE_SIGNATURE)
+            os.fsync(fd)
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _stage_fds[stage] = fd
+        except BaseException:
+            os.close(fd)
+            raise
+        _fsync_directory(stage)
+        _fsync_directory(folder)
+        return stage
+    except BaseException:
+        discard_stage(stage)
+        raise
 
 
 def discard_stage(stage: Path) -> None:
-    """Only remove our staging area, never originals or a recovery directory."""
-    if stage.name.startswith(STAGE_PREFIX) and stage.is_dir() and not stage.is_symlink():
-        shutil.rmtree(stage)
+    """Release the stage lease; never remove a recovery directory."""
+    fd = _stage_fds.pop(stage, None)
+    try:
+        if stage.name.startswith(STAGE_PREFIX) and stage.is_dir() and not stage.is_symlink():
+            shutil.rmtree(stage)
+    finally:
+        if fd is not None:
+            os.close(fd)
 
 
 def _fsync_directory(folder: Path) -> None:
