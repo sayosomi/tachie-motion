@@ -71,6 +71,10 @@ class BatchPublicationTests(unittest.TestCase):
         raw_link = os.link
         for failure in (self.names[1], self.names[2]):
             with self.subTest(failure=failure):
+                # Earlier attempted publication legitimately changes the
+                # staged inode ctime when hardlinks are created/removed.
+                staged = {name: published_media_identity(self.stage / name)
+                          for name in self.names}
                 def link(src, dst):
                     if Path(dst) == self.folder / failure and Path(src).parent == self.stage:
                         raise OSError("injected failure during commit")
