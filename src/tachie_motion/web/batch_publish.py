@@ -136,10 +136,14 @@ def publish_batch(
             if original[target.name] is not None:
                 saved = recovery / ("old-" + str(i))
                 os.link(target, saved)
-                if (_identity(saved) != original[target.name] or
-                        _identity(target) != original[target.name]):
+                try:
+                    approved_backup = (_identity(saved) == original[target.name] and
+                                       _identity(target) == original[target.name])
+                except ValueError:
+                    approved_backup = False
+                if not approved_backup:
                     # The just-created hardlink may contain a third-party
-                    # replacement. Never delete it during rollback cleanup.
+                    # replacement (including a symlink). Preserve it.
                     preserve_recovery = True
                     raise FileExistsError("Output changed while backing up: " + target.name)
                 _fsync_regular(saved, original[target.name])
@@ -165,6 +169,7 @@ def publish_batch(
             # Never overwrite an unknown file another process has placed here.
             os.link(source, target)
             mutated.add(i)
+        _fsync_directory(recovery)
         _fsync_directory(folder)
     except BaseException as failure:
         try:
@@ -205,10 +210,7 @@ def publish_batch(
         except OSError as error:
             raise RuntimeError("Batch rolled back, cleanup required: " + str(recovery)) from error
         raise
-    # All media data and original backups have been synced, and the public
-    # directory is durable. Keep backups until that point.
-    _fsync_directory(recovery)
-
+    # All media data and original backups were synced before this cleanup.
     try:
         shutil.rmtree(recovery)
     except OSError:
