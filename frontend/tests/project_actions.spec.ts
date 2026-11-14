@@ -58,6 +58,12 @@ async function mock(page: Page): Promise<Mock> {
   await page.route("**/api/preset-utterance-destination", (route) => route.fulfill({
     json: { state: "available", suggested_basename: "alt_002" },
   }));
+  await page.route("**/api/preset-batch-check-names", (route) =>
+    route.fulfill({ json: { valid: true } }));
+  await page.route("**/api/preset-batch-start", (route) =>
+    route.fulfill({ json: { batch_id: "test-session" } }));
+  await page.route("**/api/preset-batch-cancel", (route) =>
+    route.fulfill({ json: { released: true } }));
   return state;
 }
 async function openSpeech(page: Page) {
@@ -80,13 +86,16 @@ async function addWav(page: Page, path: string) {
 }
 async function saved(page: Page): Promise<any> {
   await page.getByRole("button", { name: "JSONを保存" }).click();
-  await expect(page.getByRole("status")).toContainText("制作プロジェクトを保存しました");
+  await expect(page.getByRole("status").filter({ hasText: "制作プロジェクトを保存しました" })).toBeVisible();
   return page.evaluate(() => {
     const p = (window as Window & { __projectProbe: Probe }).__projectProbe;
     return JSON.parse(p.saved.at(-1)!);
   });
 }
 async function importProject(page: Page, value: unknown) {
+  // On reload the speech workspace asynchronously verifies the PSD; the
+  // native file input is disabled until that completes. Never race that gate.
+  await expect(page.getByRole("button", { name: "JSONを読み込む" })).toBeEnabled();
   await page.locator("#project-file-input").setInputFiles({
     name: "project.json", mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(value)),
@@ -109,7 +118,7 @@ test("project save, reload, restore preserves ordered WAV edits and character sn
   await page.getByRole("button", { name: "上へ: 2 別の音声.wav" }).click();
   const project = await saved(page);
   expect(project.format).toBe("tachie-motion-project");
-  expect(project.version).toBe(1);
+  expect(project.version).toBe(2);
   expect(project.items.map((item: any) => item.wavPath)).toEqual([otherWav, wavPath]);
   expect(project.items[1].mode).toBe("open");
   expect(project.items[1].basename).toBe("first");
@@ -220,7 +229,7 @@ test("Save dialog cancel does not claim success; held writer locks conflicting e
   await page.evaluate(() => {
     (window as Window & { __projectProbe: Probe }).__projectProbe.release?.();
   });
-  await expect(page.getByRole("status")).toContainText("制作プロジェクトを保存しました");
+  await expect(page.getByRole("status").filter({ hasText: "制作プロジェクトを保存しました" })).toBeVisible();
   expect(await page.evaluate(() =>
     (window as Window & { __projectProbe: Probe }).__projectProbe.saved.length)).toBe(1);
 });
@@ -264,4 +273,63 @@ test("failed browser recovery write is non-destructive after user confirms", asy
   await expect(page.getByRole("alert")).toContainText("容量不足");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
   expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(before);
+});
+
+
+test("project JSON v2 saves and restores simple batch naming settings", async ({ page }) => {
+  await mock(page);
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await page.route("**/api/preset-batch-mov-destination", (route) =>
+    route.fulfill({ json: { state: "available", canonical_output_dir: "/tmp/output" } }));
+  await page.route("**/api/preset-combined-otio-destination", (route) =>
+    route.fulfill({ json: { state: "available", canonical_output_dir: "/tmp/output" } }));
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await page.locator("#batch-project-name").fill("ずんだもん動画");
+  await page.locator("#batch-character-name").fill("あんこもん");
+  await page.locator("#batch-mov-template").fill("{番号}_{キャラ名}_{WAV名}");
+  await page.locator("#batch-otio-template").fill("{プロジェクト名}");
+  await expect(page.locator(".export-plan-items li").first())
+    .toContainText("001_あんこもん_音声 e\u0301.mov");
+  const project = await saved(page);
+  expect(project.version).toBe(2);
+  expect(project.naming.projectName).toBe("ずんだもん動画");
+  expect(project.naming.characterName).toBe("あんこもん");
+  expect(project.naming.otioTemplate).toBe("{プロジェクト名}");
+  await page.reload();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await expect(page.locator("#project-file-input")).toBeAttached();
+  page.once("dialog", (dialog) => { void dialog.accept(); });
+  await importProject(page, project);
+  await expect(page.getByRole("status")).toContainText("制作プロジェクトを読み込みました");
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await expect(page.locator("#batch-project-name")).toHaveValue("ずんだもん動画");
+  await expect(page.locator("#batch-character-name")).toHaveValue("あんこもん");
+  await expect(page.locator("#batch-mov-template")).toHaveValue("{番号}_{キャラ名}_{WAV名}");
+  await expect(page.locator(".batch-timeline-plan")).toContainText("ずんだもん動画.otio");
+});
+
+test("project saving locks batch execution controls until the writer completes", async ({ page }) => {
+  await mock(page);
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await page.route("**/api/preset-batch-mov-destination", (route) =>
+    route.fulfill({ json: { state: "available", canonical_output_dir: "/tmp/output" } }));
+  await page.route("**/api/preset-combined-otio-destination", (route) =>
+    route.fulfill({ json: { state: "available", canonical_output_dir: "/tmp/output" } }));
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeEnabled();
+  await page.evaluate(() => {
+    (window as Window & { __projectProbe: Probe }).__projectProbe.mode = "hold";
+  });
+  await page.getByRole("button", { name: "JSONを保存" }).click();
+  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeDisabled();
+  await expect(page.locator("#batch-mov-template")).toBeDisabled();
+  await page.evaluate(() => {
+    (window as Window & { __projectProbe: Probe }).__projectProbe.release?.();
+  });
+  await expect(page.getByRole("status").filter({ hasText: "制作プロジェクトを保存しました" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeEnabled();
 });

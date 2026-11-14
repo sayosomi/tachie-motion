@@ -10,7 +10,7 @@ import unittest
 from tachie_motion.web.preset_utterance import (
     validated_snapshot, validate_open_mouth,
 )
-from tachie_motion.web.service import describe_psd
+from tachie_motion.web.service import describe_psd, describe_wav
 from tachie_motion.render.prores import read_rgba_states
 from test_web_api import fixture
 
@@ -98,11 +98,25 @@ class PresetExportApiTests(unittest.TestCase):
             "psd": str(self.psd), "wav": str(self.wav), "fingerprint": meta["fingerprint"],
             "layers": base, "mode": "none", "blink_enabled": False,
             "output_dir": str(self.root), "basename": "speech", "fps": 30,
+            "source_identity": describe_wav(str(self.wav))["source_identity"],
         }
 
     def post(self, **changes):
         return self.client.post("/api/preset-utterance-export",
                                 json={**self.body, **changes})
+
+    def test_api_rejects_identity_omission_before_overwrite(self):
+        mov = self.root / "speech.mov"
+        otio = self.root / "speech.otio"
+        mov.write_bytes(b"prior MOV")
+        otio.write_bytes(b"prior OTIO")
+        no_identity = {key: value for key, value in self.body.items()
+                       if key != "source_identity"}
+        response = self.client.post("/api/preset-utterance-export",
+                                    json={**no_identity, "conflict_policy": "overwrite"})
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(mov.read_bytes(), b"prior MOV")
+        self.assertEqual(otio.read_bytes(), b"prior OTIO")
 
     def test_destination_probe_is_non_mutating(self):
         response = self.client.post("/api/preset-utterance-destination",

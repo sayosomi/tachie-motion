@@ -1,4 +1,5 @@
 import NativeFilePicker from "./NativeFilePicker";
+import type { BatchNaming } from "./nameTemplate";
 import type { PreparedBatch } from "./useBatchUtteranceExport";
 import { wavFilename } from "./utteranceItems";
 import type { Fps, UtteranceItem } from "./utteranceItems";
@@ -16,6 +17,8 @@ export type BatchStatus = {
   displayed: PreparedBatch | null;
   reviewing: boolean;
   reviewError: string;
+  conflictChoice: "overwrite" | "rename";
+  setConflictChoice: (choice: "overwrite" | "rename") => void;
 };
 type Props = {
   items: UtteranceItem[];
@@ -36,15 +39,18 @@ type Props = {
   onRevise: (id: string, patch: Partial<UtteranceItem>) => void;
   onSingleExport: () => void;
   batch: BatchStatus;
+  disabled: boolean;
+  naming: BatchNaming;
+  onNamingChange: (naming: BatchNaming) => void;
 };
 
 export default function UtteranceExportPanel({
   items, current, draftAvailable, openMouthMissing, blinkUnsupported,
   info, destinationError, requiresAlternate,
   saveAsName, outputBasename, canExport, exportingId, addingCount,
-  scope, onScopeChange, onRevise, onSingleExport, batch,
+  scope, onScopeChange, onRevise, onSingleExport, batch, disabled, naming, onNamingChange,
 }: Props) {
-  const locked = batch.running || !!exportingId;
+  const locked = batch.running || !!exportingId || disabled;
   const noneCount = items.filter((item) => item.mode === "none").length;
   const canSubmit = scope === "single" ? canExport :
     draftAvailable && items.length > 0 && !!batch.displayed && !batch.reviewing &&
@@ -62,7 +68,7 @@ export default function UtteranceExportPanel({
         onChange={() => onScopeChange("all")} />全件（{items.length}件）</label>
     </fieldset>
 
-    {current ? <div className="export-current-settings">
+    {scope === "single" && current ? <div className="export-current-settings">
       <p className="hint" title={current.wavPath}>選択中のWAV：{wavFilename(current.wavPath)}</p>
       <p className="hint">選択中のセリフの保存設定です。全件を選んでも、各WAVに指定した設定を使用します。</p>
       {openMouthMissing && <p className="hint warning">
@@ -115,11 +121,39 @@ export default function UtteranceExportPanel({
       {info && <p className="hint" aria-label="出力予定ファイル">
         出力予定：{outputBasename || "（未入力）"}.mov ／ {outputBasename || "（未入力）"}.otio
       </p>}
-    </div> : <p className="hint">WAVを選択すると保存先・ファイル名を編集できます。</p>}
+    </div> : scope === "single" ? <p className="hint">WAVを選択すると保存先・ファイル名を編集できます。</p> : null}
 
     {scope === "all" && <div className="export-overview">
       <h3>全件の書き出し内容</h3>
-      <p className="hint">一覧順に各WAVのMOV（音声入り）と個別OTIOを生成します。</p>
+      <p className="hint">WAV一覧順に各MOVを書き出し、全件成功後に全体OTIOを1本生成します。</p>
+      <fieldset className="output-conflict-choice" aria-label="一括書き出しの保存方法">
+        <legend>同名ファイルがある場合</legend>
+        <label><input type="radio" name="batch-conflict-choice" value="overwrite"
+          checked={batch.conflictChoice === "overwrite"} disabled={locked}
+          onChange={() => batch.setConflictChoice("overwrite")} />上書き</label>
+        <label><input type="radio" name="batch-conflict-choice" value="rename"
+          checked={batch.conflictChoice === "rename"} disabled={locked}
+          onChange={() => batch.setConflictChoice("rename")} />別名で保存（_002などを自動追加）</label>
+      </fieldset>
+      <div className="batch-naming-editor">
+        <label htmlFor="batch-project-name">プロジェクト名</label>
+        <input id="batch-project-name" value={naming.projectName} disabled={locked}
+          onChange={(event) => onNamingChange({ ...naming, projectName: event.target.value })} />
+        <label htmlFor="batch-character-name">キャラ名</label>
+        <input id="batch-character-name" value={naming.characterName} disabled={locked}
+          onChange={(event) => onNamingChange({ ...naming, characterName: event.target.value })} />
+        <NativeFilePicker id="batch-output-dir" kind="output_dir" label="一括書き出し先"
+          value={naming.outputDir} disabled={locked}
+          onChange={(value) => onNamingChange({ ...naming, outputDir: value })}
+          onSelected={(value) => onNamingChange({ ...naming, outputDir: value })} />
+        <label htmlFor="batch-mov-template">MOVのファイル名テンプレート</label>
+        <input id="batch-mov-template" value={naming.movTemplate} disabled={locked}
+          onChange={(event) => onNamingChange({ ...naming, movTemplate: event.target.value })} />
+        <label htmlFor="batch-otio-template">全体OTIOのファイル名テンプレート</label>
+        <input id="batch-otio-template" value={naming.otioTemplate} disabled={locked}
+          onChange={(event) => onNamingChange({ ...naming, otioTemplate: event.target.value })} />
+        <p className="hint">使える項目：{"{番号}"}・{"{WAV名}"}・{"{キャラ名}"}・{"{プロジェクト名}"}。OTIOでは{"{プロジェクト名}"}のみ。</p>
+      </div>
       {noneCount > 0 && <p className="hint warning" role="note">
         口パク「なし」が{noneCount}件あります。口を動かす場合は各WAVの方式をopenにしてください。
       </p>}
@@ -142,11 +176,16 @@ export default function UtteranceExportPanel({
             出力先: {plan.canonicalOutputDir}
           </span>
           <span title={plan.basename}>
-            {plan.basename}.mov ＋ {plan.basename}.otio
+            {plan.basename}.mov
           </span>
           <span>{plan.conflict_policy === "overwrite" ? "上書き" : "新規保存"}</span>
         </li>)}
-            </ol>
+      </ol>
+      {batch.displayed && <p className="hint batch-timeline-plan">
+        全体OTIO：{batch.displayed.timeline.basename}.otio
+        （{batch.displayed.timeline.canonicalOutputDir}）
+        ／ {batch.displayed.timeline.conflict_policy === "overwrite" ? "上書き" : "新規保存"}
+      </p>}
     </div>}
     <div className="export-execution">
       <button type="button" className="primary" disabled={!canSubmit}
@@ -162,11 +201,11 @@ export default function UtteranceExportPanel({
         : "選択中の1セリフのみ出力します。元PSD・WAVは変更しません。"}</p>
       {batch.progress && <p className="hint" role="status">{batch.progress}</p>}
       {batch.summary && <p className="hint" role="status">{batch.summary}</p>}
-      {current?.error && <p className="hint warning" role="alert">{current.error}</p>}
-      {current?.result && <div className="success" role="status">
+      {scope === "single" && current?.error && <p className="hint warning" role="alert">{current.error}</p>}
+      {scope === "single" && current?.result && <div className="success" role="status">
         <strong>書き出し完了・{current.result.frames}フレーム</strong>
         <p>MOV: <code>{current.result.mov}</code></p>
-        <p>OTIO: <code>{current.result.otio}</code></p>
+        {current.result.otio && <p>OTIO: <code>{current.result.otio}</code></p>}
         {current.result.warning && <p className="hint warning" role="alert">{current.result.warning}</p>}
       </div>}
     </div>

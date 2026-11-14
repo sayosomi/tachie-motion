@@ -17,6 +17,10 @@ from tachie_motion.web.browser_preview_assets import layer_preview_assets, previ
 from tachie_motion.web.preset_preview import preview_base_preset
 from tachie_motion.web.preset_utterance import export_preset_utterance
 from tachie_motion.web.output_destinations import destination_info, validate_basename
+from tachie_motion.web.solo_output import validate_media_basename, single_destination
+from tachie_motion.web.combined_otio import create_combined_otio
+from tachie_motion.web.batch_session import BatchCoordinator, validate_names
+from tachie_motion.web.batch_publish import require_batch_recovery_clear
 from tachie_motion.web.service import (
     describe_psd, describe_wav, load_psd, local_file, preview_mouth,
 )
@@ -76,6 +80,53 @@ class PresetUtteranceRequest(BaseModel):
     output_dir: str
     basename: str
     fps: int = 30
+    source_identity: str
+
+
+
+class BatchNameRequest(BaseModel):
+    basenames: list[str]
+    timeline_basename: str
+
+
+class BatchPlannedMedia(BaseModel):
+    basename: str
+    wav: str
+    source_identity: str
+    fps: int
+    samples: int
+    sample_rate: int
+    conflict_policy: str
+
+
+class BatchStartRequest(BaseModel):
+    output_dir: str
+    timeline_basename: str
+    timeline_policy: str
+    entries: list[BatchPlannedMedia]
+
+
+class BatchIdentifier(BaseModel):
+    batch_id: str
+
+
+class BatchMovRequest(PresetUtteranceRequest):
+    batch_id: str
+    batch_index: int
+
+
+class CombinedMedia(BaseModel):
+    basename: str
+    frames: int
+    fps: int
+    samples: int
+    sample_rate: int
+
+
+class CombinedOtioRequest(DestinationRequest):
+    entries: list[CombinedMedia]
+    batch_id: str
+    conflict_policy: str = "error"
 
 
 app = FastAPI(title="tachie-motion local web", docs_url=None, redoc_url=None)
@@ -85,6 +136,7 @@ if TAILSCALE_ORIGIN is not None:
     allowed_hosts.append(urlsplit(TAILSCALE_ORIGIN).hostname)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 app.state.export_lock = asyncio.Lock()
+app.state.batch = BatchCoordinator()
 FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 if (FRONTEND_DIST / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
@@ -245,6 +297,7 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
         wav = local_file(payload.wav, ".wav")
         folder = folder.resolve(strict=True)
         async with app.state.export_lock:
+            app.state.batch.require_idle()
             return await asyncio.to_thread(
                 export_preset_utterance,
                 psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
@@ -252,8 +305,151 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
                 blink_enabled=payload.blink_enabled, conflict_policy=payload.conflict_policy,
                 mov=folder / (payload.basename + ".mov"),
                 otio=folder / (payload.basename + ".otio"),
-                fps=payload.fps,
+                fps=payload.fps, source_identity=payload.source_identity,
             )
+    except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-batch-check-names")
+def preset_batch_check_names(payload: BatchNameRequest):
+    try:
+        validate_names(payload.basenames, payload.timeline_basename)
+        return {"valid": True}
+    except (ValueError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-batch-start")
+async def preset_batch_start(payload: BatchStartRequest):
+    try:
+        folder = Path(payload.output_dir).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise ValueError("Output folder must already exist")
+        async with app.state.export_lock:
+            token = await asyncio.to_thread(
+                app.state.batch.start, folder, payload.timeline_basename,
+                payload.timeline_policy, [entry.model_dump() for entry in payload.entries])
+            return {"batch_id": token}
+    except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-batch-cancel")
+async def preset_batch_cancel(payload: BatchIdentifier):
+    async with app.state.export_lock:
+        return {"released": app.state.batch.release(payload.batch_id)}
+
+
+@app.post("/api/preset-batch-mov-destination")
+def preset_batch_mov_destination(payload: DestinationRequest):
+    try:
+        validate_media_basename(payload.basename)
+        folder = Path(payload.output_dir).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise ValueError("Output folder must already exist")
+        canonical = folder.resolve(strict=True)
+        require_batch_recovery_clear(canonical)
+        result = single_destination(canonical / (payload.basename + ".mov"))
+        # A sibling individual OTIO remains unsafe. A combined timeline with
+        # a *different* basename is handled at batch-start preflight.
+        return {**result, "canonical_output_dir": str(canonical)}
+    except (ValueError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-combined-otio-destination")
+def preset_combined_otio_destination(payload: DestinationRequest):
+    try:
+        validate_media_basename(payload.basename)
+        folder = Path(payload.output_dir).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise ValueError("Output folder must already exist")
+        canonical = folder.resolve(strict=True)
+        require_batch_recovery_clear(canonical)
+        return {**single_destination(canonical / (payload.basename + ".otio")),
+                "canonical_output_dir": str(canonical)}
+    except (ValueError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-batch-mov-export")
+async def preset_batch_mov_export(payload: BatchMovRequest):
+    try:
+        validate_media_basename(payload.basename)
+        folder = Path(payload.output_dir).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise ValueError("Output folder must already exist")
+        if payload.fps not in (24, 30, 60):
+            raise ValueError("FPS must be 24, 30 or 60")
+        psd = local_file(payload.psd, ".psd")
+        wav = local_file(payload.wav, ".wav")
+        canonical = folder.resolve(strict=True)
+        async with app.state.export_lock:
+            if payload.source_identity is None:
+                raise ValueError("Registered WAV identity is required for batch")
+            app.state.batch.before(
+                payload.batch_id, payload.batch_index, canonical, payload.basename,
+                wav, payload.source_identity, payload.fps, payload.conflict_policy)
+            try:
+                stage = app.state.batch.staged_folder(payload.batch_id)
+                result = await asyncio.to_thread(
+                    export_preset_utterance,
+                    psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
+                    layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
+                    blink_enabled=payload.blink_enabled, conflict_policy="error",
+                    mov=stage / (payload.basename + ".mov"), otio=None,
+                    fps=payload.fps, source_identity=payload.source_identity,
+                )
+                app.state.batch.succeeded(payload.batch_id, payload.batch_index, result)
+                # The UI displays the planned final path, but the file is not
+                # visible there until the whole batch and OTIO are committed.
+                return {**result, "mov": str(canonical / (payload.basename + ".mov")),
+                        "staged": True}
+            except (ValueError, FileExistsError, OSError, RuntimeError, TypeError):
+                app.state.batch.failed(payload.batch_id, payload.batch_index)
+                raise
+    except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/preset-combined-otio")
+async def preset_combined_otio(payload: CombinedOtioRequest):
+    try:
+        validate_media_basename(payload.basename)
+        folder = Path(payload.output_dir).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise ValueError("Output folder must already exist")
+        canonical = folder.resolve(strict=True)
+        entries = [entry.model_dump() for entry in payload.entries]
+        async with app.state.export_lock:
+            expected = app.state.batch.before_timeline(
+                payload.batch_id, canonical, payload.basename,
+                payload.conflict_policy, entries)
+            stage = app.state.batch.staged_folder(payload.batch_id)
+            result = await asyncio.to_thread(
+                create_combined_otio, stage, payload.basename,
+                entries, "error", expected_identities=expected,
+                reference_folder=canonical,
+            )
+            # After every MOV and the OTIO have passed their own validators,
+            # publish the entire set, restoring old originals on failure.
+            warning = await asyncio.to_thread(app.state.batch.commit, payload.batch_id)
+            # A cleanup problem AFTER publication must not turn successful
+            # generation-wide commit into a false HTTP error and trigger a
+            # misleading user retry. Preserve the outcome and report a warning.
+            cleanup_warning = None
+            try:
+                app.state.batch.release(payload.batch_id)
+            except OSError as error:
+                cleanup_warning = "Batch saved; staged-file cleanup requires inspection: " + str(error)
+            published = {"otio": str(canonical / (payload.basename + ".otio")),
+                         "entries": len(entries)}
+            warnings = [value for value in (warning, result.get("warning"), cleanup_warning)
+                        if value]
+            if warnings:
+                published["warning"] = " ".join(warnings)
+            return published
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 
@@ -276,6 +472,7 @@ async def export(payload: ExportRequest):
         # Use the same metadata-only PSD load and 60 MP cap as preview endpoints.
         # This Web API bound deliberately does not change the existing CLI contract.
         async with app.state.export_lock:
+            app.state.batch.require_idle()
             await asyncio.to_thread(load_psd, str(psd))
             result = await asyncio.to_thread(
                 export_mouth_animation,

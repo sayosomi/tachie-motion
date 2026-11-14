@@ -1,4 +1,5 @@
 import type { Layer } from "./LayerTree";
+import { initialNaming, validateBatchNaming, type BatchNaming } from "./nameTemplate";
 import {
   parseCharacterProfile, serializeCharacterProfile, type CharacterProfile,
 } from "./characterProfile";
@@ -6,7 +7,7 @@ import type { PresetDraft } from "./presetDraftStorage";
 import type { UtteranceItem, WavData } from "./utteranceItems";
 
 export const PROJECT_FORMAT = "tachie-motion-project";
-export const PROJECT_VERSION = 1;
+export const PROJECT_VERSION = 2;
 export const MAX_PROJECT_BYTES = 4_000_000;
 const MAX_UTTERANCES = 2000;
 const MAX_PATH_LENGTH = 8192;
@@ -22,6 +23,7 @@ export type ProjectFile = {
   character: CharacterProfile;
   items: ProjectUtterance[];
   selectedId: string | null;
+  naming: BatchNaming;
 };
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -82,8 +84,12 @@ export function parseProjectFile(text: string): ProjectFile {
   let value: unknown;
   try { value = JSON.parse(text) as unknown; }
   catch { throw new Error("制作プロジェクトJSONを解析できません"); }
-  fields(value, ["format", "version", "character", "items", "selectedId"]);
-  if (value.format !== PROJECT_FORMAT || value.version !== PROJECT_VERSION) {
+  if (!record(value)) throw new Error("制作プロジェクトJSONの項目が不正です");
+  const isLegacy = value.version === 1;
+  fields(value, isLegacy
+    ? ["format", "version", "character", "items", "selectedId"]
+    : ["format", "version", "character", "items", "selectedId", "naming"]);
+  if (value.format !== PROJECT_FORMAT || (!isLegacy && value.version !== PROJECT_VERSION)) {
     throw new Error("未対応の制作プロジェクトJSON形式・バージョンです");
   }
   const character = parseCharacterProfile(JSON.stringify(value.character));
@@ -105,13 +111,16 @@ export function parseProjectFile(text: string): ProjectFile {
     (typeof value.selectedId !== "string" || !ids.has(value.selectedId))) {
     throw new Error("制作プロジェクトJSONの選択項目が不正です");
   }
+  const legacyNaming = initialNaming(character.source.path, items[0]?.outputDir ?? "");
+  const naming = isLegacy ? legacyNaming : validateBatchNaming(value.naming);
   return { format: PROJECT_FORMAT, version: PROJECT_VERSION, character, items,
-    selectedId: value.selectedId as string | null };
+    selectedId: value.selectedId as string | null, naming };
 }
 
 /** Save settings only. Audio, PSD bytes, thumbnails and prior render results never enter JSON. */
 export function serializeProjectFile(
   draft: PresetDraft, layers: Layer[], items: UtteranceItem[], selectedId: string | null,
+  naming: BatchNaming = initialNaming(draft.path, items[0]?.outputDir ?? ""),
 ): string {
   const character = parseCharacterProfile(
     serializeCharacterProfile(draft.path, draft.fingerprint, layers, draft.collection));
@@ -127,7 +136,7 @@ export function serializeProjectFile(
       presetId: value.presetId, mode: value.mode, fps: value.fps,
       outputDir: value.outputDir, basename: value.basename,
       conflictChoice: value.conflictChoice, saveAsName: value.saveAsName,
-    })), selectedId,
+    })), selectedId, naming: validateBatchNaming(naming),
   };
   const text = JSON.stringify(project, null, 2) + "\n";
   parseProjectFile(text);

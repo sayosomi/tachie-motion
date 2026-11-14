@@ -53,8 +53,22 @@ def recovery_locations(mov: Path) -> tuple[Path, ...]:
     return tuple(sorted(found))
 
 
+def all_output_recovery(mov: Path) -> tuple[Path, ...]:
+    """Recovery paths for BOTH publication protocols for one basename."""
+    if mov.suffix.lower() != ".mov":
+        mov = mov.with_suffix(".mov")
+    otio = mov.with_suffix(".otio")
+    found = list(recovery_locations(mov))
+    for path in (mov, otio):
+        candidate = path.parent / ("." + path.name + ".single-backup")
+        if candidate.exists() or candidate.is_symlink():
+            found.append(candidate)
+    return tuple(sorted(found))
+
+
 def target_state(mov: Path, otio: Path) -> tuple[str, tuple | None]:
-    if recovery_locations(mov):
+    from tachie_motion.web.batch_publish import recovery_directories
+    if recovery_directories(mov.parent) or all_output_recovery(mov):
         return "recovery_required", None
     try:
         a, b = _regular_identity(mov), _regular_identity(otio)
@@ -95,7 +109,7 @@ def initial_target_identity(mov: Path, otio: Path, policy: str) -> tuple | None:
     if state == "recovery_required":
         raise RuntimeError(
             "Previous export needs recovery; inspect "
-            + ", ".join(str(path) for path in recovery_locations(mov))
+            + ", ".join(str(path) for path in all_output_recovery(mov))
             + " before exporting to this filename"
         )
     if state == "unsafe":

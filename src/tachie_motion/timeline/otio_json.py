@@ -155,3 +155,57 @@ def write_otio(document: dict, destination: Path) -> None:
     with destination.open("x", encoding="utf-8") as out:
         json.dump(document, out, indent=2, ensure_ascii=False, allow_nan=False)
         out.write("\n")
+
+
+def build_combined_utterances(
+    entries: list[tuple[Path, MovieTiming, WaveTiming]],
+) -> dict:
+    """Sequential one-character V1/A1 tracks with exact WAV-sample boundaries.
+
+    Truncate only the OTIO clip's final fractional video frame, not PCM or MOV
+    source bytes. Both tracks then start each next utterance at identical time.
+    """
+    if not entries:
+        raise ValueError("Combined OTIO needs at least one MOV")
+    video_clips = []
+    audio_clips = []
+    for mov, movie, audio in entries:
+        if audio.samples <= 0 or audio.sample_rate <= 0:
+            raise ValueError("Invalid PCM sample timing")
+        if movie.fps not in (24, 30, 60):
+            raise ValueError("Unsupported video fps")
+        if movie.frames != ((audio.samples * movie.fps + audio.sample_rate - 1)
+                             // audio.sample_rate):
+            raise ValueError("MOV frame count does not match PCM duration")
+        video = _clip("Character MOV", mov, movie.frames, movie.fps)
+        # The source contains a rounded final frame; the timeline duration
+        # must instead be the exact unrounded PCM duration.
+        video["source_range"]["duration"] = _time(audio.samples, audio.sample_rate)
+        audio_clip = _clip("Embedded PCM", mov, audio.samples, audio.sample_rate)
+        audio_clip["media_references"]["DEFAULT_MEDIA"]["target_url"] = str(
+            mov.resolve(strict=True)
+        )
+        video_clips.append(video)
+        audio_clips.append(audio_clip)
+    result = {
+        "OTIO_SCHEMA": "Timeline.1",
+        "name": "tachie-motion combined timeline",
+        "metadata": {},
+        "global_start_time": _time(0, 30),
+        "tracks": {
+            "OTIO_SCHEMA": "Stack.1",
+            "name": "tracks",
+            "metadata": {},
+            "enabled": True,
+            "effects": [],
+            "markers": [],
+            "source_range": None,
+            "children": [
+                _track("V1: character", "Video", video_clips[0]),
+                _track("A1: speech", "Audio", audio_clips[0]),
+            ],
+        },
+    }
+    result["tracks"]["children"][0]["children"] = video_clips
+    result["tracks"]["children"][1]["children"] = audio_clips
+    return result
