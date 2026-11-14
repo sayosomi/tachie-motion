@@ -93,7 +93,7 @@ class BatchPublicationTests(unittest.TestCase):
         (self.stage / self.names[1]).unlink()
         discard_stage(self.stage)
         self.assert_old()
-        self.assertFalse(self.stage.exists())
+        self.assertTrue(self.stage.exists(), "unrecorded media is preserved")
         self.assertEqual(recovery_directories(self.folder), ())
 
     def test_external_change_before_commit_preserves_foreign_content(self):
@@ -250,7 +250,7 @@ class BatchPublicationTests(unittest.TestCase):
         return stage
 
     @unittest.skipUnless(batch_publish.fcntl is not None, "flock required")
-    def test_restart_cleans_only_signed_indexed_unlocked_stages(self):
+    def test_restart_preserves_orphans_without_live_inode_receipts(self):
         unsigned = self.folder / (STAGE_PREFIX + "unsigned")
         unsigned.mkdir()
         (unsigned / "large.mov").write_bytes(b"not recognized")
@@ -259,7 +259,8 @@ class BatchPublicationTests(unittest.TestCase):
         orphan = self.abandon_stage(["large.mov", "missing.otio"])
         (orphan / "large.mov").write_bytes(b"abandoned render")
         other = create_stage(self.folder)
-        self.assertFalse(orphan.exists())
+        self.assertTrue(orphan.exists(), "orphan files have no trustworthy inode receipt")
+        self.assertEqual((orphan / "large.mov").read_bytes(), b"abandoned render")
         self.assertTrue(self.stage.exists(), "active stage must retain its live lease")
         self.assertTrue(unsigned.exists())
         self.assertTrue(foreign.exists())
@@ -281,7 +282,7 @@ class BatchPublicationTests(unittest.TestCase):
             batch_publish.fcntl.flock(fd, batch_publish.fcntl.LOCK_UN)
             os.close(fd)
         another = create_stage(self.folder)
-        self.assertFalse(live.exists(), "an unlocked orphan should be cleaned")
+        self.assertTrue(live.exists(), "even unlocked orphan data is retained for inspection")
         discard_stage(another)
 
     def test_backup_cleanup_failure_reports_warning_and_preserves_old_copy(self):
@@ -377,24 +378,14 @@ class BatchPublicationTests(unittest.TestCase):
         self.assertTrue(invalid.exists())
 
     @unittest.skipUnless(batch_publish.fcntl is not None, "flock required")
-    def test_late_unknown_file_during_cleanup_is_not_deleted(self):
+    def test_orphan_same_name_replacement_is_never_auto_deleted(self):
         orphan = self.abandon_stage(["approved.mov"])
-        (orphan / "approved.mov").write_bytes(b"approved")
-        real_unlink = os.unlink
-        injected = False
-        def add_unknown_before_unlink(path, *args, **kwargs):
-            nonlocal injected
-            if path == "approved.mov" and kwargs.get("dir_fd") is not None and not injected:
-                injected = True
-                (orphan / "notes.txt").write_bytes(b"preserve me")
-            return real_unlink(path, *args, **kwargs)
-        with patch("tachie_motion.web.batch_publish.os.unlink",
-                   side_effect=add_unknown_before_unlink):
-            other = create_stage(self.folder)
+        (orphan / "approved.mov").write_bytes(b"third-party same name")
+        other = create_stage(self.folder)
         discard_stage(other)
-        self.assertTrue(injected)
-        self.assertEqual((orphan / "notes.txt").read_bytes(), b"preserve me")
-        self.assertTrue(orphan.exists())
+        self.assertEqual((orphan / "approved.mov").read_bytes(),
+                         b"third-party same name")
+
 
     @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO required")
     def test_media_swapped_to_fifo_at_sync_open_does_not_block_or_publish(self):
@@ -426,6 +417,72 @@ class BatchPublicationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     create_stage(self.folder, allowed_files=names)
         self.assertTrue(self.stage.exists(), "existing live stage remains unchanged")
+
+
+    def test_expired_session_preserves_unknown_file_and_releases_lease(self):
+        from tachie_motion.web.batch_session import BatchCoordinator, Session
+        stage = create_stage(self.folder, allowed_files=["approved.mov"])
+        (stage / "user-notes.txt").write_bytes(b"my notes")
+        child = stage / ".tachie-preset-unknown"
+        child.mkdir()
+        (child / "information.txt").write_bytes(b"do not delete")
+        coordinator = BatchCoordinator()
+        coordinator.active = Session("token", self.folder, "timeline", "error",
+                                     None, [], stage, -1)
+        self.assertIsNone(coordinator._current())
+        self.assertIsNone(coordinator.active)
+        self.assertEqual((stage / "user-notes.txt").read_bytes(), b"my notes")
+        self.assertEqual((child / "information.txt").read_bytes(), b"do not delete")
+        self.assertNotIn(stage, batch_publish._stage_fds)
+
+    def test_successful_owned_stage_can_be_discarded_without_media_leak(self):
+        stage = create_stage(self.folder, allowed_files=["approved.mov", "whole.otio"])
+        mov = stage / "approved.mov"
+        otio = stage / "whole.otio"
+        mov.write_bytes(b"owned movie")
+        otio.write_bytes(b"owned timeline")
+        owned = {"approved.mov": published_media_identity(mov),
+                 "whole.otio": published_media_identity(otio)}
+        discard_stage(stage, media_identities=owned)
+        self.assertFalse(stage.exists())
+        self.assertNotIn(stage, batch_publish._stage_fds)
+
+    def test_unrecorded_output_is_retained_during_normal_release(self):
+        stage = create_stage(self.folder, allowed_files=["approved.mov"])
+        (stage / "approved.mov").write_bytes(b"untracked render")
+        discard_stage(stage)
+        self.assertEqual((stage / "approved.mov").read_bytes(), b"untracked render")
+
+    def test_registered_name_replaced_at_quarantine_rename_is_preserved(self):
+        stage = create_stage(self.folder, allowed_files=["approved.mov"])
+        target = stage / "approved.mov"
+        target.write_bytes(b"original staged file")
+        known = {"approved.mov": published_media_identity(target)}
+        real_rename = os.rename
+        swapped = False
+        def inject_swap(src, dst, *args, **kwargs):
+            nonlocal swapped
+            if Path(src) == target and not swapped:
+                swapped = True
+                target.unlink()
+                target.write_bytes(b"foreign replacement")
+            return real_rename(src, dst, *args, **kwargs)
+        with patch("tachie_motion.web.batch_publish.os.rename", side_effect=inject_swap):
+            discard_stage(stage, media_identities=known)
+        self.assertTrue(swapped)
+        quarantine = list(stage.glob(".tachie-stage-quarantine-*/approved.mov"))
+        self.assertEqual(len(quarantine), 1)
+        self.assertEqual(quarantine[0].read_bytes(), b"foreign replacement")
+        self.assertFalse(target.exists())
+
+    def test_deep_or_invalid_allowlist_does_not_block_next_batch(self):
+        stage = self.abandon_stage(["approved.mov"])
+        (stage / STAGE_ALLOWLIST).write_text("[" * 4000 + "]" * 4000,
+                                            encoding="utf-8")
+        next_stage = create_stage(self.folder)
+        self.assertTrue(next_stage.exists())
+        self.assertTrue(stage.exists())
+        discard_stage(next_stage)
 
 
 if __name__ == "__main__":
