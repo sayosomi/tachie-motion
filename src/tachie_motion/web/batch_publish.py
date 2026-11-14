@@ -34,7 +34,7 @@ _STAGE_MANIFEST_LIMIT = 1_048_576
 _stage_fds: dict[Path, int] = {}
 # Only live sessions have trusted inode identities. After a crash these are
 # unavailable, so automated orphan cleanup intentionally does not unlink data.
-_stage_owned: dict[Path, dict[str, tuple[int, int, int, int]]] = {}
+_stage_owned: dict[Path, dict[str, tuple[int, ...] | None]] = {}
 
 
 def recovery_directories(folder: Path) -> tuple[Path, ...]:
@@ -83,7 +83,7 @@ def _regular_identity(path: Path) -> tuple[int, int, int, int] | None:
     return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns
 
 
-def _directory_identity(path: Path) -> tuple[int, int, int, int] | None:
+def _directory_identity(path: Path) -> tuple[int, int] | None:
     try:
         st = path.lstat()
     except FileNotFoundError:
