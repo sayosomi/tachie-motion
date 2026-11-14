@@ -164,12 +164,10 @@ def _reap_orphaned_stages(folder: Path) -> None:
                 allowed = _read_stage_allowlist(stage_fd)
                 if allowed is None or not _known_stage_contents(stage_fd, allowed):
                     continue
-                # Delete only the explicitly registered, regular output names.
-                # Recheck on every iteration so a newly inserted unknown name
-                # stops cleanup; never pass the directory to shutil.rmtree.
+                # Only unlink exact registered output names; never use rmtree.
+                # A fresh post-scan retains any unknown file inserted mid-sweep.
+                # Scan twice rather than O(n^2) scans for large batches.
                 for name in allowed:
-                    if not _known_stage_contents(stage_fd, allowed):
-                        break
                     try:
                         item = os.stat(name, dir_fd=stage_fd, follow_symlinks=False)
                     except FileNotFoundError:
