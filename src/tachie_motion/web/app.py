@@ -20,6 +20,7 @@ from tachie_motion.web.output_destinations import destination_info, validate_bas
 from tachie_motion.web.solo_output import validate_media_basename, single_destination
 from tachie_motion.web.combined_otio import create_combined_otio
 from tachie_motion.web.batch_session import BatchCoordinator, validate_names
+from tachie_motion.web.batch_publish import require_batch_recovery_clear
 from tachie_motion.web.service import (
     describe_psd, describe_wav, load_psd, local_file, preview_mouth,
 )
@@ -348,11 +349,10 @@ def preset_batch_mov_destination(payload: DestinationRequest):
         if not folder.is_absolute() or not folder.is_dir():
             raise ValueError("Output folder must already exist")
         canonical = folder.resolve(strict=True)
+        require_batch_recovery_clear(canonical)
         result = single_destination(canonical / (payload.basename + ".mov"))
-        if result["state"] == "complete" and any(
-                path.suffix.lower() == ".otio" for path in canonical.iterdir()):
-            # Another combined timeline may refer to this existing MOV.
-            return {"state": "unsafe", "canonical_output_dir": str(canonical)}
+        # A sibling individual OTIO remains unsafe. A combined timeline with
+        # a *different* basename is handled at batch-start preflight.
         return {**result, "canonical_output_dir": str(canonical)}
     except (ValueError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
@@ -366,6 +366,7 @@ def preset_combined_otio_destination(payload: DestinationRequest):
         if not folder.is_absolute() or not folder.is_dir():
             raise ValueError("Output folder must already exist")
         canonical = folder.resolve(strict=True)
+        require_batch_recovery_clear(canonical)
         return {**single_destination(canonical / (payload.basename + ".otio")),
                 "canonical_output_dir": str(canonical)}
     except (ValueError, OSError, RuntimeError, TypeError) as exc:
@@ -391,16 +392,20 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
                 payload.batch_id, payload.batch_index, canonical, payload.basename,
                 wav, payload.source_identity, payload.fps, payload.conflict_policy)
             try:
+                stage = app.state.batch.staged_folder(payload.batch_id)
                 result = await asyncio.to_thread(
                     export_preset_utterance,
                     psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
                     layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
-                    blink_enabled=payload.blink_enabled, conflict_policy=payload.conflict_policy,
-                    mov=canonical / (payload.basename + ".mov"), otio=None,
+                    blink_enabled=payload.blink_enabled, conflict_policy="error",
+                    mov=stage / (payload.basename + ".mov"), otio=None,
                     fps=payload.fps, source_identity=payload.source_identity,
                 )
                 app.state.batch.succeeded(payload.batch_id, payload.batch_index, result)
-                return result
+                # The UI displays the planned final path, but the file is not
+                # visible there until the whole batch and OTIO are committed.
+                return {**result, "mov": str(canonical / (payload.basename + ".mov")),
+                        "staged": True}
             except (ValueError, FileExistsError, OSError, RuntimeError, TypeError):
                 app.state.batch.failed(payload.batch_id, payload.batch_index)
                 raise
@@ -421,12 +426,21 @@ async def preset_combined_otio(payload: CombinedOtioRequest):
             expected = app.state.batch.before_timeline(
                 payload.batch_id, canonical, payload.basename,
                 payload.conflict_policy, entries)
+            stage = app.state.batch.staged_folder(payload.batch_id)
             result = await asyncio.to_thread(
-                create_combined_otio, canonical, payload.basename,
-                entries, payload.conflict_policy, expected_identities=expected,
+                create_combined_otio, stage, payload.basename,
+                entries, "error", expected_identities=expected,
+                reference_folder=canonical,
             )
+            # After every MOV and the OTIO have passed their own validators,
+            # publish the entire set, restoring old originals on failure.
+            warning = await asyncio.to_thread(app.state.batch.commit, payload.batch_id)
             app.state.batch.release(payload.batch_id)
-            return result
+            published = {"otio": str(canonical / (payload.basename + ".otio")),
+                         "entries": len(entries)}
+            if warning or result.get("warning"):
+                published["warning"] = " ".join(filter(None, (warning, result.get("warning"))))
+            return published
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 

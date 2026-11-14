@@ -67,7 +67,8 @@ def all_output_recovery(mov: Path) -> tuple[Path, ...]:
 
 
 def target_state(mov: Path, otio: Path) -> tuple[str, tuple | None]:
-    if all_output_recovery(mov):
+    from tachie_motion.web.batch_publish import recovery_directories
+    if recovery_directories(mov.parent) or all_output_recovery(mov):
         return "recovery_required", None
     try:
         a, b = _regular_identity(mov), _regular_identity(otio)

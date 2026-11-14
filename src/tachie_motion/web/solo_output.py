@@ -67,7 +67,9 @@ def _has_sibling_file(path: Path) -> bool:
 
 def _recovery_paths(path: Path) -> tuple[Path, ...]:
     from tachie_motion.web.output_destinations import all_output_recovery
-    return all_output_recovery(path.with_suffix(".mov"))
+    from tachie_motion.web.batch_publish import recovery_directories
+    return (all_output_recovery(path.with_suffix(".mov")) +
+            recovery_directories(path.parent))
 
 
 def initial_single_identity(path: Path, policy: str):

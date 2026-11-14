@@ -39,7 +39,8 @@ def probe_embedded_pcm(movie: Path) -> WaveTiming:
 
 def create_combined_otio(folder: Path, basename: str, entries: list[dict],
                          conflict_policy: str,
-                         expected_identities: dict[str, tuple] | None = None) -> dict:
+                         expected_identities: dict[str, tuple] | None = None,
+                         reference_folder: Path | None = None) -> dict:
     validate_media_basename(basename)
     if not entries or len(entries) > 2000:
         raise ValueError("Combined timeline requires 1–2000 MOV entries")
@@ -70,6 +71,15 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
 
     document = build_combined_utterances([(mov, movie, audio)
                                          for mov, movie, audio, _ in verified])
+    if reference_folder is not None:
+        # Render/verify against the staged MOVs, but author final media URLs.
+        # Neither the staged URL nor a source WAV must leak into the OTIO.
+        for track, video in zip(document["tracks"]["children"], (True, False)):
+            for clip, entry in zip(track["children"], entries):
+                final = reference_folder / (entry["basename"] + ".mov")
+                media = clip["media_references"]["DEFAULT_MEDIA"]
+                media["target_url"] = final.absolute().as_uri() if video else str(final.absolute())
+                media["name"] = final.name
     with tempfile.TemporaryDirectory(prefix=".tachie-timeline-", dir=folder) as tmp:
         staged = Path(tmp) / "timeline.otio"
         write_otio(document, staged)
