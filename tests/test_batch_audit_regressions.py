@@ -84,6 +84,37 @@ class BatchBlockingAuditTests(unittest.TestCase):
             self.assertIsNone(guard.active)
             self.assertEqual(list(folder.glob("*.mov")), [])
 
+    def test_batch_token_or_session_constructor_failure_releases_stage_lease(self):
+        from tachie_motion.web import batch_publish
+
+        for failure in ("token", "session"):
+            with self.subTest(failure=failure):
+                with tempfile.TemporaryDirectory() as tmp:
+                    folder = Path(tmp)
+                    wav = folder / "voice.wav"
+                    make_wav(wav)
+                    guard = BatchCoordinator()
+                    leases_before = dict(batch_publish._stage_fds)
+                    symbol = ("tachie_motion.web.batch_session.secrets.token_urlsafe"
+                              if failure == "token" else
+                              "tachie_motion.web.batch_session.Session")
+                    with patch(symbol, side_effect=RuntimeError("injected "+failure+" failure")):
+                        with self.assertRaisesRegex(RuntimeError, "injected"):
+                            guard.start(folder, "timeline", "error", [entry(wav)])
+                    self.assertIsNone(guard.active)
+                    self.assertEqual(batch_publish._stage_fds, leases_before,
+                                     "failed session setup must not retain an fd")
+                    stages = sorted(folder.glob(".tachie-batch-stage-*"))
+                    self.assertEqual(len(stages), 1)
+                    self.assertTrue((stages[0] / batch_publish.STAGE_MARKER).is_file(),
+                                    "initialization failure must retain stage contents")
+                    self.assertFalse((folder / "001_あんこもん.mov").exists())
+                    # A failure to initialize the previous session must not
+                    # prevent another batch from acquiring the application lease.
+                    token = guard.start(folder, "timeline", "error", [entry(wav)])
+                    self.assertTrue(guard.release(token))
+                    self.assertEqual(batch_publish._stage_fds, leases_before)
+
     def test_other_tab_and_legacy_exports_are_locked_until_release(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
