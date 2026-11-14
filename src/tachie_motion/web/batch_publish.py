@@ -256,8 +256,16 @@ def publish_batch(
                 target = targets[i]
                 old = original[target.name]
                 if i in mutated:
-                    current = _identity(target)
-                    if current is not None:
+                    # Existence must be checked without rejecting special
+                    # files: a staged FIFO/symlink can be hardlinked into the
+                    # public pathname just before the post-link validation.
+                    try:
+                        target.lstat()
+                    except FileNotFoundError:
+                        target_exists = False
+                    else:
+                        target_exists = True
+                    if target_exists:
                         quarantine = recovery / ("new-" + str(i))
                         os.rename(target, quarantine)
                         staged_identity = expected_stage[sources[i].name]
@@ -265,10 +273,14 @@ def publish_batch(
                         # durable inode/content fields during rollback.
                         expected_moved = (staged_identity[0], staged_identity[1],
                                           staged_identity[3], staged_identity[4])
-                        if _identity(quarantine) != expected_moved:
-                            # A different writer occupied the public path.
-                            # Preserve that inode in quarantine, then attempt
-                            # to restore the approved old inode separately.
+                        try:
+                            matches_moved = _identity(quarantine) == expected_moved
+                        except ValueError:
+                            # Do not let a FIFO, symlink, or other nonregular
+                            # file interrupt restoration of the old generation.
+                            matches_moved = False
+                        if not matches_moved:
+                            # Preserve foreign content, regardless of file type.
                             preserve_recovery = True
                     saved = recovery / ("old-" + str(i))
                     if old is not None:
