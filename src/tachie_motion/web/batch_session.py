@@ -76,8 +76,8 @@ class BatchCoordinator:
 
     def _current(self) -> Session | None:
         if self.active and time.monotonic() > self.active.deadline:
-            # No public files are touched during a staged batch. An abandoned
-            # stage can be discarded without changing the previous output.
+            # Expiry releases the lease but keeps the stage and its media
+            # for inspection; no public files are changed.
             session = self.active
             self.active = None
             discard_stage(session.stage)
