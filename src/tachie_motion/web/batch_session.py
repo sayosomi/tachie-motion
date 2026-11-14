@@ -222,7 +222,8 @@ class BatchCoordinator:
         session = self._session(token)
         if len(session.results) != len(session.entries) or any(x is None for x in session.results):
             raise ValueError("Incomplete batch cannot be published")
-        staged = dict(session.identities)
+        staged = {name + ".mov": identity
+                  for name, identity in session.identities.items()}
         otio_name = session.timeline_name + ".otio"
         expected_otio = published_media_identity(session.stage / otio_name)
         if expected_otio is None:
