@@ -1,5 +1,6 @@
 """Batch publication: rollback, collision, crash recovery and NFD names."""
 import os
+import stat
 from pathlib import Path
 import tempfile
 import unittest
@@ -137,6 +138,106 @@ class BatchPublicationTests(unittest.TestCase):
             require_batch_recovery_clear(self.folder)
         self.assertEqual(single_destination(self.folder / "other.mov")["state"],
                          "recovery_required")
+
+    def test_external_replacement_at_rename_is_quarantined_not_deleted(self):
+        originals, staged = self.manifest()
+        target = self.folder / self.names[0]
+        raw_rename = os.rename
+        exchanged = False
+        def swap_before_move(src, dst):
+            nonlocal exchanged
+            if not exchanged and Path(src) == target and Path(dst).name == "moved-0":
+                exchanged = True
+                outsider = self.folder / "third_party.mov"
+                outsider.write_bytes(b"FOREIGN-MOV-MUST-SURVIVE")
+                os.replace(outsider, target)
+            return raw_rename(src, dst)
+        with patch("tachie_motion.web.batch_publish.os.rename", side_effect=swap_before_move):
+            with self.assertRaisesRegex(RuntimeError, "external writer preserved"):
+                self.publish(originals, staged)
+        self.assertTrue(exchanged)
+        self.assert_old()
+        folders = recovery_directories(self.folder)
+        self.assertEqual(len(folders), 1)
+        self.assertEqual((folders[0] / "moved-0").read_bytes(), b"FOREIGN-MOV-MUST-SURVIVE")
+        self.assertEqual((folders[0] / "old-0").read_bytes(), b"OLD-0-")
+        with self.assertRaisesRegex(RuntimeError, "recovery"):
+            require_batch_recovery_clear(self.folder)
+
+    def test_external_file_after_move_is_quarantined_not_deleted(self):
+        originals, staged = self.manifest()
+        target = self.folder / self.names[0]
+        raw_link = os.link
+        inserted = False
+        def race_before_publish(src, dst):
+            nonlocal inserted
+            if not inserted and Path(src).parent == self.stage and Path(dst) == target:
+                inserted = True
+                target.write_bytes(b"THIRD-PARTY-NEW-OUTPUT")
+            return raw_link(src, dst)
+        with patch("tachie_motion.web.batch_publish.os.link", side_effect=race_before_publish):
+            with self.assertRaisesRegex(RuntimeError, "external writer preserved"):
+                self.publish(originals, staged)
+        self.assertTrue(inserted)
+        self.assert_old()
+        folders = recovery_directories(self.folder)
+        self.assertEqual(len(folders), 1)
+        self.assertEqual((folders[0] / "new-0").read_bytes(), b"THIRD-PARTY-NEW-OUTPUT")
+
+    def test_external_file_during_backup_remains_in_recovery(self):
+        originals, staged = self.manifest()
+        target = self.folder / self.names[0]
+        raw_link = os.link
+        inserted = False
+        def race_before_backup(src, dst):
+            nonlocal inserted
+            if not inserted and Path(src) == target and Path(dst).name == "old-0":
+                inserted = True
+                outsider = self.folder / "third_party.mov"
+                outsider.write_bytes(b"FOREIGN-BACKUP")
+                os.replace(outsider, target)
+            return raw_link(src, dst)
+        with patch("tachie_motion.web.batch_publish.os.link", side_effect=race_before_backup):
+            with self.assertRaisesRegex(RuntimeError, "external writer preserved"):
+                self.publish(originals, staged)
+        folders = recovery_directories(self.folder)
+        self.assertEqual(len(folders), 1)
+        self.assertEqual(target.read_bytes(), b"FOREIGN-BACKUP")
+        self.assertEqual((folders[0] / "old-0").read_bytes(), b"FOREIGN-BACKUP")
+
+    def test_all_media_and_old_file_contents_synced_before_first_public_link(self):
+        originals, staged = self.manifest()
+        raw_sync, raw_link = os.fsync, os.link
+        synced = set()
+        expected = {(self.stage / name).stat().st_ino for name in self.names}
+        expected.update((self.folder / name).stat().st_ino for name in self.names)
+        def record_sync(fd):
+            st = os.fstat(fd)
+            if stat.S_ISREG(st.st_mode):
+                synced.add(st.st_ino)
+            return raw_sync(fd)
+        def assert_durable_link(src, dst):
+            if Path(src).parent == self.stage and Path(dst).parent == self.folder:
+                self.assertTrue(expected.issubset(synced), "Media or old backups not fsynced")
+            return raw_link(src, dst)
+        with patch("tachie_motion.web.batch_publish.os.fsync", side_effect=record_sync):
+            with patch("tachie_motion.web.batch_publish.os.link", side_effect=assert_durable_link):
+                self.publish(originals, staged)
+        self.assert_new()
+
+    def test_stage_media_fsync_failure_leaves_old_generation_intact(self):
+        originals, staged = self.manifest()
+        raw_sync = os.fsync
+        first_inode = (self.stage / self.names[0]).stat().st_ino
+        def fail_media_sync(fd):
+            if os.fstat(fd).st_ino == first_inode:
+                raise OSError("injected staged MOV sync failure")
+            return raw_sync(fd)
+        with patch("tachie_motion.web.batch_publish.os.fsync", side_effect=fail_media_sync):
+            with self.assertRaisesRegex(OSError, "staged MOV sync failure"):
+                self.publish(originals, staged)
+        self.assert_old()
+        self.assertEqual(recovery_directories(self.folder), ())
 
     def test_backup_cleanup_failure_reports_warning_and_preserves_old_copy(self):
         originals, staged = self.manifest()
