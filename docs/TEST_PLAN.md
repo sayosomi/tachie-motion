@@ -26,7 +26,7 @@
 - PythonでPCM内包MOVの連続タイムラインJSONを構築し、映像・音声トラックが同じMOVを参照し、各発話のPCMサンプル時間を厳密に保持することをテスト。MOVが1件でも失敗した場合に全体OTIOを出さない。
 - 個別出力のMOV＋個別OTIOを変えず、一括出力で個別OTIOファイルを作らない。テストは公式OTIOが利用可能なCI jobでroundtrip検査し、Mac Resolve Humanは取り込み・見た目・実際の音声同期を別判定。
 - 既存JSON v1の読み込みと、新v2での命名設定保存／復元をテスト。元PSD/WAV/LAB不変、ProRes全フレーム検査とPCMロスレス検証を維持。
-- PR #19独立監査HIGH-01 / MEDIUM-01〜03 / LOW-01〜02の回帰：WAVの登録時と公開前のstat同一性、MOV/OTIO両方式の復旧場所、NFC+casefold、別タブのバッチ占有と生成MOV inode検査、0 WAVの旧v1移行、os.link/renameとバックアップ削除失敗をPythonとPlaywrightで検査。
+- PR #19独立監査HIGH-01 / MEDIUM-01〜04 / LOW-01〜03の回帰：WAVの登録時と公開前のstat同一性、MOV/OTIO両方式の復旧場所、NFC+casefold、別タブのバッチ占有と生成MOV inode検査、0 WAVの旧v1移行、os.link/renameとバックアップ削除失敗をPythonとPlaywrightで検査。 公開ループでは、ステージMOV／OTIOの検証後から公開先 `os.link` 直前に別inodeへ差し替える故障注入を行う。リンク先のdev/inode/size/mtime_nsが承認済みの値と異なれば、旧世代をロールバックし、外部媒体を`new-*`と復旧領域に保持し、正常公開と報告しない。新規出力先と既存上書きの双方を検証する。バッチ開始の`create_stage`成功直後にトークン発行／Session生成の例外を注入し、ステージの内容を残してleaseを解放し、続く正常開始を許可することを確認する。
 
 ## Phase 1 Slice 1 — PCM WAV音量・口状態スケジューラ
 
