@@ -207,7 +207,9 @@ class BatchBlockingAuditTests(unittest.TestCase):
             )
             stage = guard.active.stage
             self.assertTrue(guard.release(token))
-            self.assertFalse(stage.exists())
+            self.assertTrue(stage.exists(), "released stage is retained for manual review")
+            self.assertEqual((stage / "first.mov").read_bytes(), b"STAGED-FIRST")
+            self.assertIsNone(guard.active)
 
     @unittest.skipUnless(__import__("shutil").which("ffmpeg") and __import__("shutil").which("ffprobe"),
                          "FFmpeg required for individual OTIO fault injection")
