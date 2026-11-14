@@ -186,6 +186,54 @@ class BatchPublicationTests(unittest.TestCase):
         self.assertEqual(len(folders), 1)
         self.assertEqual((folders[0] / "new-0").read_bytes(), b"THIRD-PARTY-NEW-OUTPUT")
 
+    def _assert_link_time_stage_replacement_is_preserved(self, *, existing: bool):
+        originals, staged = self.manifest(existing=existing)
+        source = self.stage / self.names[0]
+        target = self.folder / self.names[0]
+        approved_inode = staged[self.names[0]][1]
+        real_link = os.link
+        swapped = False
+
+        def replace_stage_media_before_link(src, dst):
+            nonlocal swapped
+            if not swapped and Path(src) == source and Path(dst) == target:
+                swapped = True
+                foreign = self.folder / "external-replacement.mov"
+                foreign.write_bytes(b"FOREIGN-MEDIA-MUST-SURVIVE")
+                os.replace(foreign, source)
+                self.assertNotEqual(source.stat().st_ino, approved_inode)
+            return real_link(src, dst)
+
+        with patch("tachie_motion.web.batch_publish.os.link",
+                   side_effect=replace_stage_media_before_link):
+            with self.assertRaisesRegex(RuntimeError, "external writer preserved"):
+                self.publish(originals, staged)
+
+        self.assertTrue(swapped)
+        if existing:
+            self.assert_old()
+        else:
+            self.assertFalse(target.exists(), "foreign media must not be published")
+            for name in self.names:
+                self.assertFalse((self.folder / name).exists())
+
+        folders = recovery_directories(self.folder)
+        self.assertEqual(len(folders), 1)
+        recovered = folders[0]
+        self.assertEqual((recovered / "new-0").read_bytes(),
+                         b"FOREIGN-MEDIA-MUST-SURVIVE")
+        self.assertEqual(source.read_bytes(), b"FOREIGN-MEDIA-MUST-SURVIVE")
+        if existing:
+            self.assertEqual((recovered / "old-0").read_bytes(), b"OLD-0-")
+        with self.assertRaisesRegex(RuntimeError, "recovery"):
+            require_batch_recovery_clear(self.folder)
+
+    def test_stage_mov_replaced_at_public_link_rolls_back_old_generation(self):
+        self._assert_link_time_stage_replacement_is_preserved(existing=True)
+
+    def test_stage_mov_replaced_at_public_link_leaves_new_targets_unpublished(self):
+        self._assert_link_time_stage_replacement_is_preserved(existing=False)
+
     def test_external_file_during_backup_remains_in_recovery(self):
         originals, staged = self.manifest()
         target = self.folder / self.names[0]
