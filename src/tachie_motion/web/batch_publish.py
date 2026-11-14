@@ -52,7 +52,7 @@ def _stage_artifact_names(names: list[str] | tuple[str, ...]) -> tuple[str, ...]
         raise ValueError("Invalid batch-stage artifact list")
     for name in names:
         if (not isinstance(name, str) or not name or name in (".", "..")
-                or "/" in name or "\\\\" in name or "\\x00" in name
+                or "/" in name or chr(92) in name or chr(0) in name
                 or name in (STAGE_MARKER, STAGE_ALLOWLIST)
                 or Path(name).name != name
                 or Path(name).suffix.lower() not in (".mov", ".otio")):
