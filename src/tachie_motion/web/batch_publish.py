@@ -107,7 +107,7 @@ def publish_batch(
             raise ValueError("Staged output changed: " + source.name)
 
     recovery = Path(tempfile.mkdtemp(prefix=RECOVERY_PREFIX, dir=folder))
-    mutations_started = False
+    mutated: set[int] = set()
     try:
         # Hardlinks preserve original data across rename, hard crash and
         # rollback, without temporarily duplicating large ProRes MOV bytes.
@@ -126,20 +126,19 @@ def publish_batch(
                 raise ValueError("Staged output changed during publication")
             if old is not None:
                 os.rename(target, recovery / ("moved-" + str(i)))
-                mutations_started = True
+                mutated.add(i)
                 if _identity(recovery / ("moved-" + str(i))) != old:
                     raise FileExistsError("External destination change; recovery required")
             # Never overwrite an unknown file another process has placed here.
             os.link(source, target)
-            mutations_started = True
+            mutated.add(i)
         _fsync_directory(folder)
     except BaseException:
         try:
-            if mutations_started:
-                # Never unlink other processes' files. Quarantine the new
-                # pathname and verify its inode before restoring each old one.
-                for i in reversed(range(len(targets))):
-                    target = targets[i]
+            for i in reversed(range(len(targets))):
+                target = targets[i]
+                old = original[target.name]
+                if i in mutated:
                     current = _identity(target)
                     if current is not None:
                         quarantine = recovery / ("new-" + str(i))
@@ -148,21 +147,15 @@ def publish_batch(
                         if _identity(quarantine) != source_stat:
                             raise RuntimeError("External writer detected; manual recovery required")
                     saved = recovery / ("old-" + str(i))
-                    if original[target.name] is not None:
+                    if old is not None:
                         if not saved.is_file() or saved.is_symlink():
                             raise RuntimeError("Missing original recovery copy")
                         os.link(saved, target)
-                    if _identity(target) != original[target.name]:
-                        raise RuntimeError("Rollback identity mismatch")
-                _fsync_directory(folder)
-            else:
-                # No public path changed; originals are still in place.
-                for target in targets:
-                    if _identity(target) != original[target.name]:
-                        raise RuntimeError("External writer detected before commit")
+                if _identity(target) != old:
+                    raise RuntimeError("Rollback identity mismatch")
+            _fsync_directory(folder)
         except BaseException as restore_error:
             raise RuntimeError("Batch recovery required: " + str(recovery)) from restore_error
-        # Restored successfully: do not leave a stale lock.
         try:
             shutil.rmtree(recovery)
         except OSError as error:

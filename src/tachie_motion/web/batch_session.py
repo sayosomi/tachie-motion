@@ -11,6 +11,9 @@ import time
 import unicodedata
 
 from tachie_motion.web.preview_frame import file_identity
+from tachie_motion.web.batch_publish import (
+    create_stage, discard_stage, publish_batch, require_batch_recovery_clear,
+)
 from tachie_motion.timeline.media import probe_wav
 from tachie_motion.web.service import local_file
 from tachie_motion.web.solo_output import (
@@ -60,6 +63,7 @@ class Session:
     timeline_policy: str
     timeline_original: tuple | None
     entries: list[Planned]
+    stage: Path
     deadline: float
     next_index: int = 0
     results: list[dict | None] = field(default_factory=list)
@@ -72,6 +76,9 @@ class BatchCoordinator:
 
     def _current(self) -> Session | None:
         if self.active and time.monotonic() > self.active.deadline:
+            # No public files are touched during a staged batch. An abandoned
+            # stage can be discarded without changing the previous output.
+            discard_stage(self.active.stage)
             self.active = None
         return self.active
 
@@ -85,6 +92,7 @@ class BatchCoordinator:
         names = [entry["basename"] for entry in entries]
         validate_names(names, timeline_name)
         folder = folder.resolve(strict=True)
+        require_batch_recovery_clear(folder)
         planned = []
         for raw in entries:
             wav = local_file(raw["wav"], ".wav")
@@ -110,20 +118,20 @@ class BatchCoordinator:
                                    sample_rate, raw["conflict_policy"], prior))
         timeline_prior = initial_single_identity(
             folder / (timeline_name + ".otio"), timeline_policy)
-        # No multi-file atomic replacement exists yet; never leave an older
-        # combined OTIO pointing at a mix of new and old MOV generations.
-        if timeline_policy == "overwrite":
-            raise ValueError(
-                "Existing combined OTIO cannot be batch-overwritten safely; "
-                "choose a different project name or output folder")
-        if (any(item.conflict_policy == "overwrite" for item in planned)
-                and any(path.suffix.lower() == ".otio" for path in folder.iterdir())):
-            raise ValueError(
-                "Existing OTIO may reference an overwritten MOV; "
-                "choose new MOV names or a different output folder")
+        # A different OTIO in this directory could also reference a MOV we
+        # intend to replace. Without parsing its dependency graph, reject it.
+        if any(item.conflict_policy == "overwrite" for item in planned):
+            foreign = [p for p in folder.iterdir()
+                       if p.suffix.lower() == ".otio"
+                       and p.name != timeline_name + ".otio"]
+            if foreign:
+                raise ValueError("Another OTIO may reference an overwritten MOV; "
+                                 "choose an isolated export folder")
+        stage = create_stage(folder)
         token = secrets.token_urlsafe(32)
         self.active = Session(token, folder, timeline_name, timeline_policy,
-                              timeline_prior, planned, time.monotonic() + IDLE_SECONDS)
+                              timeline_prior, planned, stage,
+                              time.monotonic() + IDLE_SECONDS)
         return token
 
     def _session(self, token: str) -> Session:
@@ -158,6 +166,8 @@ class BatchCoordinator:
         present = initial_single_identity(folder / (basename + ".mov"), policy)
         if present != original.original:
             raise ValueError("MOV destination changed after batch approval")
+        if (session.stage / (basename + ".mov")).exists():
+            raise ValueError("Batch staging name already occupied")
 
     def succeeded(self, token: str, index: int, result: dict) -> None:
         session = self._finish_render_session(token)
@@ -166,7 +176,7 @@ class BatchCoordinator:
             result["sample_count"], result["sample_rate"]) != (
                 planned.samples, planned.sample_rate):
             raise RuntimeError("Batch output does not match the registered WAV")
-        path = session.folder / (planned.basename + ".mov")
+        path = session.stage / (planned.basename + ".mov")
         identity = published_media_identity(path)
         if identity is None:
             raise RuntimeError("Batch MOV disappeared after publication")
@@ -197,13 +207,41 @@ class BatchCoordinator:
         if now != session.timeline_original:
             raise ValueError("OTIO destination changed after batch approval")
         for name, identity in session.identities.items():
-            if published_media_identity(folder / (name + ".mov")) != identity:
+            if published_media_identity(session.stage / (name + ".mov")) != identity:
                 raise ValueError("Batch MOV was replaced after rendering: " + name)
+        for planned in session.entries:
+            dest = folder / (planned.basename + ".mov")
+            if initial_single_identity(dest, planned.conflict_policy) != planned.original:
+                raise ValueError("Public destination changed during batch: " + dest.name)
         return dict(session.identities)
 
+    def staged_folder(self, token: str) -> Path:
+        return self._session(token).stage
+
+    def commit(self, token: str) -> str | None:
+        session = self._session(token)
+        if len(session.results) != len(session.entries) or any(x is None for x in session.results):
+            raise ValueError("Incomplete batch cannot be published")
+        staged = dict(session.identities)
+        otio_name = session.timeline_name + ".otio"
+        expected_otio = published_media_identity(session.stage / otio_name)
+        if expected_otio is None:
+            raise ValueError("Combined OTIO was not staged")
+        staged[otio_name] = expected_otio
+        original = {planned.basename + ".mov": planned.original for planned in session.entries}
+        original[otio_name] = session.timeline_original
+        # This is the only operation that mutates public batch destinations.
+        return publish_batch(
+            folder=session.folder, stage=session.stage,
+            movie_names=[planned.basename for planned in session.entries],
+            timeline_name=session.timeline_name,
+            original=original, expected_stage=staged,
+        )
+
     def release(self, token: str) -> bool:
-        session = self._current()
+        session = self.active
         if session and secrets.compare_digest(session.token, token):
             self.active = None
+            discard_stage(session.stage)
             return True
         return False
