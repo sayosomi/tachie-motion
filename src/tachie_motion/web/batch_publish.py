@@ -268,7 +268,12 @@ def publish_batch(
                     if current is not None:
                         quarantine = recovery / ("new-" + str(i))
                         os.rename(target, quarantine)
-                        if _identity(quarantine) != expected_stage[sources[i].name]:
+                        staged_identity = expected_stage[sources[i].name]
+                        # Hardlink creation changes ctime; compare only the
+                        # durable inode/content fields during rollback.
+                        expected_moved = (staged_identity[0], staged_identity[1],
+                                          staged_identity[3], staged_identity[4])
+                        if _identity(quarantine) != expected_moved:
                             # A different writer occupied the public path.
                             # Preserve that inode in quarantine, then attempt
                             # to restore the approved old inode separately.
