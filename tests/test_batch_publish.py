@@ -435,16 +435,22 @@ class BatchPublicationTests(unittest.TestCase):
         self.assertEqual((child / "information.txt").read_bytes(), b"do not delete")
         self.assertNotIn(stage, batch_publish._stage_fds)
 
-    def test_successful_owned_stage_can_be_discarded_without_media_leak(self):
+    def test_stage_release_never_unlinks_even_approved_media(self):
         stage = create_stage(self.folder, allowed_files=["approved.mov", "whole.otio"])
         mov = stage / "approved.mov"
         otio = stage / "whole.otio"
         mov.write_bytes(b"owned movie")
         otio.write_bytes(b"owned timeline")
-        owned = {"approved.mov": published_media_identity(mov),
-                 "whole.otio": published_media_identity(otio)}
-        discard_stage(stage, media_identities=owned)
-        self.assertFalse(stage.exists())
+        # A hostile peer could replace a file after any inode check.
+        # Releasing must have no destructive pathname operation at all.
+        with patch("tachie_motion.web.batch_publish.os.unlink",
+                   side_effect=AssertionError("stage release must not unlink")):
+            with patch("tachie_motion.web.batch_publish.os.rename",
+                       side_effect=AssertionError("stage release must not rename")):
+                discard_stage(stage)
+        self.assertEqual(mov.read_bytes(), b"owned movie")
+        self.assertEqual(otio.read_bytes(), b"owned timeline")
+        self.assertIn(STAGE_MARKER, os.listdir(stage))
         self.assertNotIn(stage, batch_publish._stage_fds)
 
     def test_unrecorded_output_is_retained_during_normal_release(self):
@@ -453,27 +459,31 @@ class BatchPublicationTests(unittest.TestCase):
         discard_stage(stage)
         self.assertEqual((stage / "approved.mov").read_bytes(), b"untracked render")
 
-    def test_registered_name_replaced_at_quarantine_rename_is_preserved(self):
+    def test_same_named_external_replacement_has_no_deletion_race(self):
         stage = create_stage(self.folder, allowed_files=["approved.mov"])
         target = stage / "approved.mov"
         target.write_bytes(b"original staged file")
-        known = {"approved.mov": published_media_identity(target)}
-        real_rename = os.rename
-        swapped = False
-        def inject_swap(src, dst, *args, **kwargs):
-            nonlocal swapped
-            if Path(src) == target and not swapped:
-                swapped = True
-                target.unlink()
-                target.write_bytes(b"foreign replacement")
-            return real_rename(src, dst, *args, **kwargs)
-        with patch("tachie_motion.web.batch_publish.os.rename", side_effect=inject_swap):
-            discard_stage(stage, media_identities=known)
-        self.assertTrue(swapped)
-        quarantine = list(stage.glob(".tachie-stage-quarantine-*/approved.mov"))
-        self.assertEqual(len(quarantine), 1)
-        self.assertEqual(quarantine[0].read_bytes(), b"foreign replacement")
-        self.assertFalse(target.exists())
+        target.unlink()
+        target.write_bytes(b"foreign replacement")
+        # There is no stat->unlink and no post-quarantine unlink; the foreign
+        # inode is retained even when it takes over an approved filename.
+        with patch("tachie_motion.web.batch_publish.os.unlink",
+                   side_effect=AssertionError("unexpected unlink")):
+            with patch("tachie_motion.web.batch_publish.os.rename",
+                       side_effect=AssertionError("unexpected rename")):
+                discard_stage(stage)
+        self.assertEqual(target.read_bytes(), b"foreign replacement")
+        self.assertNotIn(stage, batch_publish._stage_fds)
+
+    def test_successful_publication_keeps_media_in_stage_until_manual_review(self):
+        originals, staged = self.manifest(existing=False)
+        self.publish(originals, staged)
+        discard_stage(self.stage)
+        self.assert_new()
+        for i, name in enumerate(self.names):
+            self.assertEqual((self.stage / name).read_bytes(),
+                             ("NEW-%s-" % i).encode())
+        self.assertNotIn(self.stage, batch_publish._stage_fds)
 
     def test_deep_or_invalid_allowlist_does_not_block_next_batch(self):
         stage = self.abandon_stage(["approved.mov"])
