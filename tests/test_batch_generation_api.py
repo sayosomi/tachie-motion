@@ -103,10 +103,12 @@ class BatchGenerationApiTests(unittest.TestCase):
         doc = json.loads(otio.read_text(encoding="utf-8"))
         self.assertEqual(len(doc["tracks"]["children"][0]["children"]), 2)
         self.assertEqual(len(doc["tracks"]["children"][1]["children"]), 2)
-        for track in doc["tracks"]["children"]:
+        for track_index, track in enumerate(doc["tracks"]["children"]):
             for i, clip in enumerate(track["children"]):
                 uri = clip["media_references"]["DEFAULT_MEDIA"]["target_url"]
-                self.assertIn(self.names[i] + ".mov", uri)
+                public = self.root / (self.names[i] + ".mov")
+                expected = public.as_uri() if track_index == 0 else str(public)
+                self.assertEqual(uri, expected)
                 self.assertNotIn(".tachie-batch-stage", uri)
                 self.assertNotIn(str(self.wav), uri)
         self.assertEqual(len(list(self.root.glob("*.otio"))), 1)
