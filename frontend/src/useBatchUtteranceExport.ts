@@ -63,6 +63,12 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
     naming.characterName, naming.projectName,
   ));
   const rawTimelineName = otioName(naming.otioTemplate, naming.projectName);
+  // Catch exact duplicates locally even when a server/mock responds "valid".
+  // Python NFC+casefold remains the authoritative cross-platform check.
+  if (new Set([...rawMovieNames, rawTimelineName]).size !==
+      rawMovieNames.length + 1) {
+    throw new Error("MOVの保存名が重複します");
+  }
   // A rename affects the entire generation together. Do not silently mix
   // new and overwritten names, or suffix just one MOV of a combined timeline.
   let resolved: { movieNames: string[]; timelineName: string;

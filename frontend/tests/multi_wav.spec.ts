@@ -317,7 +317,7 @@ test("batch exports every WAV in list order and retains individual failures", as
   await expect(page.getByRole("heading", { name: "一括書き出し", exact: true })).toHaveCount(0);
   await expect(page.getByText("口パク「なし」が3件", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "全件を書き出す" }).click();
-  await expect(page.getByText("MOV成功 2件／失敗 1件", { exact: false }))
+  await expect(page.getByText("旧MOV・OTIOは変更していません", { exact: false }))
     .toBeVisible();
   expect(requests.map((r) => r.wav)).toEqual(["/tmp/a.wav", "/tmp/b.wav", "/tmp/c.wav"]);
   expect(requests.map((r) => r.basename)).toEqual(["001_character_a", "002_character_b", "003_character_c"]);
@@ -365,7 +365,7 @@ test("batch export requires confirmation before overwriting existing output pair
   await addWav(page, "/tmp/voice.wav");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
   const dialog = page.waitForEvent("dialog").then(async (shown) => {
-    expect(shown.message()).toContain("既存のMOVを1件上書き");
+    expect(shown.message()).toContain("既存のMOV・全体OTIOを合計1件上書き");
     await shown.dismiss();
   });
   await page.getByRole("radio", { name: /^全件/ }).check();
@@ -1070,7 +1070,7 @@ test("batch naming shows exact preview and creates one combined OTIO for reorder
   expect(timelinePayload?.entries.map((x) => x.basename)).toEqual(order);
 });
 
-test("existing combined OTIO blocks unsafe batch overwrite before any MOV export", async ({ page }) => {
+test("existing combined OTIO is offered for a confirmed full-generation overwrite", async ({ page }) => {
   await page.route("**/api/wav", (route) => route.fulfill({ json: {
     samples: 800, sample_rate: 8000, duration_seconds: 0.1,
     source_identity: "1:2:3:4:5",
@@ -1084,9 +1084,46 @@ test("existing combined OTIO blocks unsafe batch overwrite before any MOV export
   });
   await page.route("**/api/preset-combined-otio-destination", (route) =>
     route.fulfill({ json: { state: "complete", canonical_output_dir: "/tmp/output" } }));
+  await page.route("**/api/preset-batch-mov-destination", (route) =>
+    route.fulfill({ json: { state: "complete", canonical_output_dir: "/tmp/output" } }));
   await page.getByRole("radio", { name: /^全件/ }).check();
-  await expect(page.getByRole("alert")).toContainText(
-    "既存の全体OTIOを伴う一括上書きは安全のため未対応");
-  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeDisabled();
+  await expect(page.locator(".batch-timeline-plan")).toContainText("上書き");
+  await expect(page.locator(".export-plan-items")).toContainText("上書き");
+  const dialog = page.waitForEvent("dialog").then(async (shown) => {
+    expect(shown.message()).toContain("既存のMOV・全体OTIOを合計2件上書き");
+    await shown.dismiss();
+  });
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
+  await dialog;
+  await expect(page.getByText("一括書き出しをキャンセルしました")).toBeVisible();
   expect(renders).toBe(0);
+});
+
+test("batch alternate-name choice uses one shared suffix across MOVs and OTIO", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 800, sample_rate: 8000, duration_seconds: 0.1,
+  } }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/first.wav");
+  await addWav(page, "/tmp/second.wav");
+  await page.route("**/api/preset-batch-mov-destination", (route) => {
+    const { basename } = route.request().postDataJSON() as { basename: string };
+    return route.fulfill({ json: {
+      state: basename.endsWith("_002") ? "available" : "complete",
+      canonical_output_dir: "/tmp/output",
+    } });
+  });
+  await page.route("**/api/preset-combined-otio-destination", (route) => {
+    const { basename } = route.request().postDataJSON() as { basename: string };
+    return route.fulfill({ json: {
+      state: basename.endsWith("_002") ? "available" : "complete",
+      canonical_output_dir: "/tmp/output",
+    } });
+  });
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await page.getByRole("radio", { name: /別名で保存/ }).check();
+  await expect(page.locator(".export-plan-items")).toContainText("001_character_first_002.mov");
+  await expect(page.locator(".export-plan-items")).toContainText("002_character_second_002.mov");
+  await expect(page.locator(".batch-timeline-plan")).toContainText("project_002.otio");
+  await expect(page.getByText("書き出し予定を確認済み（上書き 0 件）")).toBeVisible();
 });
