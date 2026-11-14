@@ -233,6 +233,21 @@ def publish_batch(
             # Never overwrite an unknown file another process has placed here.
             os.link(source, target)
             mutated.add(i)
+            # The stage pathname can be replaced after the pre-link check.
+            # Verify the inode we *actually* published, not just the source.
+            # Linking changes ctime, so compare the four stable fields.
+            approved = expected_stage[source.name]
+            expected_link = (approved[0], approved[1], approved[3], approved[4])
+            try:
+                matches = _identity(target) == expected_link
+            except ValueError:
+                matches = False
+            if not matches:
+                # Rollback will quarantine the foreign linked inode and
+                # restore the old output; never discard its recovery folder.
+                preserve_recovery = True
+                raise FileExistsError(
+                    "Staged media changed while publishing: " + target.name)
         _fsync_directory(recovery)
         _fsync_directory(folder)
     except BaseException as failure:
