@@ -68,6 +68,7 @@ class Session:
     next_index: int = 0
     results: list[dict | None] = field(default_factory=list)
     identities: dict[str, tuple] = field(default_factory=dict)
+    timeline_identity: tuple | None = None
 
 
 class BatchCoordinator:
@@ -78,8 +79,9 @@ class BatchCoordinator:
         if self.active and time.monotonic() > self.active.deadline:
             # No public files are touched during a staged batch. An abandoned
             # stage can be discarded without changing the previous output.
-            discard_stage(self.active.stage)
+            session = self.active
             self.active = None
+            discard_stage(session.stage, media_identities=self._known_media(session))
         return self.active
 
     def require_idle(self) -> None:
@@ -231,6 +233,7 @@ class BatchCoordinator:
         if expected_otio is None:
             raise ValueError("Combined OTIO was not staged")
         staged[otio_name] = expected_otio
+        session.timeline_identity = expected_otio
         original = {planned.basename + ".mov": planned.original for planned in session.entries}
         original[otio_name] = session.timeline_original
         # This is the only operation that mutates public batch destinations.
@@ -241,10 +244,17 @@ class BatchCoordinator:
             original=original, expected_stage=staged,
         )
 
+    @staticmethod
+    def _known_media(session: Session) -> dict[str, tuple]:
+        known = {name + ".mov": identity for name, identity in session.identities.items()}
+        if session.timeline_identity is not None:
+            known[session.timeline_name + ".otio"] = session.timeline_identity
+        return known
+
     def release(self, token: str) -> bool:
         session = self.active
         if session and secrets.compare_digest(session.token, token):
             self.active = None
-            discard_stage(session.stage)
+            discard_stage(session.stage, media_identities=self._known_media(session))
             return True
         return False
