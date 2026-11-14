@@ -130,9 +130,13 @@ class BatchGenerationApiTests(unittest.TestCase):
         self.assertNotEqual(failed.status_code, 200)
         for name, content in originals.items():
             self.assertEqual((self.root / name).read_bytes(), content)
+        stages = sorted(self.root.glob(".tachie-batch-stage-*"))
+        self.assertGreaterEqual(len(stages), 2, "successful and partial stages remain")
         self.cancel()
-        self.assertFalse(any(p.name.startswith(".tachie-batch-stage-")
-                             for p in self.root.iterdir()))
+        self.assertEqual(sorted(self.root.glob(".tachie-batch-stage-*")), stages,
+                         "cancel releases the lease without deleting staged data")
+        self.assertTrue(any((stage / (self.names[0] + ".mov")).exists()
+                            for stage in stages))
 
     def test_same_name_batch_overwrite_is_supported_with_existing_timeline(self):
         policy = self.start(overwrite=False)
