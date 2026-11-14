@@ -435,11 +435,20 @@ async def preset_combined_otio(payload: CombinedOtioRequest):
             # After every MOV and the OTIO have passed their own validators,
             # publish the entire set, restoring old originals on failure.
             warning = await asyncio.to_thread(app.state.batch.commit, payload.batch_id)
-            app.state.batch.release(payload.batch_id)
+            # A cleanup problem AFTER publication must not turn successful
+            # generation-wide commit into a false HTTP error and trigger a
+            # misleading user retry. Preserve the outcome and report a warning.
+            cleanup_warning = None
+            try:
+                app.state.batch.release(payload.batch_id)
+            except OSError as error:
+                cleanup_warning = "Batch saved; staged-file cleanup requires inspection: " + str(error)
             published = {"otio": str(canonical / (payload.basename + ".otio")),
                          "entries": len(entries)}
-            if warning or result.get("warning"):
-                published["warning"] = " ".join(filter(None, (warning, result.get("warning"))))
+            warnings = [value for value in (warning, result.get("warning"), cleanup_warning)
+                        if value]
+            if warnings:
+                published["warning"] = " ".join(warnings)
             return published
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
