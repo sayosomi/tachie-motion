@@ -131,11 +131,17 @@ class BatchCoordinator:
         stage = create_stage(folder, allowed_files=(
             [item.basename + ".mov" for item in planned] +
             [timeline_name + ".otio"]))
-        token = secrets.token_urlsafe(32)
-        self.active = Session(token, folder, timeline_name, timeline_policy,
-                              timeline_prior, planned, stage,
-                              time.monotonic() + IDLE_SECONDS)
-        return token
+        try:
+            token = secrets.token_urlsafe(32)
+            self.active = Session(token, folder, timeline_name, timeline_policy,
+                                  timeline_prior, planned, stage,
+                                  time.monotonic() + IDLE_SECONDS)
+            return token
+        except BaseException:
+            # Stage contents are retained, but its live file-descriptor lease
+            # must not leak when token/session initialization fails.
+            discard_stage(stage)
+            raise
 
     def _session(self, token: str) -> Session:
         session = self._current()
