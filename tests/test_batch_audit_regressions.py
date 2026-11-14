@@ -99,7 +99,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
             self.assertFalse(guard.release("wrong-tab-token"))
             guard.before(token, 0, folder, planned["basename"], wav,
                          planned["source_identity"], 30, "error")
-            mov = folder / (planned["basename"] + ".mov")
+            mov = guard.active.stage / (planned["basename"] + ".mov")
             mov.write_bytes(b"rendered from tab A")
             response = {"frames": 30, "sample_count": 48000, "sample_rate": 48000}
             guard.succeeded(token, 0, response)
@@ -126,7 +126,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
             token = guard.start(folder, "timeline", "error", [planned])
             guard.before(token, 0, folder, planned["basename"], wav,
                          planned["source_identity"], 30, "error")
-            movie = folder / (planned["basename"] + ".mov")
+            movie = guard.active.stage / (planned["basename"] + ".mov")
             movie.write_bytes(b"slow rendered media")
             # Simulate the server's locked render lasting beyond the idle TTL.
             guard.active.deadline = time.monotonic() - 10
@@ -149,7 +149,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
             token = guard.start(folder, "timeline", "error", [planned])
             guard.before(token, 0, folder, planned["basename"], wav,
                          planned["source_identity"], 30, "error")
-            mov = folder / (planned["basename"] + ".mov")
+            mov = guard.active.stage / (planned["basename"] + ".mov")
             mov.write_bytes(b"OLD MOV SAME SIZE")
             guard.succeeded(token, 0, {
                 "frames": 30, "sample_count": 48000, "sample_rate": 48000,
@@ -169,7 +169,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
                 guard.before_timeline(token, folder, "timeline", "error", entries)
             self.assertTrue(guard.release(token))
 
-    def test_existing_timeline_overwrite_refused_without_touching_old_generation(self):
+    def test_existing_timeline_overwrite_stages_without_touching_old_generation(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
             wav = folder / "voice.wav"
@@ -185,16 +185,29 @@ class BatchBlockingAuditTests(unittest.TestCase):
                 {**entry(wav, "second"), "conflict_policy": "overwrite"},
             ]
             guard = BatchCoordinator()
-            with self.assertRaisesRegex(ValueError, "cannot be batch-overwritten"):
-                guard.start(folder, "作品", "overwrite", entries)
-            self.assertIsNone(guard.active)
-            self.assertEqual([first.read_bytes(), second.read_bytes(), timeline.read_bytes()],
-                             [b"OLD-FIRST", b"OLD-SECOND", b"OLD-TIMELINE"])
-            # A renamed timeline would not save an old document with another name.
-            with self.assertRaisesRegex(ValueError, "Existing OTIO may reference"):
-                guard.start(folder, "新しい", "error", entries)
-            self.assertEqual([first.read_bytes(), second.read_bytes(), timeline.read_bytes()],
-                             [b"OLD-FIRST", b"OLD-SECOND", b"OLD-TIMELINE"])
+            token = guard.start(folder, "作品", "overwrite", entries)
+            self.assertIsNotNone(guard.active.stage)
+            self.assertEqual(
+                [first.read_bytes(), second.read_bytes(), timeline.read_bytes()],
+                [b"OLD-FIRST", b"OLD-SECOND", b"OLD-TIMELINE"],
+            )
+            # A failed second MOV never publishes the first or the OTIO.
+            guard.before(token, 0, folder, "first", wav, entries[0]["source_identity"],
+                         30, "overwrite")
+            (guard.active.stage / "first.mov").write_bytes(b"STAGED-FIRST")
+            guard.succeeded(token, 0, {
+                "frames": 30, "sample_count": 48000, "sample_rate": 48000,
+            })
+            guard.failed(token, 1)
+            with self.assertRaisesRegex(ValueError, "incomplete"):
+                guard.before_timeline(token, folder, "作品", "overwrite", [])
+            self.assertEqual(
+                [first.read_bytes(), second.read_bytes(), timeline.read_bytes()],
+                [b"OLD-FIRST", b"OLD-SECOND", b"OLD-TIMELINE"],
+            )
+            stage = guard.active.stage
+            self.assertTrue(guard.release(token))
+            self.assertFalse(stage.exists())
 
     @unittest.skipUnless(__import__("shutil").which("ffmpeg") and __import__("shutil").which("ffprobe"),
                          "FFmpeg required for individual OTIO fault injection")
