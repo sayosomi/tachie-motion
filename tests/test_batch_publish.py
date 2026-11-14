@@ -200,7 +200,9 @@ class BatchPublicationTests(unittest.TestCase):
                 os.replace(outsider, target)
             return raw_link(src, dst)
         with patch("tachie_motion.web.batch_publish.os.link", side_effect=race_before_backup):
-            with self.assertRaisesRegex(RuntimeError, "external writer preserved"):
+            # The external process already replaced the original before our
+            # backup began. Report manual recovery, never delete its inode.
+            with self.assertRaisesRegex(RuntimeError, "Batch recovery required"):
                 self.publish(originals, staged)
         folders = recovery_directories(self.folder)
         self.assertEqual(len(folders), 1)
