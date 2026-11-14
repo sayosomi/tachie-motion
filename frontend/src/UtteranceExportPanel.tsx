@@ -17,6 +17,8 @@ export type BatchStatus = {
   displayed: PreparedBatch | null;
   reviewing: boolean;
   reviewError: string;
+  conflictChoice: "overwrite" | "rename";
+  setConflictChoice: (choice: "overwrite" | "rename") => void;
 };
 type Props = {
   items: UtteranceItem[];
@@ -124,6 +126,15 @@ export default function UtteranceExportPanel({
     {scope === "all" && <div className="export-overview">
       <h3>全件の書き出し内容</h3>
       <p className="hint">WAV一覧順に各MOVを書き出し、全件成功後に全体OTIOを1本生成します。</p>
+      <fieldset className="output-conflict-choice" aria-label="一括書き出しの保存方法">
+        <legend>同名ファイルがある場合</legend>
+        <label><input type="radio" name="batch-conflict-choice" value="overwrite"
+          checked={batch.conflictChoice === "overwrite"} disabled={locked}
+          onChange={() => batch.setConflictChoice("overwrite")} />上書き</label>
+        <label><input type="radio" name="batch-conflict-choice" value="rename"
+          checked={batch.conflictChoice === "rename"} disabled={locked}
+          onChange={() => batch.setConflictChoice("rename")} />別名で保存（_002などを自動追加）</label>
+      </fieldset>
       <div className="batch-naming-editor">
         <label htmlFor="batch-project-name">プロジェクト名</label>
         <input id="batch-project-name" value={naming.projectName} disabled={locked}

@@ -53,21 +53,46 @@ function allowedDestination(response: Destination, name: string): Conflict {
   throw new Error("出力先の安全確認に失敗しました：" + name + " (" + response.state + ")");
 }
 
+export type BatchConflictChoice = "overwrite" | "rename";
+
 async function prepare(items: UtteranceItem[], draft: PresetDraft,
-  naming: BatchNaming): Promise<PreparedBatch> {
+  naming: BatchNaming, choice: BatchConflictChoice): Promise<PreparedBatch> {
   validateBatchNaming(naming);
-  const movieNames = items.map((item, index) => movName(
+  const rawMovieNames = items.map((item, index) => movName(
     naming.movTemplate, index + 1, item.wavPath,
     naming.characterName, naming.projectName,
   ));
-  const timelineName = otioName(naming.otioTemplate, naming.projectName);
-  // Python's NFC+casefold is authoritative for collision detection on macOS,
-  // Linux and Windows (JS toLocaleLowerCase has different Unicode semantics).
-  await post<{ valid: boolean }>("preset-batch-check-names", {
-    basenames: movieNames, timeline_basename: timelineName,
-  });
+  const rawTimelineName = otioName(naming.otioTemplate, naming.projectName);
+  // A rename affects the entire generation together. Do not silently mix
+  // new and overwritten names, or suffix just one MOV of a combined timeline.
+  let resolved: { movieNames: string[]; timelineName: string;
+    movies: Destination[]; timeline: Destination } | null = null;
+  const limit = choice === "rename" ? 1000 : 1;
+  for (let attempt = 0; attempt < limit; attempt++) {
+    const suffix = attempt === 0 ? "" : "_" + String(attempt + 1).padStart(3, "0");
+    const movieNames = rawMovieNames.map((name) => name + suffix);
+    const timelineName = rawTimelineName + suffix;
+    await post<{ valid: boolean }>("preset-batch-check-names", {
+      basenames: movieNames, timeline_basename: timelineName,
+    });
+    const movies = await Promise.all(movieNames.map((basename) =>
+      post<Destination>("preset-batch-mov-destination", {
+        output_dir: naming.outputDir, basename,
+      })));
+    const timeline = await post<Destination>("preset-combined-otio-destination", {
+      output_dir: naming.outputDir, basename: timelineName,
+    });
+    if (choice === "rename" &&
+        (movies.some((dest) => dest.state !== "available") ||
+         timeline.state !== "available")) {
+      continue;
+    }
+    resolved = { movieNames, timelineName, movies, timeline };
+    break;
+  }
+  if (!resolved) throw new Error("別名の保存先が見つかりません。ファイル名またはフォルダを変更してください");
+  const { movieNames, timelineName, movies, timeline: dest } = resolved;
   const plans: Plan[] = [];
-  const used = new Set<string>();
   let overwrites = 0;
   for (const [index, item] of items.entries()) {
     const preset = draft.collection.items.find((entry) => entry.id === item.presetId);
@@ -75,29 +100,15 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
       throw new Error(item.wavPath + " — 口パク・プリセットの設定を確認してください");
     }
     const basename = movieNames[index];
-    const key = basename.normalize("NFC").toLocaleLowerCase();
-    if (used.has(key)) throw new Error("MOVの保存名が重複します：" + basename);
-    used.add(key);
-    const destination = await post<Destination>("preset-batch-mov-destination", {
-      output_dir: naming.outputDir, basename,
-    });
+    const destination = movies[index];
     const conflict_policy = allowedDestination(destination, basename);
     if (conflict_policy === "overwrite") overwrites++;
     plans.push({ item, preset, basename, conflict_policy,
       canonicalOutputDir: destination.canonical_output_dir });
   }
   const basename = timelineName;
-  const dest = await post<Destination>("preset-combined-otio-destination", {
-    output_dir: naming.outputDir, basename,
-  });
   const policy = allowedDestination(dest, basename);
-  if (plans.some((plan) => plan.basename.normalize("NFC").toLocaleLowerCase() ===
-      basename.normalize("NFC").toLocaleLowerCase())) {
-    throw new Error("全体OTIOとMOVの保存名が重複します：" + basename);
-  }
-  if (policy === "overwrite") {
-    throw new Error("既存の全体OTIOを伴う一括上書きは安全のため未対応です。別のプロジェクト名または出力フォルダを指定してください。");
-  }
+  if (policy === "overwrite") overwrites++;
   if (plans.some((plan) => plan.canonicalOutputDir !== dest.canonical_output_dir)) {
     throw new Error("一括MOVと全体OTIOの出力先が一致しません");
   }
@@ -136,6 +147,7 @@ export function useBatchUtteranceExport(
   onFinished: () => void, enabled: boolean, naming: BatchNaming,
   otherBusy: () => boolean,
 ) {
+  const [conflictChoice, setConflictChoice] = useState<BatchConflictChoice>("overwrite");
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState("");
   const [summary, setSummary] = useState("");
@@ -143,7 +155,7 @@ export function useBatchUtteranceExport(
   const [reviewError, setReviewError] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const busy = useRef(false);
-  const key = snapshotKey(draft, items, naming);
+  const key = snapshotKey(draft, items, naming) + "|" + conflictChoice;
 
   useEffect(() => {
     if (running) return;
@@ -153,7 +165,7 @@ export function useBatchUtteranceExport(
     }
     let cancelled = false;
     setReview(null); setReviewError(""); setReviewing(true);
-    void prepare([...items], draft, naming).then((prepared) => {
+    void prepare([...items], draft, naming, conflictChoice).then((prepared) => {
       if (!cancelled) setReview({ key, prepared });
     }).catch((error: unknown) => {
       if (!cancelled) setReviewError(error instanceof Error ? error.message : String(error));
@@ -172,14 +184,14 @@ export function useBatchUtteranceExport(
     setProgress("出力先と保存名を再確認中…");
     let sessionId: string | null = null;
     try {
-      const refreshed = await prepare([...items], draft, naming);
+      const refreshed = await prepare([...items], draft, naming, conflictChoice);
       if (planKey(draft, refreshed) !== planKey(draft, displayed)) {
         setSummary("出力予定が変更されました。新しい予定を確認してから再実行してください。");
         return;
       }
       const { plans, timeline, overwrites } = displayed;
       if (overwrites && !window.confirm(
-        "既存のMOVを" + overwrites + "件上書きします。続行しますか？"
+        "既存のMOV・全体OTIOを合計" + overwrites + "件上書きします。続行しますか？"
       )) {
         setSummary("一括書き出しをキャンセルしました。");
         return;
@@ -202,6 +214,7 @@ export function useBatchUtteranceExport(
       const complete: { basename: string; frames: number; fps: number;
         samples: number; sample_rate: number }[] = [];
       const notes: string[] = [];
+      const stagedResults: { id: string; result: MovieResult }[] = [];
       for (const [index, plan] of plans.entries()) {
         const item = plan.item;
         setProgress("MOVを書き出し中 " + (index + 1) + " / " + plans.length +
@@ -224,9 +237,7 @@ export function useBatchUtteranceExport(
             fps: item.fps, samples: result.sample_count, sample_rate: result.sample_rate });
           if (result.warning) notes.push(result.warning);
           successes++;
-          setItems((previous) => previous.map((entry) => entry.id === item.id
-            ? { ...entry, result: { mov: result.mov, otio: "",
-                frames: result.frames, sample_count: result.sample_count }, error: "" } : entry));
+          stagedResults.push({ id: item.id, result });
         } catch (error) {
           failures++;
           setItems((previous) => previous.map((entry) => entry.id === item.id
@@ -235,8 +246,8 @@ export function useBatchUtteranceExport(
         }
       }
       if (failures) {
-        setSummary("MOV成功 " + successes + "件／失敗 " + failures +
-          "件。全体OTIOは生成していません。失敗した項目を確認してください。");
+        setSummary("MOVを一時生成しましたが" + failures +
+          "件失敗したため、旧MOV・OTIOは変更していません。失敗した項目を確認してください。");
         return;
       }
       setProgress("全体OTIOを書き出し中：" + timeline.basename + ".otio");
@@ -250,11 +261,21 @@ export function useBatchUtteranceExport(
         throw new Error("全体OTIOの保存先が予定と異なります");
       }
       if (done.warning) notes.push(done.warning);
+      // Nothing was published during MOV rendering. Mark successful only
+      // after the whole generation (including OTIO) has committed.
+      setItems((previous) => previous.map((entry) => {
+        const saved = stagedResults.find((record) => record.id === entry.id);
+        return saved ? {
+          ...entry, result: { mov: saved.result.mov, otio: "",
+            frames: saved.result.frames, sample_count: saved.result.sample_count },
+          error: "",
+        } : entry;
+      }));
       setSummary("一括書き出し完了：MOV " + successes + "件／全体OTIO " + done.otio +
         (notes.length ? " ／ 注意：" + notes.join(" ") : ""));
       onFinished();
     } catch (error) {
-      setSummary("一括書き出しを完了できませんでした。MOVは既に作成された可能性があります：" +
+      setSummary("一括書き出しを完了できませんでした。既存ファイルの状態を確認してください：" +
         (error instanceof Error ? error.message : String(error)));
     } finally {
       // Release the server-wide lease on every completion/cancel/failure path.
@@ -273,5 +294,5 @@ export function useBatchUtteranceExport(
     }
   }
   return { running, isBusy: () => busy.current, progress, summary, run,
-    displayed, reviewing, reviewError };
+    displayed, reviewing, reviewError, conflictChoice, setConflictChoice };
 }
