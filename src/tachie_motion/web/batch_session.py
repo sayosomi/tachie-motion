@@ -127,7 +127,9 @@ class BatchCoordinator:
             if foreign:
                 raise ValueError("Another OTIO may reference an overwritten MOV; "
                                  "choose an isolated export folder")
-        stage = create_stage(folder)
+        stage = create_stage(folder, allowed_files=(
+            [item.basename + ".mov" for item in planned] +
+            [timeline_name + ".otio"]))
         token = secrets.token_urlsafe(32)
         self.active = Session(token, folder, timeline_name, timeline_policy,
                               timeline_prior, planned, stage,
