@@ -143,11 +143,14 @@ def _fsync_regular(path: Path, expected: tuple) -> None:
     fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     try:
         st = os.fstat(fd)
-        actual = (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+        actual = ((st.st_dev, st.st_ino, st.st_ctime_ns,
+                   st.st_size, st.st_mtime_ns) if len(expected) == 5
+                  else (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns))
         if not stat.S_ISREG(st.st_mode) or actual != expected:
             raise FileExistsError("File changed before durability sync: " + path.name)
         os.fsync(fd)
-        if _identity(path) != expected:
+        now = published_media_identity(path) if len(expected) == 5 else _identity(path)
+        if now != expected:
             raise FileExistsError("File changed during durability sync: " + path.name)
     finally:
         os.close(fd)
