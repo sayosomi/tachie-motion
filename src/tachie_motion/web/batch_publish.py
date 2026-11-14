@@ -90,7 +90,7 @@ def _directory_identity(path: Path) -> tuple[int, int, int, int] | None:
         return None
     if not stat.S_ISDIR(st.st_mode):
         return None
-    return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns
+    return st.st_dev, st.st_ino
 
 
 def _reap_orphaned_stages(folder: Path) -> None:
