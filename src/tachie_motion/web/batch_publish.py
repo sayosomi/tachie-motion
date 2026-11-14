@@ -54,6 +54,21 @@ def _fsync_directory(folder: Path) -> None:
         os.close(fd)
 
 
+def _fsync_regular(path: Path, expected: tuple) -> None:
+    """Durably sync the exact regular inode we approved; never follow symlinks."""
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        st = os.fstat(fd)
+        actual = (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+        if not stat.S_ISREG(st.st_mode) or actual != expected:
+            raise FileExistsError("File changed before durability sync: " + path.name)
+        os.fsync(fd)
+        if _identity(path) != expected:
+            raise FileExistsError("File changed during durability sync: " + path.name)
+    finally:
+        os.close(fd)
+
+
 def _persist_manifest(folder: Path, recovery: Path, names: list[Path],
                       expected: dict[str, tuple | None]) -> None:
     manifest = {
@@ -106,16 +121,29 @@ def publish_batch(
         if source.is_symlink() or published_media_identity(source) != expected_stage[source.name]:
             raise ValueError("Staged output changed: " + source.name)
 
+    # File content must be durable before its old public pathname is moved.
+    # Directory fsync alone cannot flush the MOV / OTIO media data.
+    for source in sources:
+        _fsync_regular(source, expected_stage[source.name])
+    _fsync_directory(stage)
     recovery = Path(tempfile.mkdtemp(prefix=RECOVERY_PREFIX, dir=folder))
     mutated: set[int] = set()
+    preserve_recovery = False
     try:
         # Hardlinks preserve original data across rename, hard crash and
         # rollback, without temporarily duplicating large ProRes MOV bytes.
         for i, target in enumerate(targets):
             if original[target.name] is not None:
-                os.link(target, recovery / ("old-" + str(i)))
-                if _identity(target) != original[target.name]:
+                saved = recovery / ("old-" + str(i))
+                os.link(target, saved)
+                if (_identity(saved) != original[target.name] or
+                        _identity(target) != original[target.name]):
+                    # The just-created hardlink may contain a third-party
+                    # replacement. Never delete it during rollback cleanup.
+                    preserve_recovery = True
                     raise FileExistsError("Output changed while backing up: " + target.name)
+                _fsync_regular(saved, original[target.name])
+        _fsync_directory(stage)
         _persist_manifest(folder, recovery, targets, original)
         # The manifest and all original hardlinks exist before any rename.
         for i, (target, source) in enumerate(zip(targets, sources)):
@@ -127,13 +155,18 @@ def publish_batch(
             if old is not None:
                 os.rename(target, recovery / ("moved-" + str(i)))
                 mutated.add(i)
-                if _identity(recovery / ("moved-" + str(i))) != old:
+                try:
+                    matches = _identity(recovery / ("moved-" + str(i))) == old
+                except ValueError:
+                    matches = False
+                if not matches:
+                    preserve_recovery = True
                     raise FileExistsError("External destination change; recovery required")
             # Never overwrite an unknown file another process has placed here.
             os.link(source, target)
             mutated.add(i)
         _fsync_directory(folder)
-    except BaseException:
+    except BaseException as failure:
         try:
             for i in reversed(range(len(targets))):
                 target = targets[i]
@@ -143,24 +176,38 @@ def publish_batch(
                     if current is not None:
                         quarantine = recovery / ("new-" + str(i))
                         os.rename(target, quarantine)
-                        source_stat = _identity(sources[i])
-                        if _identity(quarantine) != source_stat:
-                            raise RuntimeError("External writer detected; manual recovery required")
+                        if _identity(quarantine) != expected_stage[sources[i].name]:
+                            # A different writer occupied the public path.
+                            # Preserve that inode in quarantine, then attempt
+                            # to restore the approved old inode separately.
+                            preserve_recovery = True
                     saved = recovery / ("old-" + str(i))
                     if old is not None:
                         if not saved.is_file() or saved.is_symlink():
                             raise RuntimeError("Missing original recovery copy")
+                        if _identity(saved) != old:
+                            preserve_recovery = True
+                            raise RuntimeError("Original recovery copy was replaced")
                         os.link(saved, target)
                 if _identity(target) != old:
                     raise RuntimeError("Rollback identity mismatch")
             _fsync_directory(folder)
+            _fsync_directory(recovery)
         except BaseException as restore_error:
             raise RuntimeError("Batch recovery required: " + str(recovery)) from restore_error
+        if preserve_recovery:
+            # Rollback of *our* files may have succeeded, but a foreign
+            # moved-/new-/old- inode must never be deleted by rmtree.
+            raise RuntimeError("Batch recovery required (external writer preserved): "
+                               + str(recovery)) from failure
         try:
             shutil.rmtree(recovery)
         except OSError as error:
             raise RuntimeError("Batch rolled back, cleanup required: " + str(recovery)) from error
         raise
+    # All media data and original backups have been synced, and the public
+    # directory is durable. Keep backups until that point.
+    _fsync_directory(recovery)
 
     try:
         shutil.rmtree(recovery)
