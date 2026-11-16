@@ -154,7 +154,7 @@ test("missing WAV retains current list, permits explicit re-link and then commit
   await expect(page.locator(".project-repair")).toBeVisible();
   await expect(page.locator(".project-repair")).toContainText("WAVが見つかりません");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
-  const fieldId = "project-repair-" + project.items[0].id;
+  const fieldId = "project-repair-wav-" + project.items[0].id;
   await page.locator("#" + fieldId + "-advanced").evaluate((node) => {
     (node as HTMLDetailsElement).open = true;
   });
