@@ -202,7 +202,7 @@ class OfficialOtioRoundtrip(unittest.TestCase):
             for i, mov in enumerate((first, second)):
                 self.assertEqual(
                     result.tracks[0][i].media_reference.target_url,
-                    mov.resolve().as_uri(),
+                    str(mov.resolve()),
                 )
                 self.assertEqual(
                     result.tracks[1][i].media_reference.target_url,
