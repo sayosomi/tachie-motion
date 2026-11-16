@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import opentimelineio as otio
 
@@ -214,6 +215,67 @@ class OfficialOtioRoundtrip(unittest.TestCase):
             self.assertEqual(
                 decoded.tracks[1][1].media_reference.target_url,
                 str(second.resolve()),
+            )
+
+    def test_staged_fractional_pcm_rewrite_roundtrip_keeps_final_mov_paths(self):
+        from tachie_motion.web.combined_otio import create_combined_otio
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stage = root / ".tachie-batch-stage-test"
+            stage.mkdir()
+            public = root / "公開 output"
+            public.mkdir()
+            names = ("001_あんこもん_最初", "002_ずんだもん_e\u0301")
+            for name in names:
+                (stage / (name + ".mov")).touch()
+            entries = [
+                {"basename": name, "fps": 30,
+                 "frames": 31 if i == 0 else 30,
+                 "samples": 48001 if i == 0 else 48000,
+                 "sample_rate": 48000}
+                for i, name in enumerate(names)
+            ]
+
+            def movie_timing(path):
+                return MovieTiming(31 if path.stem == names[0] else 30, 30)
+
+            def pcm_timing(path):
+                return WaveTiming(48001 if path.stem == names[0] else 48000, 48000)
+
+            with patch("tachie_motion.web.combined_otio.probe_movie",
+                       side_effect=movie_timing), patch(
+                       "tachie_motion.web.combined_otio.probe_embedded_pcm",
+                       side_effect=pcm_timing):
+                create_combined_otio(stage, "timeline", entries, "error",
+                                     reference_folder=public)
+
+            path = stage / "timeline.otio"
+            document = otio.adapters.read_from_file(str(path))
+            reloaded = otio.adapters.read_from_string(
+                otio.adapters.write_to_string(document, "otio_json"), "otio_json",
+            )
+            self.assertEqual(len(reloaded.tracks), 2)
+            for track in reloaded.tracks:
+                self.assertEqual(
+                    [(clip.source_range.duration.value,
+                      clip.source_range.duration.rate) for clip in track],
+                    [(48001, 48000), (48000, 48000)],
+                )
+                self.assertAlmostEqual(
+                    track[1].range_in_parent().start_time.to_seconds(),
+                    48001 / 48000, places=6,
+                )
+                for clip, name in zip(track, names, strict=True):
+                    self.assertEqual(
+                        clip.media_reference.target_url,
+                        str((public / (name + ".mov")).absolute()),
+                    )
+                    self.assertNotIn("file://", clip.media_reference.target_url)
+                    self.assertNotIn(str(stage), clip.media_reference.target_url)
+            self.assertEqual(
+                (reloaded.tracks[0][0].media_reference.available_range.duration.value,
+                 reloaded.tracks[0][0].media_reference.available_range.duration.rate),
+                (31, 30),
             )
 
 

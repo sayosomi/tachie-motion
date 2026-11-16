@@ -59,16 +59,20 @@ class CombinedOtioTests(unittest.TestCase):
             public.mkdir()
             names = ["001_あんこもん_e\u0301", "002_space name"]
             entries = []
-            for name in names:
+            for index, name in enumerate(names):
                 (stage / (name + ".mov")).write_bytes(b"synthetic-only")
                 entries.append({
-                    "basename": name, "fps": 30, "frames": 30,
-                    "samples": 48000, "sample_rate": 48000,
+                    "basename": name, "fps": 30, "frames": 31 if index == 0 else 30,
+                    "samples": 48001 if index == 0 else 48000, "sample_rate": 48000,
                 })
+            def movie_timing(path):
+                return MovieTiming(31 if path.stem == names[0] else 30, 30)
+            def pcm_timing(path):
+                return WaveTiming(48001 if path.stem == names[0] else 48000, 48000)
             with patch("tachie_motion.web.combined_otio.probe_movie",
-                       return_value=MovieTiming(30, 30)), patch(
+                       side_effect=movie_timing), patch(
                        "tachie_motion.web.combined_otio.probe_embedded_pcm",
-                       return_value=WaveTiming(48000, 48000)):
+                       side_effect=pcm_timing):
                 create_combined_otio(
                     stage, "timeline", entries, "error", reference_folder=public,
                 )
@@ -80,9 +84,18 @@ class CombinedOtioTests(unittest.TestCase):
                     self.assertEqual(ref, str((public / (names[index] + ".mov")).absolute()))
                     self.assertNotIn(str(stage), ref)
                     self.assertFalse(ref.startswith("file://"))
+            for track in document["tracks"]["children"]:
+                self.assertEqual(
+                    [clip["source_range"]["duration"] for clip in track["children"]],
+                    [
+                        {"OTIO_SCHEMA": "RationalTime.1", "value": 48001, "rate": 48000},
+                        {"OTIO_SCHEMA": "RationalTime.1", "value": 48000, "rate": 48000},
+                    ],
+                )
             self.assertEqual(
-                document["tracks"]["children"][0]["children"][0]["source_range"]["duration"],
-                {"OTIO_SCHEMA": "RationalTime.1", "value": 48000, "rate": 48000},
+                document["tracks"]["children"][0]["children"][0]
+                ["media_references"]["DEFAULT_MEDIA"]["available_range"]["duration"],
+                {"OTIO_SCHEMA": "RationalTime.1", "value": 31, "rate": 30},
             )
 
     def test_rounding_and_missing_entries_rejected(self):
