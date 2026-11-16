@@ -40,7 +40,7 @@ class CombinedOtioTests(unittest.TestCase):
                 self.assertEqual(v_duration["value"], samples.samples)
                 self.assertEqual(v_duration["rate"], samples.sample_rate)
                 self.assertEqual(v["media_references"]["DEFAULT_MEDIA"]["target_url"],
-                                 mov.resolve().as_uri())
+                                 str(mov.resolve()))
                 self.assertEqual(a_clip["media_references"]["DEFAULT_MEDIA"]["target_url"],
                                  str(mov.resolve()))
                 self.assertEqual(
@@ -49,6 +49,41 @@ class CombinedOtioTests(unittest.TestCase):
                 )
             self.assertNotIn(".wav", json.dumps(result))
             self.assertIn("e\\u0301", json.dumps(result, ensure_ascii=True))
+
+    def test_staged_otio_references_final_plain_paths_on_both_tracks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stage = root / ".tachie-batch-stage-test"
+            stage.mkdir()
+            public = root / "公開 space"
+            public.mkdir()
+            names = ["001_あんこもん_e\u0301", "002_space name"]
+            entries = []
+            for name in names:
+                (stage / (name + ".mov")).write_bytes(b"synthetic-only")
+                entries.append({
+                    "basename": name, "fps": 30, "frames": 30,
+                    "samples": 48000, "sample_rate": 48000,
+                })
+            with patch("tachie_motion.web.combined_otio.probe_movie",
+                       return_value=MovieTiming(30, 30)), patch(
+                       "tachie_motion.web.combined_otio.probe_embedded_pcm",
+                       return_value=WaveTiming(48000, 48000)):
+                create_combined_otio(
+                    stage, "timeline", entries, "error", reference_folder=public,
+                )
+            document = json.loads((stage / "timeline.otio").read_text(encoding="utf-8"))
+            for track in document["tracks"]["children"]:
+                self.assertEqual(len(track["children"]), len(names))
+                for index, clip in enumerate(track["children"]):
+                    ref = clip["media_references"]["DEFAULT_MEDIA"]["target_url"]
+                    self.assertEqual(ref, str((public / (names[index] + ".mov")).absolute()))
+                    self.assertNotIn(str(stage), ref)
+                    self.assertFalse(ref.startswith("file://"))
+            self.assertEqual(
+                document["tracks"]["children"][0]["children"][0]["source_range"]["duration"],
+                {"OTIO_SCHEMA": "RationalTime.1", "value": 48000, "rate": 48000},
+            )
 
     def test_rounding_and_missing_entries_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

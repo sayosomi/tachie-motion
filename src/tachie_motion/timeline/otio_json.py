@@ -178,6 +178,11 @@ def build_combined_utterances(
                              // audio.sample_rate):
             raise ValueError("MOV frame count does not match PCM duration")
         video = _clip("Character MOV", mov, movie.frames, movie.fps)
+        # Resolve requires ordinary filesystem paths here; retain the
+        # existing file:// URL convention for individual OTIO exports.
+        video["media_references"]["DEFAULT_MEDIA"]["target_url"] = str(
+            mov.resolve(strict=True)
+        )
         # The source contains a rounded final frame; the timeline duration
         # must instead be the exact unrounded PCM duration.
         video["source_range"]["duration"] = _time(audio.samples, audio.sample_rate)
