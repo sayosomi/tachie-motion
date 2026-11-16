@@ -308,7 +308,7 @@ test("project save holds a synchronous lock against batch export and WAV selecti
   await page.evaluate(() => {
     (window as Window & { __projectProbe: Probe }).__projectProbe.release?.();
   });
-  await expect(page.getByRole("status")).toContainText("制作プロジェクトを保存しました");
+  await expect(page.locator(".project-controls [role=\"status\"]")).toContainText("制作プロジェクトを保存しました");
   await expect(batchButton).toBeEnabled();
   expect(exportCalls).toBe(0);
 });
@@ -334,13 +334,13 @@ test("delayed project import keeps batch export disabled until confirmation fini
     } });
   });
   await importProject(page, project);
-  await expect(page.getByRole("status")).toContainText("プロジェクトを確認中");
+  await expect(page.locator(".project-controls [role=\"status\"]")).toContainText("プロジェクトを確認中");
   await expect(batchButton).toBeDisabled();
   await expect(page.locator(".utterance-item-select").first()).toBeDisabled();
   await expect.poll(() => Boolean(releasePsd)).toBeTruthy();
   page.once("dialog", (dialog) => { void dialog.dismiss(); });
   releasePsd?.();
-  await expect(page.getByRole("status")).toContainText("読み込みをキャンセル");
+  await expect(page.locator(".project-controls [role=\"status\"]")).toContainText("読み込みをキャンセル");
   await expect(batchButton).toBeEnabled();
   expect(exportCalls).toBe(0);
 });
@@ -357,7 +357,7 @@ test("restored, explicitly approved WAV identity is sent to single and batch exp
   await page.getByRole("checkbox", { name: /変更されたWAV/ }).check();
   await agreeToReplace(page);
   await page.getByRole("button", { name: "再確認して読み込む" }).click();
-  await expect(page.getByRole("status")).toContainText("制作プロジェクトを読み込みました");
+  await expect(page.locator(".project-controls [role=\"status\"]")).toContainText("制作プロジェクトを読み込みました");
   const identities: string[] = [];
   await page.route("**/api/preset-utterance-export", (route) => {
     identities.push((route.request().postDataJSON() as { source_identity: string }).source_identity);
@@ -372,7 +372,7 @@ test("restored, explicitly approved WAV identity is sent to single and batch exp
   const batchButton = page.getByRole("button", { name: "全件を書き出す" });
   await expect(batchButton).toBeEnabled();
   await batchButton.click();
-  await expect(page.getByRole("status")).toContainText("一括書き出し完了");
+  await expect(page.locator(".export-execution [role=\"status\"]")).toContainText("一括書き出し完了");
   expect(identities).toEqual([revisedIdentity, revisedIdentity]);
 });
 
