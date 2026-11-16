@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { Layer } from "./LayerTree";
+import type { BatchNaming } from "./nameTemplate";
 import NativeFilePicker from "./NativeFilePicker";
 import { saveJsonFile } from "./browserJsonSave";
 import {
@@ -23,6 +24,7 @@ type Props = {
   layers: Layer[];
   items: UtteranceItem[];
   selectedId: string | null;
+  naming: BatchNaming;
   disabled: boolean;
   isConflicting: () => boolean;
   onBusyChange: (busy: boolean) => void;
@@ -41,7 +43,7 @@ async function inspect<T>(kind: "psd" | "wav", path: string): Promise<T> {
 }
 
 export default function ProjectActions({
-  draft, layers, items, selectedId, disabled, isConflicting, onBusyChange, onRestore,
+  draft, layers, items, selectedId, naming, disabled, isConflicting, onBusyChange, onRestore,
 }: Props) {
   const input = useRef<HTMLInputElement>(null);
   const working = useRef(false);
@@ -73,7 +75,7 @@ export default function ProjectActions({
       if (!draft) throw new Error("最初にPSDとプリセットを読み込んでください");
       // Serialize before invoking the native picker; then call it without
       // awaiting anything else so the browser still has user activation.
-      const json = serializeProjectFile(draft, layers, items, selectedId);
+      const json = serializeProjectFile(draft, layers, items, selectedId, naming);
       const outcome = await saveJsonFile(
         json, "tachie-project", "tachie-project.json", "制作プロジェクトJSON");
       setStatus(outcome.status === "saved"

@@ -20,6 +20,13 @@ async function mockPsd(page: import("@playwright/test").Page, fingerprint = "sna
   }}));
   await page.route("**/api/preset-utterance-destination", (route) =>
     route.fulfill({ json: { state: "available", suggested_basename: "speech_001" } }));
+  await page.route("**/api/preset-batch-check-names", (route) =>
+    route.fulfill({ json: { valid: true } }));
+  await page.route("**/api/preset-batch-start", (route) =>
+    route.fulfill({ json: { batch_id: "test-session" } }));
+  await page.route("**/api/preset-batch-cancel", (route) =>
+    route.fulfill({ json: { released: true } }));
+
 }
 
 test("new preset-backed none/open utterance workflow sends exact preset snapshot", async ({ page }) => {
@@ -189,6 +196,26 @@ test("one WAV sends identical open-mouth render settings through single and all 
       otio: "/tmp/" + request.basename + ".otio", frames: 30, sample_count: 1000,
     } });
   });
+  await page.route("**/api/preset-batch-mov-destination", (route) =>
+    route.fulfill({ json: { state: "available", canonical_output_dir: "/tmp" } }));
+  await page.route("**/api/preset-combined-otio-destination", (route) =>
+    route.fulfill({ json: { state: "available", canonical_output_dir: "/tmp" } }));
+  await page.route("**/api/preset-batch-mov-export", (route) => {
+    const request = route.request().postDataJSON() as Record<string, unknown>;
+    requests.push(request);
+    return route.fulfill({ json: {
+      mov: "/tmp/" + request.basename + ".mov", frames: 30,
+      sample_count: 1000, sample_rate: 1000,
+    } });
+  });
+  await page.route("**/api/preset-combined-otio", (route) => {
+    const request = route.request().postDataJSON() as {
+      basename: string; entries: unknown[]
+    };
+    return route.fulfill({ json: {
+      otio: "/tmp/" + request.basename + ".otio", entries: request.entries.length,
+    } });
+  });
   await page.goto("/");
   await page.locator("#preset-psd-path-advanced").evaluate(
     (el) => { (el as HTMLDetailsElement).open = true; });
@@ -225,14 +252,17 @@ test("one WAV sends identical open-mouth render settings through single and all 
   await page.getByRole("radio", { name: /^全件/ }).check();
   await expect(page.getByText("口パク「なし」が", { exact: false })).toHaveCount(0);
   await page.getByRole("button", { name: "全件を書き出す" }).click();
-  await expect(page.getByText("一括書き出し完了：成功 2 件／失敗 0 件", { exact: false }))
+  await expect(page.getByText("一括書き出し完了：MOV 2件／全体OTIO", { exact: false }))
     .toBeVisible();
 
   expect(requests).toHaveLength(3);
   expect(requests.map((request) => request.wav)).toEqual([
     "/tmp/first.wav", "/tmp/first.wav", "/tmp/second.wav",
   ]);
-  expect(requests[0]).toEqual(requests[1]);
+  for (const field of ["psd", "wav", "fingerprint", "layers", "mouth",
+    "mode", "blink_enabled", "fps"]) {
+    expect(requests[0][field]).toEqual(requests[1][field]);
+  }
   expect(requests[1].mode).toBe("open");
   expect(requests[2].mode).toBe("open");
   expect(requests[2].mouth).toEqual(requests[0].mouth);
