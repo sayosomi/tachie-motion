@@ -10,7 +10,7 @@ import unittest
 from tachie_motion.web.preset_utterance import (
     validated_snapshot, validate_open_mouth,
 )
-from tachie_motion.web.service import describe_psd
+from tachie_motion.web.service import describe_psd, describe_wav
 from tachie_motion.render.prores import read_rgba_states
 from test_web_api import fixture
 
@@ -265,6 +265,49 @@ class PresetExportApiTests(unittest.TestCase):
         self.assertFalse((self.root / "speech.mov").exists())
         self.assertFalse((self.root / "speech.otio").exists())
         self.assertFalse(list(self.root.glob(".speech.failed-*")))
+
+    def test_project_wav_identity_mismatch_denies_export_before_render(self):
+        original_identity = describe_wav(str(self.wav))["source_identity"]
+        payload = bytearray(self.wav.read_bytes())
+        payload[-1] ^= 1
+        self.wav.write_bytes(payload)
+        self.assertNotEqual(original_identity, describe_wav(str(self.wav))["source_identity"])
+        denied = self.post(source_identity=original_identity)
+        self.assertEqual(denied.status_code, 400, denied.text)
+        self.assertIn("WAV changed since registration", denied.text)
+        self.assertFalse((self.root / "speech.mov").exists())
+        self.assertFalse((self.root / "speech.otio").exists())
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_project_wav_change_after_mux_denies_publish_without_outputs(self):
+        from unittest.mock import patch
+        from tachie_motion.timeline.otio_json import write_otio
+
+        original_identity = describe_wav(str(self.wav))["source_identity"]
+
+        def replace_wav_after_mux(document, destination):
+            write_otio(document, destination)
+            payload = bytearray(self.wav.read_bytes())
+            payload[-1] ^= 1
+            self.wav.write_bytes(payload)
+
+        with patch("tachie_motion.web.preset_utterance.write_otio",
+                   side_effect=replace_wav_after_mux):
+            denied = self.post(source_identity=original_identity)
+        self.assertEqual(denied.status_code, 400, denied.text)
+        self.assertIn("WAV changed since registration", denied.text)
+        self.assertFalse((self.root / "speech.mov").exists())
+        self.assertFalse((self.root / "speech.otio").exists())
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_project_wav_identity_accepts_unchanged_file(self):
+        original_identity = describe_wav(str(self.wav))["source_identity"]
+        accepted = self.post(source_identity=original_identity)
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        self.assertTrue((self.root / "speech.mov").is_file())
+        self.assertTrue((self.root / "speech.otio").is_file())
 
     def test_abandoned_new_export_recovery_is_visible_and_blocks_api(self):
         recovery = self.root / ".speech.failed-simulated"

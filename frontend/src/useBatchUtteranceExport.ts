@@ -104,7 +104,7 @@ function planKey(draft: PresetDraft, batch: PreparedBatch): string {
 export function useBatchUtteranceExport(
   draft: PresetDraft | null, items: UtteranceItem[],
   setItems: Dispatch<SetStateAction<UtteranceItem[]>>,
-  onFinished: () => void, enabled: boolean,
+  onFinished: () => void, enabled: boolean, otherBusy: () => boolean,
 ) {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState("");
@@ -146,7 +146,7 @@ export function useBatchUtteranceExport(
 
 
   async function run() {
-    if (busy.current || running || !draft || items.length === 0 || !displayed) return;
+    if (busy.current || otherBusy() || running || !draft || items.length === 0 || !displayed) return;
     busy.current = true;
     setRunning(true);
     setSummary("");

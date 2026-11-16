@@ -420,3 +420,19 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   .utterance-item-actions { grid-column:3; grid-row:1 / 4; }
   .utterance-row-progress { grid-column:2 / 4; grid-row:4; }
 }
+
+
+/* Project import stays within the existing WAV list, not a third workspace. */
+.project-controls { margin: 14px 0 18px; }
+.project-file-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.project-file-actions .meta { margin:0 10px 0 0; }
+.project-file-actions button { font-size:12px; }
+.project-repair { border-top:1px solid #354b61; padding:10px 0 0; margin-top:12px; }
+.project-repair-item { background:#101d2d; border:1px solid #34485e;
+  padding:12px; border-radius:8px; margin:10px 0; }
+.project-repair-item .hint { overflow-wrap:anywhere; }
+.project-repair-item .native-file-picker { margin:8px 0 0; }
+.project-repair-approve { display:flex; align-items:center; gap:8px;
+  margin:12px 0 0; font-size:12px; line-height:1.6; }
+.project-repair-approve input[type="checkbox"] { width:18px; height:18px;
+  flex:0 0 18px; margin:0; }

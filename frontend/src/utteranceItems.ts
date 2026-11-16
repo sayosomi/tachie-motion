@@ -2,6 +2,7 @@ export type WavData = {
   samples: number;
   sample_rate: number;
   duration_seconds: number;
+  source_identity: string;
 };
 export type ExportData = {
   mov: string;

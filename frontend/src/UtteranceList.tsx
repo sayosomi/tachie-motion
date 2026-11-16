@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import NativeFilePicker from "./NativeFilePicker";
 import type { WavPlaybackControls } from "./WavPlayback";
 import type { UnifiedPreset } from "./presetModel";
 import { wavFilename, type LipMode, type UtteranceItem } from "./utteranceItems";
 
 type Props = {
+  projectControls?: ReactNode;
   items: UtteranceItem[];
   presets: Pick<UnifiedPreset, "id" | "name">[];
   presetStatus: "loading" | "ready" | "error";
@@ -13,6 +14,7 @@ type Props = {
   addingCount: number;
   addError: string;
   disabled: boolean;
+  selectionLocked: boolean;
   exportingId: string | null;
   playback: WavPlaybackControls;
   onPathChange: (path: string) => void;
@@ -28,8 +30,8 @@ type Props = {
 };
 
 export default function UtteranceList({
-  items, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
-  exportingId, playback, onPathChange, onAdd, onAddMany, onSelect, onRevise,
+  projectControls, items, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
+  selectionLocked, exportingId, playback, onPathChange, onAdd, onAddMany, onSelect, onRevise,
   onMove, onReorder, onRemove, canApplyToAll, onApplyToAll,
 }: Props) {
   const [dragging, setDragging] = useState<string | null>(null);
@@ -47,7 +49,7 @@ export default function UtteranceList({
       <h2>WAV一覧</h2>
       <div className="utterance-list-toolbar">
         <span className="meta">{items.length}件</span>
-        <button type="button" disabled={items.length === 0}
+        <button type="button" disabled={selectionLocked || items.length === 0}
           onClick={playback.playAll}>全件を連続再生</button>
         <button type="button" disabled={!playback.activeId}
           onClick={playback.stop}>停止</button>
@@ -55,6 +57,7 @@ export default function UtteranceList({
           onClick={onApplyToAll}>選択中の設定を全件に適用</button>}
       </div>
     </div>
+    {projectControls}
     <NativeFilePicker id="speech-wav-path" kind="wav" label="WAVファイルを追加"
       value={pendingPath} disabled={disabled} multiple
       onSelectedMany={onAddMany}
@@ -109,6 +112,7 @@ export default function UtteranceList({
               }}
               onDragEnd={() => { setDragging(null); setHover(null); }}>⠿</button>
             <button type="button" className="utterance-item-play"
+              disabled={selectionLocked}
               aria-label={`${playback.activeId === item.id && playback.loading ? "読み込み中止" :
                 playback.activeId === item.id && !playback.paused ? "一時停止" : "再生"}: ${index + 1} ${name}`}
               aria-pressed={playback.activeId === item.id && !playback.paused && !playback.loading}
@@ -117,6 +121,7 @@ export default function UtteranceList({
                 playback.activeId === item.id && !playback.paused ? "Ⅱ" : "▶"}
             </button>
             <button type="button" className="utterance-item-select"
+              disabled={selectionLocked}
               aria-current={item.id === selectedId ? "true" : undefined}
               onClick={() => onSelect(item.id)}>
               <span className="utterance-item-index">{index + 1}</span>
@@ -167,6 +172,7 @@ export default function UtteranceList({
                   読み込み中止（■を押す）
                 </span> : <>
                   <input type="range" aria-label={`再生位置: ${name}`}
+                    disabled={selectionLocked}
                     min={0} max={Math.max(0.01, item.wav.duration_seconds)} step="0.01"
                     value={Math.min(playback.elapsed, item.wav.duration_seconds)}
                     onChange={(event) => playback.seek(Number(event.target.value))} />
