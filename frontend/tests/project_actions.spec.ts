@@ -277,6 +277,8 @@ test("project save holds a synchronous lock against batch export and WAV selecti
   await openSpeech(page);
   await addWav(page, wavPath);
   await addWav(page, otherWav);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+  await page.locator(".utterance-item-select").first().click();
   const selectedBefore = await page.locator('[data-selected="true"]').getAttribute("data-utterance-id");
   let exportCalls = 0;
   await page.route("**/api/preset-utterance-export", (route) => {
@@ -372,7 +374,7 @@ test("restored, explicitly approved WAV identity is sent to single and batch exp
   const batchButton = page.getByRole("button", { name: "全件を書き出す" });
   await expect(batchButton).toBeEnabled();
   await batchButton.click();
-  await expect(page.locator(".export-execution [role=\"status\"]")).toContainText("一括書き出し完了");
+  await expect(page.locator(".export-execution .hint[role=\"status\"]").filter({ hasText: "一括書き出し完了" })).toContainText("一括書き出し完了");
   expect(identities).toEqual([revisedIdentity, revisedIdentity]);
 });
 
@@ -441,6 +443,6 @@ test("same-tick batch start blocks a stale project save click", async ({ page })
   expect(await page.evaluate(() => (window as Window & { __projectProbe: Probe })
     .__projectProbe.options.length)).toBe(0);
   completeExport?.();
-  await expect(page.locator(".export-execution [role=\"status\"]"))
+  await expect(page.locator(".export-execution .hint[role=\"status\"]").filter({ hasText: "一括書き出し完了" }))
     .toContainText("一括書き出し完了");
 });
