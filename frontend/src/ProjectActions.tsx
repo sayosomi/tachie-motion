@@ -179,8 +179,7 @@ export default function ProjectActions({
             {" — "}{problem.message}
           </p>
           <NativeFilePicker
-            id={"project-repair-" + (isPsd ? "psd" :
-              problem.key === "psd" ? "wav-psd" : problem.key)}
+            id={isPsd ? "project-repair-psd" : "project-repair-wav-" + problem.key}
             kind={isPsd ? "psd" : "wav"}
             label={isPsd ? "PSDを再指定" : "WAVを再指定"}
             value={currentPath} disabled={busy || disabled}

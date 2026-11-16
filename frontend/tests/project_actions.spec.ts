@@ -384,13 +384,18 @@ test("WAV ID psd does not conflate PSD and WAV repair entries", async ({ page })
   await addWav(page, wavPath);
   const project = await saved(page);
   project.items[0].id = "psd";
+  // Both keys must have unique input IDs, even when PSD also needs repair.
+  project.items.push({
+    ...structuredClone(project.items[0]), id: "wav-psd", registrationOrder: 2,
+  });
   project.selectedId = "psd";
   state.fingerprint = "1000:changed";
   state.missingWavs.add(wavPath);
   await importProject(page, project);
-  await expect(page.locator(".project-repair-item")).toHaveCount(2);
+  await expect(page.locator(".project-repair-item")).toHaveCount(3);
   await expect(page.locator("#project-repair-psd")).toBeAttached();
   await expect(page.locator("#project-repair-wav-psd")).toBeAttached();
+  await expect(page.locator("#project-repair-wav-wav-psd")).toBeAttached();
   await expect(page.locator(".project-repair")).toContainText("WAVが見つかりません");
   await expect(page.locator(".project-repair")).toContainText("PSDの内容");
 });
