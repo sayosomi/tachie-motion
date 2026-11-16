@@ -219,6 +219,9 @@ class BatchCoordinator:
             if published_media_identity(session.stage / (name + ".mov")) != identity:
                 raise ValueError("Batch MOV was replaced after rendering: " + name)
         for planned in session.entries:
+            # Recheck all WAVs after MOV staging, before publishing the timeline.
+            if source_token(planned.wav) != planned.source_identity:
+                raise ValueError("WAV changed since registration; batch not published")
             dest = folder / (planned.basename + ".mov")
             if initial_single_identity(dest, planned.conflict_policy) != planned.original:
                 raise ValueError("Public destination changed during batch: " + dest.name)
@@ -240,6 +243,10 @@ class BatchCoordinator:
         staged[otio_name] = expected_otio
         original = {planned.basename + ".mov": planned.original for planned in session.entries}
         original[otio_name] = session.timeline_original
+        # Last source identity gate before public batch publication.
+        for planned in session.entries:
+            if source_token(planned.wav) != planned.source_identity:
+                raise ValueError("WAV changed since registration; batch not published")
         # This is the only operation that mutates public batch destinations.
         return publish_batch(
             folder=session.folder, stage=session.stage,

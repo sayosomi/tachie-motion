@@ -148,5 +148,27 @@ class BatchGenerationApiTests(unittest.TestCase):
                              for p in self.root.iterdir()))
 
 
+    def test_wav_changed_after_staging_rejects_timeline_publication(self):
+        policy = self.start(overwrite=False)
+        staged = [self.mov(i, policy) for i in range(2)]
+        payload = bytearray(self.wav.read_bytes())
+        payload[-1] ^= 1
+        self.wav.write_bytes(payload)
+        denied = self.client.post("/api/preset-combined-otio", json={
+            "output_dir": str(self.root), "basename": self.timeline,
+            "conflict_policy": policy, "batch_id": self.token,
+            "entries": [{
+                "basename": name, "frames": output["frames"], "fps": 30,
+                "samples": output["sample_count"],
+                "sample_rate": output["sample_rate"],
+            } for name, output in zip(self.names, staged)],
+        })
+        self.assertEqual(denied.status_code, 400, denied.text)
+        self.assertIn("WAV changed since registration", denied.text)
+        self.assertFalse((self.root / (self.timeline + ".otio")).exists())
+        for name in self.names:
+            self.assertFalse((self.root / (name + ".mov")).exists())
+
+
 if __name__ == "__main__":
     unittest.main()

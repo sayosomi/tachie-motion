@@ -172,6 +172,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const selected = draft?.collection.items.find((preset) => preset.id === current?.presetId);
 
   function selectItem(id: string) {
+    if (projectBusyRef.current) return;
     selectionEpoch.current++;
     setActiveId(id);
   }
@@ -325,11 +326,13 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
       projectControls={<ProjectActions
         draft={draft} layers={psdLayers} items={items} selectedId={activeId} naming={naming}
         disabled={editingLocked || addingCount > 0 || presetStatus === "loading"}
+        isConflicting={() => isEditBusy() || addingCount > 0}
         onBusyChange={projectLock} onRestore={restoreProject} />}
       presetStatus={presetStatus}
       selectedId={activeId} pendingPath={pendingPath}
       addingCount={addingCount} addError={addError}
-      disabled={!draft || editingLocked} exportingId={exportingId} playback={playback}
+      disabled={!draft || editingLocked} selectionLocked={projectBusy}
+      exportingId={exportingId} playback={playback}
       onPathChange={setPendingPath} onAdd={addWav} onAddMany={addManyWavs}
       onSelect={selectItem} onRevise={revise}
       onMove={(id, delta) => {
