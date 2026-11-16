@@ -168,17 +168,19 @@ export default function ProjectActions({
     {stage && !busy && <div className="project-repair" aria-label="プロジェクト参照の確認">
       <p className="hint">読み込み前の確認です。保存済みの参照が見つからない場合は再指定してください。確認・復元まで現在の編集は保持します。</p>
       {stage.problems.map((problem) => {
-        const isPsd = problem.key === "psd";
+        const isPsd = problem.kind === "psd";
         const item = isPsd ? undefined : stage.file.items.find((it) => it.id === problem.key);
         const currentPath = isPsd ? stage.psdPath :
           stage.wavPaths[problem.key] ?? item?.wavPath ?? problem.path;
-        return <div className="project-repair-item" key={problem.key}>
+        return <div className="project-repair-item" key={problem.kind + ":" + problem.key}>
           <p className="hint warning" role="alert">
             {isPsd ? "PSD" : "WAV：" + (item?.wavPath.split("/").at(-1) || item?.id || "")}
             {" — "}{problem.message}
           </p>
           <NativeFilePicker
-            id={"project-repair-" + problem.key} kind={isPsd ? "psd" : "wav"}
+            id={"project-repair-" + (isPsd ? "psd" :
+              problem.key === "psd" ? "wav-psd" : problem.key)}
+            kind={isPsd ? "psd" : "wav"}
             label={isPsd ? "PSDを再指定" : "WAVを再指定"}
             value={currentPath} disabled={busy || disabled}
             onChange={(path) => isPsd ? changePsd(path) : changeWav(problem.key, path)}

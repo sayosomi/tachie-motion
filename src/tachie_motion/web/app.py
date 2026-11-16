@@ -67,6 +67,7 @@ class DestinationRequest(BaseModel):
 class PresetUtteranceRequest(BaseModel):
     psd: str
     wav: str
+    source_identity: str | None = None
     fingerprint: str
     layers: list[dict]
     mouth: dict | None = None
@@ -248,6 +249,7 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
             return await asyncio.to_thread(
                 export_preset_utterance,
                 psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
+                expected_source_identity=payload.source_identity,
                 layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
                 blink_enabled=payload.blink_enabled, conflict_policy=payload.conflict_policy,
                 mov=folder / (payload.basename + ".mov"),

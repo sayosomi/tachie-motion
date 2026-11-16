@@ -17,6 +17,7 @@ from tachie_motion.render.pcm_mux import mux_verified_pcm
 from tachie_motion.timeline.media import MovieTiming, WaveTiming
 from tachie_motion.timeline.otio_json import build_rounded_utterance, write_otio
 from tachie_motion.web.preset_preview import psd_snapshot_token
+from tachie_motion.web.preview_frame import file_identity
 from tachie_motion.web.output_destinations import initial_target_identity, publish_pair
 from tachie_motion.web.service import load_psd
 
@@ -81,6 +82,7 @@ def export_preset_utterance(
     *, psd_path: Path, wav: Path, fingerprint: str, layers: list[dict],
     mouth: dict | None, mode: str, blink_enabled: bool,
     mov: Path, otio: Path, fps: int = 30, conflict_policy: str = "error",
+    expected_source_identity: str | None = None,
 ):
     """Generate one preset-backed PCM-in-MOV and synchronized OTIO.
 
@@ -99,6 +101,15 @@ def export_preset_utterance(
         raise ValueError("MOV and OTIO must be in one output directory")
     prior = initial_target_identity(mov, otio, conflict_policy)
 
+    def check_wav_identity() -> None:
+        if expected_source_identity is not None and (
+            ":".join(map(str, file_identity(wav))) != expected_source_identity
+        ):
+            raise ValueError("WAV changed since registration; reselect or restore the WAV")
+
+    # Check project WAV before rendering and again just before publish.
+    # Decoded PCM hash is independently checked by the mux process.
+    check_wav_identity()
     psd, base = validated_snapshot(psd_path, fingerprint, layers)
     shapes = validate_open_mouth(psd, base, mouth) if mode == "open" else None
     schedule = analyze_wav(wav, fps=fps)
@@ -153,6 +164,7 @@ def export_preset_utterance(
         audio_ref["name"] = mov.name
         staged_otio = directory / "staged.otio"
         write_otio(document, staged_otio)
+        check_wav_identity()
         # Validate and stage both outputs BEFORE touching any published media.
         warning = publish_pair(
             pcm_mov, staged_otio, mov, otio,

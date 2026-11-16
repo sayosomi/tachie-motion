@@ -9,7 +9,9 @@ export type PsdInspection = {
   fingerprint: string;
   layers: Layer[];
 };
-export type ProjectProblem = { key: string; path: string; message: string };
+export type ProjectProblem = {
+  kind: "psd" | "wav"; key: string; path: string; message: string;
+};
 export type ProjectInspection = {
   psd: PsdInspection | null;
   wavs: Record<string, WavData>;
@@ -39,7 +41,7 @@ export async function inspectProjectSources(
     validateCharacterProfileOpenTargets(project.character, result.layers);
     psd = result;
   } catch (error) {
-    problems.push({ key: "psd", path: psdPath,
+    problems.push({ kind: "psd", key: "psd", path: psdPath,
       message: error instanceof Error ? error.message : String(error) });
   }
 
@@ -60,7 +62,7 @@ export async function inspectProjectSources(
     const path = wavPaths[item.id] ?? item.wavPath;
     const result = inspected.get(path);
     if (!result || result instanceof Error) {
-      problems.push({ key: item.id, path,
+      problems.push({ kind: "wav", key: item.id, path,
         message: result instanceof Error ? result.message : "WAVの確認に失敗しました" });
       continue;
     }
@@ -69,14 +71,14 @@ export async function inspectProjectSources(
         typeof result.source_identity !== "string" || !result.source_identity ||
         !Number.isFinite(result.duration_seconds) ||
         Math.abs(result.duration_seconds - result.samples / result.sample_rate) > 0.001) {
-      problems.push({ key: item.id, path, message: "WAVの解析結果が不正です" });
+      problems.push({ kind: "wav", key: item.id, path, message: "WAVの解析結果が不正です" });
       continue;
     }
     // A path change is an explicit replacement by the operator. A changed
     // file at the same path needs an additional affirmative confirmation.
     if (path === item.wavPath && item.wav.source_identity !== result.source_identity &&
         !confirmedChanges.has(item.id)) {
-      problems.push({ key: item.id, path,
+      problems.push({ kind: "wav", key: item.id, path,
         message: "保存時からWAVが変更されています。差し替えを明示的に承認してください" });
       continue;
     }

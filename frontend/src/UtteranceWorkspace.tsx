@@ -68,7 +68,9 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   // Synchronous guard closes the gap before React commits exportingId state.
   const singleExportLock = useRef(false);
   const batch = useBatchUtteranceExport(draft, items, setItems,
-    () => setProbeVersion((previous) => previous + 1), active && exportScope === "all");
+    () => setProbeVersion((previous) => previous + 1),
+    active && exportScope === "all" && !projectBusy && !exportingId,
+    () => projectBusyRef.current || singleExportLock.current);
   const playback = useWavPlayback(items);
   const editingLocked = batch.running || batch.isBusy() || !!exportingId || projectBusy;
   const projectLock = (locked: boolean) => {
@@ -161,6 +163,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const selected = draft?.collection.items.find((preset) => preset.id === current?.presetId);
 
   function selectItem(id: string) {
+    if (projectBusyRef.current) return;
     selectionEpoch.current++;
     setActiveId(id);
   }
@@ -318,7 +321,8 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
       presetStatus={presetStatus}
       selectedId={activeId} pendingPath={pendingPath}
       addingCount={addingCount} addError={addError}
-      disabled={!draft || editingLocked} exportingId={exportingId} playback={playback}
+      disabled={!draft || editingLocked} selectionLocked={projectBusy}
+      exportingId={exportingId} playback={playback}
       onPathChange={setPendingPath} onAdd={addWav} onAddMany={addManyWavs}
       onSelect={selectItem} onRevise={revise}
       onMove={(id, delta) => {
@@ -341,6 +345,6 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         exportingId={exportingId} addingCount={addingCount}
         scope={exportScope} onScopeChange={setExportScope}
         onRevise={revise} onSingleExport={() => { void exportUtterance(); }}
-        batch={batch} />
+        batch={batch} disabled={editingLocked || addingCount > 0} />
   </main>;
 }

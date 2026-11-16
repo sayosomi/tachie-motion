@@ -23,6 +23,7 @@ export function exportPayload(
   return {
     psd: draft.path,
     wav: item.wavPath,
+    source_identity: item.wav.source_identity,
     fingerprint: draft.fingerprint,
     layers: preset.base,
     mouth: preset.openMouth ?? null,
