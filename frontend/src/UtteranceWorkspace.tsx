@@ -317,6 +317,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
       projectControls={<ProjectActions
         draft={draft} layers={psdLayers} items={items} selectedId={activeId}
         disabled={editingLocked || addingCount > 0 || presetStatus === "loading"}
+        isConflicting={() => isEditBusy() || addingCount > 0}
         onBusyChange={projectLock} onRestore={restoreProject} />}
       presetStatus={presetStatus}
       selectedId={activeId} pendingPath={pendingPath}

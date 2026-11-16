@@ -414,3 +414,33 @@ test("native project JSON write and close failures abort and preserve editing st
   expect(await page.evaluate(() => (window as Window & { __projectProbe: Probe })
     .__projectProbe.aborts)).toBe(2);
 });
+
+test("same-tick batch start blocks a stale project save click", async ({ page }) => {
+  await mock(page);
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  await page.getByRole("radio", { name: /全件/ }).check();
+  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeEnabled();
+  let completeExport: (() => void) | undefined;
+  await page.route("**/api/preset-utterance-export", async (route) => {
+    await new Promise<void>((resolve) => { completeExport = resolve; });
+    await route.fulfill({ json: {
+      mov: "/tmp/output/generated.mov", otio: "/tmp/output/generated.otio",
+      frames: 30, sample_count: 48000,
+    } });
+  });
+  await page.evaluate(() => {
+    const batch = [...document.querySelectorAll("button")]
+      .find((node) => node.textContent?.trim() === "全件を書き出す");
+    const save = [...document.querySelectorAll("button")]
+      .find((node) => node.textContent?.trim() === "JSONを保存");
+    batch?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    save?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await expect.poll(() => Boolean(completeExport)).toBeTruthy();
+  expect(await page.evaluate(() => (window as Window & { __projectProbe: Probe })
+    .__projectProbe.options.length)).toBe(0);
+  completeExport?.();
+  await expect(page.locator(".export-execution [role=\"status\"]"))
+    .toContainText("一括書き出し完了");
+});

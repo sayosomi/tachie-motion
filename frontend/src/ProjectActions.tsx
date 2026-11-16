@@ -24,6 +24,7 @@ type Props = {
   items: UtteranceItem[];
   selectedId: string | null;
   disabled: boolean;
+  isConflicting: () => boolean;
   onBusyChange: (busy: boolean) => void;
   onRestore: (project: ProjectFile, sources: ProjectInspection, psdPath: string,
     wavPaths: Record<string, string>) => void;
@@ -40,7 +41,7 @@ async function inspect<T>(kind: "psd" | "wav", path: string): Promise<T> {
 }
 
 export default function ProjectActions({
-  draft, layers, items, selectedId, disabled, onBusyChange, onRestore,
+  draft, layers, items, selectedId, disabled, isConflicting, onBusyChange, onRestore,
 }: Props) {
   const input = useRef<HTMLInputElement>(null);
   const working = useRef(false);
@@ -50,7 +51,7 @@ export default function ProjectActions({
   const [error, setError] = useState("");
 
   function begin(): boolean {
-    if (working.current || disabled) return false;
+    if (working.current || disabled || isConflicting()) return false;
     working.current = true; // Synchronous lock, even before React's next paint.
     setBusy(true);
     onBusyChange(true);
