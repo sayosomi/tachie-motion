@@ -11,7 +11,8 @@ const layers = [
 const identity = "1:2:3:4:5";
 type Probe = {
   saved: string[];
-  mode: "success" | "cancel" | "hold";
+  mode: "success" | "cancel" | "hold" | "write_fail" | "close_fail";
+  aborts: number;
   release: (() => void) | null;
   options: unknown[];
 };
@@ -19,7 +20,7 @@ type Mock = { currentWavIdentity: string; missingWavs: Set<string>; fingerprint:
 async function mock(page: Page): Promise<Mock> {
   const state: Mock = { currentWavIdentity: identity, missingWavs: new Set(), fingerprint: "1000:2000" };
   await page.addInitScript(() => {
-    const probe: Probe = { saved: [], mode: "success", release: null, options: [] };
+    const probe: Probe = { saved: [], mode: "success", release: null, options: [], aborts: 0 };
     (window as Window & { __projectProbe: Probe }).__projectProbe = probe;
     Object.defineProperty(window, "showSaveFilePicker", { configurable: true,
       value: async (options: unknown) => {
@@ -28,8 +29,13 @@ async function mock(page: Page): Promise<Mock> {
         return { name: "user-project.json", createWritable: async () => ({
           write: async (value: string) => {
             if (probe.mode === "hold") await new Promise<void>((resolve) => { probe.release = resolve; });
+            if (probe.mode === "write_fail") throw new Error("synthetic write failed");
             probe.saved.push(value);
-          }, close: async () => {}, abort: async () => {},
+          },
+          close: async () => {
+            if (probe.mode === "close_fail") throw new Error("synthetic close failed");
+          },
+          abort: async () => { probe.aborts++; },
         }) };
       },
     });
@@ -264,4 +270,147 @@ test("failed browser recovery write is non-destructive after user confirms", asy
   await expect(page.getByRole("alert")).toContainText("容量不足");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
   expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(before);
+});
+
+test("project save holds a synchronous lock against batch export and WAV selection", async ({ page }) => {
+  await mock(page);
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  await addWav(page, otherWav);
+  const selectedBefore = await page.locator('[data-selected="true"]').getAttribute("data-utterance-id");
+  let exportCalls = 0;
+  await page.route("**/api/preset-utterance-export", (route) => {
+    exportCalls++;
+    return route.fulfill({ json: {
+      mov: "/tmp/output/generated.mov", otio: "/tmp/output/generated.otio",
+      frames: 30, sample_count: 48000,
+    } });
+  });
+  await page.getByRole("radio", { name: /全件/ }).check();
+  const batchButton = page.getByRole("button", { name: "全件を書き出す" });
+  await expect(batchButton).toBeEnabled();
+  await page.evaluate(() => {
+    (window as Window & { __projectProbe: Probe }).__projectProbe.mode = "hold";
+  });
+  await page.getByRole("button", { name: "JSONを保存" }).click();
+  await expect(batchButton).toBeDisabled();
+  await expect(page.locator(".utterance-item-select").last()).toBeDisabled();
+  await expect(page.locator(".utterance-item-play").last()).toBeDisabled();
+  await expect(page.getByRole("button", { name: "全件を連続再生" })).toBeDisabled();
+  // Bypass native disabled to exercise a stale programmatic click as well.
+  await batchButton.evaluate((node) => {
+    node.removeAttribute("disabled");
+    node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  expect(exportCalls).toBe(0);
+  expect(await page.locator('[data-selected="true"]').getAttribute("data-utterance-id"))
+    .toBe(selectedBefore);
+  await page.evaluate(() => {
+    (window as Window & { __projectProbe: Probe }).__projectProbe.release?.();
+  });
+  await expect(page.getByRole("status")).toContainText("制作プロジェクトを保存しました");
+  await expect(batchButton).toBeEnabled();
+  expect(exportCalls).toBe(0);
+});
+
+test("delayed project import keeps batch export disabled until confirmation finishes", async ({ page }) => {
+  await mock(page);
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  const project = await saved(page);
+  await page.getByRole("radio", { name: /全件/ }).check();
+  const batchButton = page.getByRole("button", { name: "全件を書き出す" });
+  await expect(batchButton).toBeEnabled();
+  let releasePsd: (() => void) | undefined;
+  let exportCalls = 0;
+  await page.route("**/api/preset-utterance-export", (route) => {
+    exportCalls++;
+    return route.fulfill({ status: 500, json: { detail: "unwanted export" } });
+  });
+  await page.route("**/api/psd", async (route) => {
+    await new Promise<void>((resolve) => { releasePsd = resolve; });
+    await route.fulfill({ json: {
+      width: 64, height: 64, fingerprint: "1000:2000", layers, preview: png,
+    } });
+  });
+  await importProject(page, project);
+  await expect(page.getByRole("status")).toContainText("プロジェクトを確認中");
+  await expect(batchButton).toBeDisabled();
+  await expect(page.locator(".utterance-item-select").first()).toBeDisabled();
+  await expect.poll(() => Boolean(releasePsd)).toBeTruthy();
+  page.once("dialog", (dialog) => { void dialog.dismiss(); });
+  releasePsd?.();
+  await expect(page.getByRole("status")).toContainText("読み込みをキャンセル");
+  await expect(batchButton).toBeEnabled();
+  expect(exportCalls).toBe(0);
+});
+
+test("restored, explicitly approved WAV identity is sent to single and batch exports", async ({ page }) => {
+  const state = await mock(page);
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  const project = await saved(page);
+  const revisedIdentity = "1:2:100:4:5";
+  state.currentWavIdentity = revisedIdentity;
+  await importProject(page, project);
+  await expect(page.locator(".project-repair")).toContainText("保存時からWAVが変更");
+  await page.getByRole("checkbox", { name: /変更されたWAV/ }).check();
+  await agreeToReplace(page);
+  await page.getByRole("button", { name: "再確認して読み込む" }).click();
+  await expect(page.getByRole("status")).toContainText("制作プロジェクトを読み込みました");
+  const identities: string[] = [];
+  await page.route("**/api/preset-utterance-export", (route) => {
+    identities.push((route.request().postDataJSON() as { source_identity: string }).source_identity);
+    return route.fulfill({ json: {
+      mov: "/tmp/output/generated.mov", otio: "/tmp/output/generated.otio",
+      frames: 30, sample_count: 48000,
+    } });
+  });
+  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await expect(page.locator(".success")).toBeVisible();
+  await page.getByRole("radio", { name: /全件/ }).check();
+  const batchButton = page.getByRole("button", { name: "全件を書き出す" });
+  await expect(batchButton).toBeEnabled();
+  await batchButton.click();
+  await expect(page.getByRole("status")).toContainText("一括書き出し完了");
+  expect(identities).toEqual([revisedIdentity, revisedIdentity]);
+});
+
+test("WAV ID psd does not conflate PSD and WAV repair entries", async ({ page }) => {
+  const state = await mock(page);
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  const project = await saved(page);
+  project.items[0].id = "psd";
+  project.selectedId = "psd";
+  state.fingerprint = "1000:changed";
+  state.missingWavs.add(wavPath);
+  await importProject(page, project);
+  await expect(page.locator(".project-repair-item")).toHaveCount(2);
+  await expect(page.locator("#project-repair-psd")).toBeAttached();
+  await expect(page.locator("#project-repair-wav-psd")).toBeAttached();
+  await expect(page.locator(".project-repair")).toContainText("WAVが見つかりません");
+  await expect(page.locator(".project-repair")).toContainText("PSDの内容");
+});
+
+test("native project JSON write and close failures abort and preserve editing state", async ({ page }) => {
+  await mock(page);
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  const originalId = await page.locator('[data-selected="true"]').getAttribute("data-utterance-id");
+  for (const mode of ["write_fail", "close_fail"] as const) {
+    await page.evaluate((m) => {
+      (window as Window & { __projectProbe: Probe }).__projectProbe.mode = m;
+    }, mode);
+    await page.getByRole("button", { name: "JSONを保存" }).click();
+    await expect(page.getByRole("alert")).toContainText("制作プロジェクトを保存できませんでした");
+    await expect(page.getByRole("alert")).toContainText(
+      mode === "write_fail" ? "synthetic write failed" : "synthetic close failed",
+    );
+    expect(await page.locator('[data-selected="true"]').getAttribute("data-utterance-id"))
+      .toBe(originalId);
+    await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  }
+  expect(await page.evaluate(() => (window as Window & { __projectProbe: Probe })
+    .__projectProbe.aborts)).toBe(2);
 });
