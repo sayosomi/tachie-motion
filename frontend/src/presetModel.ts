@@ -105,6 +105,45 @@ export function removeSessionPreset(current: Presets, id: string): Presets {
   return { items, defaultId: current.defaultId === id ? (items[0]?.id ?? null) : current.defaultId };
 }
 
+/** Six independently editable phoneme mouth states; "n" also serves as rest. */
+export const AIUEO_KEYS = ["a", "i", "u", "e", "o", "n"] as const;
+export const AIUEO_LABELS = { a: "あ", i: "い", u: "う", e: "え", o: "お", n: "ん" } as const;
+export type AiueoKey = typeof AIUEO_KEYS[number];
+export type AiueoLayerRole = "base" | "show" | "hide";
+export type AiueoMouth = NonNullable<UnifiedPreset["aiueoMouth"]>;
+
+export function aiueoLayerRole(
+  preset: UnifiedPreset, key: AiueoKey, path: string,
+): AiueoLayerRole {
+  const layer = preset.aiueoMouth?.[key].find((entry) => entry.path === path);
+  return layer === undefined ? "base" : layer.visible ? "show" : "hide";
+}
+
+/** Override exactly one layer in one mouth; other five mouths and Open survive. */
+export function assignAiueoLayerRole(
+  current: Presets, id: string, key: AiueoKey, path: string, role: AiueoLayerRole,
+): Presets {
+  if (!AIUEO_KEYS.includes(key) || !["base", "show", "hide"].includes(role)) {
+    throw new Error("Invalid aiueo mouth key or role");
+  }
+  const preset = current.items.find((item) => item.id === id);
+  if (!preset || !preset.base.some((entry) => entry.path === path)) {
+    throw new Error("Unknown preset or source layer path");
+  }
+  const overrides = new Map(preset.aiueoMouth?.[key].map((entry) => [entry.path, entry.visible]));
+  overrides.delete(path);
+  if (role !== "base") overrides.set(path, role === "show");
+  const shape = preset.base.filter((entry) => overrides.has(entry.path)).map((entry) => ({
+    path: entry.path, visible: overrides.get(entry.path)!,
+  }));
+  const next = Object.fromEntries(AIUEO_KEYS.map((name) => [
+    name, name === key ? shape : [...(preset.aiueoMouth?.[name] ?? [])],
+  ])) as AiueoMouth;
+  const aiueoMouth = AIUEO_KEYS.some((name) => next[name].length) ? next : undefined;
+  return { ...current, items: current.items.map((item) =>
+    item.id === id ? { ...item, aiueoMouth } : item) };
+}
+
 export type OpenMouth = NonNullable<UnifiedPreset["openMouth"]>;
 
 /** Optional multi-layer overrides. Stable preset identity and base remain unchanged. */

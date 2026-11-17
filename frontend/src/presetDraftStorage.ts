@@ -1,5 +1,6 @@
 import type { Layer } from "./LayerTree";
 import type { Presets } from "./presetModel";
+import { AIUEO_KEYS } from "./presetModel";
 
 // Crash/reload recovery for this one browser and exact site origin only.
 // Not the versioned, portable character-profile format in PRODUCT_SPEC §7.
@@ -56,16 +57,15 @@ export function readPresetDraft(): PresetDraft | null {
       }
     }
   }
-  // Optional mouth overrides are stored with the same preset draft. Reject
-  // malformed mappings rather than crash the editor or publish stale output.
+  // Stored edits must be safe to render after a reload, including aiueo
+  // mappings that are not yet used for video export.
   for (const item of collection.items) {
-    if (item.openMouth === undefined) continue;
-    const mouth: unknown = item.openMouth;
-    if (!object(mouth) || !Array.isArray(mouth.closed) || !Array.isArray(mouth.opened)) {
-      throw new Error("保存済み口形設定が不正です");
-    }
+    if (item.openMouth === undefined && item.aiueoMouth === undefined) continue;
     const basePaths = new Set(item.base.map((layer) => layer.path));
-    const parseShape = (value: unknown[]): Set<string> => {
+    const parseShape = (value: unknown): Set<string> => {
+      if (!Array.isArray(value) || value.length > basePaths.size) {
+        throw new Error("保存済み口形レイヤーが不正です");
+      }
       const paths = new Set<string>();
       for (const layer of value) {
         if (!object(layer) || typeof layer.path !== "string" ||
@@ -77,11 +77,23 @@ export function readPresetDraft(): PresetDraft | null {
       }
       return paths;
     };
-    const closed = parseShape(mouth.closed);
-    const opened = parseShape(mouth.opened);
-    if (!closed.size || closed.size !== opened.size ||
-        [...closed].some((path) => !opened.has(path))) {
-      throw new Error("保存済み口形の対象レイヤーが一致しません");
+    if (item.openMouth !== undefined) {
+      const mouth: unknown = item.openMouth;
+      if (!object(mouth)) throw new Error("保存済み口形設定が不正です");
+      const closed = parseShape(mouth.closed);
+      const opened = parseShape(mouth.opened);
+      if (!closed.size || closed.size !== opened.size ||
+          [...closed].some((path) => !opened.has(path))) {
+        throw new Error("保存済み口形の対象レイヤーが一致しません");
+      }
+    }
+    if (item.aiueoMouth !== undefined) {
+      const mouth: unknown = item.aiueoMouth;
+      if (!object(mouth) || Object.keys(mouth).length !== AIUEO_KEYS.length ||
+          AIUEO_KEYS.some((key) => !Object.hasOwn(mouth, key))) {
+        throw new Error("保存済みaiueo口形設定が不正です");
+      }
+      for (const key of AIUEO_KEYS) parseShape(mouth[key]);
     }
   }
   if (collection.defaultId !== null && !ids.has(collection.defaultId)) {
@@ -99,11 +111,17 @@ export function matchesSource(draft: PresetDraft, fingerprint: string, layers: L
   if (draft.fingerprint !== fingerprint) return false;
   const paths = new Set(layers.map((layer) => layer.path));
   if (paths.size !== layers.length) return false;
+  const leafPaths = new Set(layers.filter((layer) => layer.kind !== "group")
+    .map((layer) => layer.path));
   return draft.collection.items.every((item) => {
     const savedPaths = new Set(item.base.map((layer) => layer.path));
+    const aiueoPathsValid = !item.aiueoMouth ||
+      AIUEO_KEYS.every((key) => item.aiueoMouth![key].every(({ path }) =>
+        leafPaths.has(path)));
     return savedPaths.size === paths.size
       && item.base.length === paths.size
-      && [...savedPaths].every((path) => paths.has(path));
+      && [...savedPaths].every((path) => paths.has(path))
+      && aiueoPathsValid;
   });
 }
 

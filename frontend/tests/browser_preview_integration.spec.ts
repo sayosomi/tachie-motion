@@ -91,6 +91,74 @@ test("Canvas fast path respects the parent, rapid edits and Open shapes without 
   expect(statusReads).toBeGreaterThanOrEqual(4);
 });
 
+
+test("aiueo Canvas preview renders independent overrides and hidden parents without Python", async ({ page }) => {
+  let pythonRequests = 0;
+  await page.route("**/api/psd", (route) => route.fulfill({ json: {
+    width: 2, height: 2, fingerprint: "test-snapshot", source_identity: "stat-v1",
+    preview: red, layers: sourceLayers,
+  } }));
+  await page.route("**/api/preview-layer-assets", (route) => route.fulfill({ json: assets }));
+  await page.route("**/api/preview-source-status", (route) =>
+    route.fulfill({ json: { valid: true } }));
+  await page.route("**/api/preset-preview", (route) => {
+    pythonRequests++;
+    return route.fulfill({ json: { preview: red } });
+  });
+  await openDetails(page);
+  await expect(page.locator("main.preset-workspace")).toHaveAttribute("data-preview-renderer", "canvas");
+  await page.getByRole("button", { name: "aiueo", exact: true }).click();
+  await page.locator('.preset-layer[data-layer-path="0/0"]')
+    .getByRole("checkbox", { name: "mouth-closed [0/0] あ" }).uncheck();
+  await page.locator('.preset-layer[data-layer-path="0/1"]')
+    .getByRole("checkbox", { name: "mouth-open [0/1] あ" }).check();
+  await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
+  await page.getByRole("group", { name: "編集する口形" })
+    .getByRole("button", { name: "基本", exact: true }).click();
+  await page.getByRole("checkbox", { name: "face [0] 基本" }).uncheck();
+  await expect.poll(() => pixel(page)).toEqual([0, 0, 0, 0]);
+  await page.getByRole("checkbox", { name: "face [0] 基本" }).check();
+  await page.getByRole("group", { name: "編集する口形" })
+    .getByRole("button", { name: "あ", exact: true }).click();
+  await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
+
+  await page.getByRole("group", { name: "編集する口形" })
+    .getByRole("button", { name: "い", exact: true }).click();
+  await expect(page.getByAltText("通常 のプレビュー")).toBeVisible();
+  await page.getByRole("group", { name: "編集する口形" })
+    .getByRole("button", { name: "あ", exact: true }).click();
+  await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
+  expect(pythonRequests).toBe(0);
+});
+
+test("aiueo Python fallback receives the exact overlay without changing base or Open", async ({ page }) => {
+  const requests: Array<{path:string;visible:boolean}[]> = [];
+  await page.route("**/api/psd", (route) => route.fulfill({ json: {
+    width: 2, height: 2, fingerprint: "test-snapshot", source_identity: "stat-v1",
+    preview: red, layers: sourceLayers,
+  } }));
+  await page.route("**/api/preview-layer-assets", (route) =>
+    route.fulfill({ json: { supported: false } }));
+  await page.route("**/api/preview-source-status", (route) =>
+    route.fulfill({ json: { valid: true } }));
+  await page.route("**/api/preset-preview", (route) => {
+    requests.push(route.request().postDataJSON().layers);
+    return route.fulfill({ json: { preview: blue } });
+  });
+  await openDetails(page);
+  await expect(page.locator("main.preset-workspace")).toHaveAttribute("data-preview-renderer", "python");
+  await page.getByRole("button", { name: "aiueo", exact: true }).click();
+  await page.locator('.preset-layer[data-layer-path="0/0"]')
+    .getByRole("checkbox", { name: "mouth-closed [0/0] あ" }).uncheck();
+  await page.locator('.preset-layer[data-layer-path="0/1"]')
+    .getByRole("checkbox", { name: "mouth-open [0/1] あ" }).check();
+  await expect.poll(() => requests.some((states) =>
+    states.find((part) => part.path === "0/0")?.visible === false &&
+    states.find((part) => part.path === "0/1")?.visible === true &&
+    states.find((part) => part.path === "0")?.visible === true)).toBe(true);
+  await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
+});
+
 for (const mode of [
   "unsupported", "broken PNG", "server failure", "mismatched layer paths",
   "missing in-canvas PNG", "group with bitmap",

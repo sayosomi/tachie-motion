@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Layer } from "./LayerTree";
-import type { UnifiedPreset, EditableOpenLayerRole } from "./presetModel";
-import { openLayerRole } from "./presetModel";
+import type { UnifiedPreset, EditableOpenLayerRole, AiueoKey, AiueoLayerRole } from "./presetModel";
+import { AIUEO_KEYS, AIUEO_LABELS, aiueoLayerRole, openLayerRole } from "./presetModel";
 import PresetImagePreview from "./PresetImagePreview";
 import { PreviewSourceChangedError, type BrowserPreviewRenderer } from "./useBrowserPreview";
 
@@ -25,44 +25,54 @@ type Props = {
   onRename: (name: string) => void;
   onToggle: (path: string) => void;
   onOpenRoleChange: (path: string, role: EditableOpenLayerRole) => void;
+  onAiueoRoleChange: (key: AiueoKey, path: string, role: AiueoLayerRole) => void;
   onDelete: () => void;
 };
 
-type PreviewState = "base" | "closed" | "opened";
+type PreviewState = "base" | "closed" | "opened" | `aiueo-${AiueoKey}`;
 type ShapePreview = { key: string; image?: string; error?: string };
 
 export default function PresetDetail({
   preset, layers, preview, previewError, browserRenderer, sourceChanged = false,
   previewLoading = false, verifySource = async () => {}, sourceIdentity = "",
   sourcePath, fingerprint, canvasWidth, canvasHeight, nameDraft,
-  onNameDraftChange, onBack, onRename, onToggle, onOpenRoleChange, onDelete,
+  onNameDraftChange, onBack, onRename, onToggle, onOpenRoleChange,
+  onAiueoRoleChange, onDelete,
 }: Props) {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [assignedOnly, setAssignedOnly] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [scopePath, setScopePath] = useState<string | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState>("base");
+  const [roleMode, setRoleMode] = useState<"open" | "aiueo">("open");
+  const [aiueoKey, setAiueoKey] = useState<AiueoKey>("a");
   const [shapePreview, setShapePreview] = useState<ShapePreview | null>(null);
 
   useEffect(() => {
     setExpanded(layers.filter((layer) => layer.kind === "group").map((layer) => layer.path));
     setSelectedPath(null);
+    setScopePath(null);
   }, [layers]);
 
   const baseByPath = new Map(preset.base.map((layer) => [layer.path, layer.visible]));
   const roles = new Map(layers.filter((layer) => layer.kind !== "group")
-    .map((layer) => [layer.path, openLayerRole(preset, layer.path)]));
-  const chosen = [...roles.values()].filter((role) => role !== "none").length;
+    .map((layer) => [layer.path, roleMode === "open"
+      ? openLayerRole(preset, layer.path) : aiueoLayerRole(preset, aiueoKey, layer.path)]));
+  const unsetRole = roleMode === "open" ? "none" : "base";
+  const editingBase = roleMode === "aiueo" && previewState === "base";
+  const chosen = [...roles.values()].filter((role) => role !== unsetRole).length;
   const queryText = query.trim().toLocaleLowerCase();
-  const activeFilter = Boolean(queryText || assignedOnly);
+  const showAssignedOnly = roleMode === "open" && assignedOnly;
+  const activeFilter = Boolean(queryText || showAssignedOnly);
   const matches = new Set<string>();
   const matchingGroups = layers.filter((layer) => layer.kind === "group"
     && queryText && (layer.name.toLocaleLowerCase().includes(queryText)
       || layer.path.includes(queryText))).map((layer) => layer.path);
   for (const layer of layers) {
     if (layer.kind === "group") continue;
-    const role = roles.get(layer.path) ?? "none";
-    if (assignedOnly && role === "none") continue;
+    const role = roles.get(layer.path) ?? unsetRole;
+    if (showAssignedOnly && role === unsetRole) continue;
     if (queryText && !(
       layer.name.toLocaleLowerCase().includes(queryText)
       || layer.path.includes(queryText)
@@ -83,21 +93,38 @@ export default function PresetDetail({
       const missing = matchedGroups.filter((path) => !previous.includes(path));
       return missing.length ? [...previous, ...missing] : previous;
     });
-  }, [queryText, assignedOnly]);
+  }, [queryText, showAssignedOnly, roleMode, aiueoKey, preset.openMouth, preset.aiueoMouth]);
+
+  function inScope(path: string): boolean {
+    return scopePath === null || path === scopePath || path.startsWith(scopePath + "/");
+  }
 
   function visibleInTree(path: string): boolean {
     const components = path.split("/");
-    return components.slice(1).every((_, i) =>
-      expanded.includes(components.slice(0, i + 1).join("/")));
+    // The selected group's row becomes the root of this view even when one
+    // of its ancestors was folded in the full PSD tree.
+    const firstAncestor = scopePath === null ? 1 : scopePath.split("/").length;
+    return components.slice(firstAncestor).every((_, i) =>
+      expanded.includes(components.slice(0, i + firstAncestor).join("/")));
+  }
+
+  function focusGroup(path: string): void {
+    setScopePath(path);
+    setExpanded((old) => old.includes(path) ? old : [...old, path]);
   }
 
   const shape = previewState === "base" ? undefined :
-    preset.openMouth?.[previewState];
+    previewState === "closed" || previewState === "opened"
+      ? preset.openMouth?.[previewState]
+      : preset.aiueoMouth?.[previewState.slice(6) as AiueoKey];
   const shapeKey = JSON.stringify([sourcePath, fingerprint, sourceIdentity, preset.base, shape, previewState]);
   useEffect(() => {
     if (previewState === "base" || sourceChanged || previewLoading) return;
     if (!shape?.length) {
-      setShapePreview({ key: shapeKey, error: "口形を指定してください" });
+      // An unconfigured aiueo shape starts from the full base portrait,
+      // not a blank checkerboard. Unconfigured Open keeps its existing guard.
+      setShapePreview(previewState.startsWith("aiueo-")
+        ? null : { key: shapeKey, error: "口形を指定してください" });
       return;
     }
     const abort = new AbortController();
@@ -142,15 +169,16 @@ export default function PresetDetail({
     return () => abort.abort();
   }, [shapeKey, browserRenderer, sourceChanged, previewLoading, verifySource]);
 
-  const shownPreview = sourceChanged ? undefined : previewState === "base" ? preview :
+  const unconfiguredAiueo = previewState.startsWith("aiueo-") && !shape?.length;
+  const shownPreview = sourceChanged ? undefined :
+    previewState === "base" || unconfiguredAiueo ? preview :
     shapePreview?.key === shapeKey ? shapePreview.image : undefined;
   const shownError = sourceChanged ? "PSDが変更されました。再読み込みしてください。" :
-    previewState === "base" ? previewError :
+    previewState === "base" || unconfiguredAiueo ? previewError :
     shapePreview?.key === shapeKey ? shapePreview.error : undefined;
-  const focusPaths = new Set([
-    ...(preset.openMouth?.closed ?? []),
-    ...(preset.openMouth?.opened ?? []),
-  ].map((item) => item.path));
+  const focusPaths = new Set((roleMode === "open" ? [
+    ...(preset.openMouth?.closed ?? []), ...(preset.openMouth?.opened ?? []),
+  ] : AIUEO_KEYS.flatMap((key) => preset.aiueoMouth?.[key] ?? [])).map((item) => item.path));
   const focusBounds = layers.filter((layer) =>
     focusPaths.has(layer.path) && layer.bbox.length === 4
     && layer.bbox.every(Number.isFinite));
@@ -178,7 +206,7 @@ export default function PresetDetail({
     ? { x: (x1 + x2) / (2 * canvasWidth), y: (y1 + y2) / (2 * canvasHeight) }
     : undefined;
   const hiddenParents = layers.filter((layer) => layer.kind !== "group"
-    && roles.get(layer.path) !== "none"
+    && roles.get(layer.path) !== unsetRole
     && layer.path.split("/").slice(0, -1).some((_, i, parts) =>
       baseByPath.get(parts.slice(0, i + 1).join("/")) === false));
 
@@ -187,7 +215,7 @@ export default function PresetDetail({
       <button type="button" className="secondary" onClick={onBack}>← 一覧へ</button>
     </div>
     <div className="preset-layout">
-      <section className="panel preset-editor">
+      <section className="panel preset-editor" data-role-mode={roleMode}>
         <h2>編集</h2>
         <label htmlFor="preset-name">名前</label>
         <div className="input-row">
@@ -198,39 +226,66 @@ export default function PresetDetail({
             onClick={() => onRename(nameDraft)}>名前を変更</button>
         </div>
         <div className="preset-role-tabs" role="group" aria-label="レイヤーの役割モード">
-          <button type="button" aria-pressed="true">Open</button>
-          <button type="button" disabled title="後続対応">aiueo（未対応）</button>
-          <button type="button" disabled title="後続対応">目・瞬き（未対応）</button>
+          <button type="button" aria-pressed={roleMode === "open"}
+            onClick={() => { setRoleMode("open"); setPreviewState("closed"); }}>Open</button>
+          <button type="button" aria-pressed={roleMode === "aiueo"}
+            onClick={() => { setRoleMode("aiueo"); setPreviewState(`aiueo-${aiueoKey}`); }}>aiueo</button>
         </div>
-        <p className="hint">レイヤー名をクリックすると位置を選択表示します。左のチェックは基本表示、右の「なし／閉／開」はOpenの役割です。</p>
+        {roleMode === "aiueo" && <div className="preset-aiueo-choice" role="group"
+          aria-label="編集する口形">
+          <button type="button" aria-pressed={editingBase} onClick={() => setPreviewState("base")}>
+            基本
+          </button>
+          {AIUEO_KEYS.map((key) => <button key={key} type="button"
+            aria-pressed={!editingBase && aiueoKey === key}
+            title={key === "n" ? "ん（無音・静止口）" : undefined}
+            onClick={() => { setAiueoKey(key); setPreviewState(`aiueo-${key}`); }}>
+            {AIUEO_LABELS[key]}
+          </button>)}
+        </div>}
+        {roleMode === "open" && <p className="hint">
+          レイヤー名は位置選択、左のチェックは基本表示、右の「なし／閉／開」はOpenの役割です。
+        </p>}
+        {scopePath !== null && <div className="preset-group-scope" role="group"
+          aria-label="表示中のグループ">
+          <span className="preset-group-scope-name">
+            {layers.find((layer) => layer.path === scopePath)?.name}
+          </span>
+          <button type="button" className="secondary" onClick={() => setScopePath(null)}>
+            全体へ戻る
+          </button>
+        </div>}
         <div className="preset-role-tools">
           <input aria-label="レイヤー検索" value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="レイヤー名・パスで検索" />
-          <label className="preset-role-filter"><input type="checkbox"
+          {roleMode === "open" && <label className="preset-role-filter"><input type="checkbox"
             checked={assignedOnly} onChange={(e) => setAssignedOnly(e.target.checked)} />
             割当済みのみ
-          </label>
+          </label>}
         </div>
         <div className="tree-tools">
           <button type="button" className="secondary" onClick={() =>
             setExpanded(layers.filter((layer) => layer.kind === "group").map((layer) => layer.path))
           }>すべて開く</button>
           <button type="button" className="secondary" onClick={() => setExpanded([])}>すべて閉じる</button>
-          <span className="hint">Open対象 {chosen} レイヤー</span>
+          {roleMode === "open" && <span className="hint">Open対象 {chosen} レイヤー</span>}
         </div>
-        <div className="preset-role-head" aria-hidden="true">
+        {roleMode === "open" && <div className="preset-role-head" aria-hidden="true">
           <span>基本表示・PSDレイヤー</span><span>Openの役割</span>
-        </div>
+        </div>}
         <div className="layer-list preset-layer-list" aria-label="プリセットのPSDレイヤー">
-          {layers.filter((layer) => (!activeFilter || matches.has(layer.path))
+          {layers.filter((layer) => inScope(layer.path)
+            && (!activeFilter || matches.has(layer.path))
             && visibleInTree(layer.path)).map((layer) => {
             const isGroup = layer.kind === "group";
             const on = baseByPath.get(layer.path) ?? false;
-            const depth = layer.path.split("/").length - 1;
-            const role = roles.get(layer.path) ?? "none";
-            const groupCount = isGroup ? [...roles].filter(([path, item]) =>
-              path.startsWith(layer.path + "/") && item !== "none").length : 0;
+            const depth = layer.path.split("/").length - 1
+              - (scopePath === null ? 0 : scopePath.split("/").length - 1);
+            const role = roles.get(layer.path) ?? unsetRole;
+            const groupCount = isGroup && roleMode === "open" ? [...roles].filter(([path, item]) =>
+              path.startsWith(layer.path + "/") && item !== unsetRole).length : 0;
             return <div key={layer.path} data-layer-path={layer.path}
+              data-aiueo-role={roleMode === "aiueo" && !isGroup && !editingBase ? role : undefined}
               data-selected={selectedPath === layer.path ? "true" : "false"}
               className={"layer preset-layer " + (isGroup ? "group" : "")}
               style={{ paddingLeft: 10 + depth * 13 }}>
@@ -243,18 +298,34 @@ export default function PresetDetail({
                 {expanded.includes(layer.path) ? "▾" : "▸"}
               </button>}
               <div className="preset-visibility-label">
-                <input type="checkbox" checked={on} onChange={() => onToggle(layer.path)}
-                  aria-label={layer.name + " [" + layer.path + "] 表示"} />
+                {(roleMode === "open" || editingBase || !isGroup) &&
+                  <input type="checkbox"
+                    checked={roleMode === "aiueo" && !editingBase
+                      ? role === "base" ? on : role === "show" : on}
+                    onChange={(event) => {
+                      if (roleMode === "aiueo" && !editingBase) {
+                        const next = event.target.checked;
+                        onAiueoRoleChange(aiueoKey, layer.path,
+                          next === on ? "base" : next ? "show" : "hide");
+                      } else onToggle(layer.path);
+                    }}
+                    aria-label={layer.name + " [" + layer.path + "] " +
+                      (roleMode === "open" ? "表示" : editingBase ? "基本" : AIUEO_LABELS[aiueoKey])} />}
                 <button type="button" className="preset-layer-select"
                   aria-pressed={selectedPath === layer.path}
                   aria-label={layer.name + " [" + layer.path + "] を選択"}
                   onClick={() => setSelectedPath((previous) =>
                     previous === layer.path ? null : layer.path)}>
-                  <span className="layer-path">{layer.path}</span>
+                  {roleMode === "open" && <span className="layer-path">{layer.path}</span>}
                   <span className="preset-layer-name">{layer.name}</span>
                 </button>
+                {isGroup && scopePath !== layer.path && <button type="button"
+                  className="secondary preset-group-focus"
+                  aria-label={layer.name + " [" + layer.path + "] だけ表示"}
+                  title="このグループだけ表示"
+                  onClick={() => focusGroup(layer.path)}>ここだけ</button>}
               </div>
-              {isGroup
+              {roleMode === "open" && (isGroup
                 ? <span className="preset-role-group-count">{groupCount ? "対象 " + groupCount : ""}</span>
                 : <div className="preset-layer-role" data-layer-path={layer.path}
                     data-open-role={role} role="group"
@@ -269,36 +340,40 @@ export default function PresetDetail({
                       </button>
                     ))}
                     {role === "custom" && <span className="preset-role-custom">既存の個別設定</span>}
-                  </div>}
+                  </div>)}
             </div>;
           })}
-          {activeFilter && matches.size === 0 && <p className="hint">該当するレイヤーがありません。</p>}
+          {activeFilter && !layers.some((layer) =>
+            inScope(layer.path) && matches.has(layer.path)) &&
+            <p className="hint">該当するレイヤーがありません。</p>}
         </div>
-        {hiddenParents.length > 0 && <p className="hint warning" role="status">
-          口形対象の親グループが非表示です。書き出すには左側の基本表示をONにしてください。
+        {hiddenParents.length > 0 && !editingBase && <p className="hint warning" role="status">
+          口形対象の親グループが非表示です。{roleMode === "aiueo"
+            ? "「基本」に切り替えて親グループをONにしてください。"
+            : "左側の基本表示をONにしてください。"}
         </p>}
-        {[...roles.values()].includes("custom") && <p className="hint warning">
+        {roleMode === "open" && [...roles.values()].includes("custom") && <p className="hint warning">
           既存の特殊な口形設定は保持しています。該当レイヤーの役割を選ぶと、そのレイヤーだけ通常のOpen割当に変更します。
         </p>}
-        <p className="hint">aiueo・目パチの割当とOpenの動作パラメータは後続対応です。</p>
         <button type="button" className="secondary preset-delete" onClick={onDelete}>このプリセットを削除</button>
       </section>
       <section className="panel preset-preview">
         <h2>プレビュー</h2>
-        <div className="preset-shape-tabs" role="group" aria-label="プレビューする状態">
+        {roleMode === "open" && <div className="preset-shape-tabs" role="group"
+          aria-label="プレビューする状態">
           <button type="button" aria-pressed={previewState === "base"}
             onClick={() => setPreviewState("base")}>基本表示</button>
           <button type="button" aria-pressed={previewState === "closed"}
             onClick={() => setPreviewState("closed")}>閉じ口</button>
           <button type="button" aria-pressed={previewState === "opened"}
             onClick={() => setPreviewState("opened")}>開き口</button>
-        </div>
-        <p className="hint preset-selected-summary" aria-live="polite">
+        </div>}
+        {(selectedLayer || roleMode === "open") && <p className="hint preset-selected-summary" aria-live="polite">
           {selectedLayer
             ? "選択中: " + selectedLayer.name + " [" + selectedLayer.path + "]" +
               (selectedBox ? "" : "（位置情報なし）")
             : "レイヤー名をクリックすると、その範囲をプレビューに表示します。"}
-        </p>
+        </p>}
         <PresetImagePreview image={shownPreview} alt={preset.name + " のプレビュー"}
           error={shownError} focus={focus} selectedBox={selectedBox}
           selectedFocus={selectedFocus} />

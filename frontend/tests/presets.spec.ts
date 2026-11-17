@@ -395,8 +395,8 @@ test("Open roles belong to the original PSD tree, retain base visibility and pre
   const closed = page.locator('.preset-layer-role[data-layer-path="0/0"]');
   const opened = page.locator('.preset-layer-role[data-layer-path="0/1"]');
   await expect(closed).toHaveAttribute("data-open-role", "none");
-  await expect(page.getByRole("button", { name: "aiueo（未対応）" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "目・瞬き（未対応）" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "aiueo", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "目・瞬き（未対応）" })).toHaveCount(0);
   await closed.getByRole("button", { name: "Open: 閉じ口" }).click();
   await opened.getByRole("button", { name: "Open: 開き口" }).click();
   await expect(closed.getByRole("button", { name: "Open: 閉じ口" }))
