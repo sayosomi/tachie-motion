@@ -21,7 +21,7 @@ MAX_INTERVALS = 50_000
 # Unknown phones must not be silently mapped to a vowel.
 SUPPORTED_PHONEMES = frozenset((
     "a i u e o A I U E O N pau sil silB silE br cl "
-    "b by ch d dy f g gy h hy j k ky m my n ny "
+    "b by ch d dy f g gw gy h hy j k kw ky m my n ny "
     "p py r ry s sh t ts ty v w y z"
 ).split())
 _TICK = re.compile(r"[0-9]{1,16}\Z")
