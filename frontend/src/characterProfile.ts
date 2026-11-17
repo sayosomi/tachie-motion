@@ -1,5 +1,6 @@
 import type { Layer } from "./LayerTree";
 import type { Presets, UnifiedPreset, Visibility } from "./presetModel";
+import { AIUEO_KEYS } from "./presetModel";
 
 // Portable, explicit character settings. Never a project snapshot or reload draft.
 export const CHARACTER_PROFILE_FORMAT = "tachie-motion-character-profile";
@@ -148,16 +149,24 @@ export function serializeCharacterProfile(
 /**
  * JSON index paths are structurally valid before PSD I/O, but the real layer
  * kinds only become available after /api/psd re-reads the source. A group is
- * allowed in the base visibility map, never as an Open mouth target.
+ * allowed in the base visibility map, never as a mouth-shape target.
  */
 export function validateCharacterProfileOpenTargets(profile: CharacterProfile, layers: Layer[]): void {
   const leafPaths = new Set(layers.filter((layer) => layer.kind !== "group")
     .map((layer) => layer.path));
   for (const preset of profile.collection.items) {
-    if (!preset.openMouth) continue;
-    for (const shape of [preset.openMouth.closed, preset.openMouth.opened]) {
-      if (shape.some(({ path }) => !leafPaths.has(path))) {
-        throw new Error("キャラクター設定JSONのOpen口形にグループまたは存在しないレイヤーが指定されています。編集内容は保持しています。");
+    if (preset.openMouth) {
+      for (const shape of [preset.openMouth.closed, preset.openMouth.opened]) {
+        if (shape.some(({ path }) => !leafPaths.has(path))) {
+          throw new Error("キャラクター設定JSONのOpen口形にグループまたは存在しないレイヤーが指定されています。編集内容は保持しています。");
+        }
+      }
+    }
+    if (preset.aiueoMouth) {
+      for (const key of AIUEO_KEYS) {
+        if (preset.aiueoMouth[key].some(({ path }) => !leafPaths.has(path))) {
+          throw new Error("キャラクター設定JSONのaiueo口形にグループまたは存在しないレイヤーが指定されています。編集内容は保持しています。");
+        }
       }
     }
   }
