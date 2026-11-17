@@ -121,7 +121,7 @@ test("project restore checks old PSDTool constraints after PSD inspection and be
   expect(recovered.problems).toEqual([]);
 });
 
-async function mockPsd(page: Page, rendering: Array<{ path: string; visible: boolean }[][]) {
+async function mockPsd(page: Page, rendering: Array<Array<{ path: string; visible: boolean }>>) {
   await page.route("**/api/psd", route => route.fulfill({ json: {
     width: 64, height: 64, preview: png, fingerprint, layers,
   } }));
