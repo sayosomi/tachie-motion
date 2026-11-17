@@ -30,7 +30,8 @@ class LabTests(unittest.TestCase):
     def test_exact_tick_intervals_gaps_phonemes_and_determinism(self):
         contents = (
             "0 2000000 pau\r\n"
-            "2000000 4000000 k\r\n"
+            "2000000 3000000 gw\r\n"
+            "3000000 4000000 kw\r\n"
             "4000000 5000000 a\r\n"
             "5500000 8000000 N\r\n"
             "8000000 10000000 sil\r\n"
@@ -47,7 +48,7 @@ class LabTests(unittest.TestCase):
             self.assertEqual(a, b)
             self.assertEqual(a.status, "valid")
             self.assertEqual(a.reason, None)
-            self.assertEqual([p.phoneme for p in a.intervals], ["pau", "k", "a", "N", "sil"])
+            self.assertEqual([p.phoneme for p in a.intervals], ["pau", "gw", "kw", "a", "N", "sil"])
             self.assertEqual(a.intervals[0].start_tick, 0)
             self.assertEqual(a.intervals[-1].end_tick, TICKS_PER_SECOND)
             self.assertEqual(hashlib.sha256(wav.read_bytes()).hexdigest(), wav_before)
