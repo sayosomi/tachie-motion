@@ -5,21 +5,26 @@ silently ignores a partial trailing sample frame. Validate the declared
 structure before using wave for the actual audio samples.
 """
 
+from contextlib import nullcontext
 from pathlib import Path
+from typing import BinaryIO
 import struct
 
 
 def validate_pcm_header(
     path: Path, *, sample_rate: int, channels: int,
     sample_width: int, sample_count: int,
+    stream: BinaryIO | None = None,
 ) -> None:
     """Validate fmt byte alignment/rate and complete declared PCM data frames.
 
     Scan RIFF chunk headers without buffering the audio data. Honor unknown
     pre-data chunks and word-alignment padding. A final odd-sized data chunk
     need not have a trailing pad byte (as emitted by Python's wave writer).
+    Optional stream keeps the parser bound to the already-open WAV inode;
+    callers own the stream and its lifetime.
     """
-    with path.open("rb") as stream:
+    with (path.open("rb") if stream is None else nullcontext(stream)) as stream:
         stream.seek(0, 2)
         file_size = stream.tell()
         stream.seek(0)
