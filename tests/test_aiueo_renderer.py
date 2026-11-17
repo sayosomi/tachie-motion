@@ -97,6 +97,41 @@ class AiueoCoreTests(unittest.TestCase):
                 }, shapes, [closed.rsplit("/", 1)[0]])
 
 
+    def test_psdtool_sibling_radio_and_mandatory_leaf_guards(self):
+        from PIL import Image
+        from psd_tools import PSDImage
+        from tachie_motion.psd.tree import walk_layers
+
+        psd = PSDImage.new(mode="RGB", size=(32, 32), depth=8)
+        group = psd.create_group(name="mouth")
+        for name in ("*A", "*B", "!fixed"):
+            group.create_pixel_layer(
+                Image.new("RGBA", (3, 3), (100, 120, 140, 255)),
+                name=name, left=2, top=2,
+            )
+        by_name = {summary.name: summary for summary in walk_layers(psd)}
+        selected = by_name["*A"].index_path
+        other = by_name["*B"].index_path
+        fixed = by_name["!fixed"].index_path
+        parent = selected[:-1]
+        base = {summary.index_path: (summary.index_path != other)
+                for summary in walk_layers(psd)}
+        def entry(path, visible):
+            return {"path": "/".join(map(str, path)), "visible": visible}
+        shapes = {key: [entry(selected, True)]
+                  for key in ("a", "i", "u", "e", "o", "n")}
+        group_path = ["/".join(map(str, parent))]
+        validate_aiueo_mouth(psd, base, shapes, group_path)
+        with self.assertRaisesRegex(ValueError, "exclusive"):
+            validate_aiueo_mouth(psd, base, {
+                **shapes, "a": [entry(other, True)],
+            }, group_path)
+        with self.assertRaisesRegex(ValueError, "mandatory"):
+            validate_aiueo_mouth(psd, base, {
+                **shapes, "i": [entry(fixed, False)],
+            }, group_path)
+
+
 @unittest.skipUnless(TestClient is not None, "httpx test extra required")
 class AiueoApiTests(unittest.TestCase):
     def setUp(self):
