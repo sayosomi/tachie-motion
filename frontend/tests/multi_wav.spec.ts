@@ -1273,3 +1273,31 @@ test("batch manifest and actual MOV requests agree for valid LAB none/open/aiueo
     expect(requests[index].lab_source_identity).toBe(entry.lab_source_identity);
   }
 });
+
+
+test("manual LAB recheck replaces a stale valid result without changing the WAV registration", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  let status: "valid" | "missing" = "valid";
+  let requests = 0;
+  await page.route("**/api/wav-lab", (route) => {
+    requests++;
+    return route.fulfill({ json: status === "valid"
+      ? { status: "valid", reason: null, source_identity: "9:8:7:6:5" }
+      : { status: "missing", reason: null, source_identity: null } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/external-lab-change.wav");
+  const row = page.locator("[data-utterance-id]").first();
+  const id = await row.getAttribute("data-utterance-id");
+  await expect(row.locator('[data-lab-status="valid"]')).toBeVisible();
+  status = "missing";
+  await page.getByRole("button", { name: "LABを再確認" }).click();
+  await expect(row.locator('[data-lab-status="missing"]')).toBeVisible();
+  await expect(row.locator('.utterance-row-mode option[value="aiueo"]'))
+    .toHaveAttribute("disabled", "");
+  expect(await row.getAttribute("data-utterance-id")).toBe(id);
+  expect(requests).toBeGreaterThanOrEqual(2);
+});

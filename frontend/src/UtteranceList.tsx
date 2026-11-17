@@ -9,6 +9,7 @@ type Props = {
   projectControls?: ReactNode;
   items: UtteranceItem[];
   labStatuses: Record<string, LabInfo>;
+  onRecheckLabs: () => void;
   presets: Pick<UnifiedPreset, "id" | "name">[];
   presetStatus: "loading" | "ready" | "error";
   selectedId: string | null;
@@ -32,7 +33,7 @@ type Props = {
 };
 
 export default function UtteranceList({
-  projectControls, items, labStatuses, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
+  projectControls, items, labStatuses, onRecheckLabs, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
   selectionLocked, exportingId, playback, onPathChange, onAdd, onAddMany, onSelect, onRevise,
   onMove, onReorder, onRemove, canApplyToAll, onApplyToAll,
 }: Props) {
@@ -51,6 +52,10 @@ export default function UtteranceList({
       <h2>WAV一覧</h2>
       <div className="utterance-list-toolbar">
         <span className="meta">{items.length}件</span>
+        <button type="button" disabled={disabled || selectionLocked || items.length === 0 ||
+          !!exportingId || addingCount > 0} onClick={onRecheckLabs}>
+          LABを再確認
+        </button>
         <button type="button" disabled={selectionLocked || items.length === 0}
           onClick={playback.playAll}>全件を連続再生</button>
         <button type="button" disabled={!playback.activeId}

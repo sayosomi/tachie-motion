@@ -63,6 +63,8 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const [destination, setDestination] = useState<DestinationCheck | null>(null);
   const [destinationError, setDestinationError] = useState("");
   const [probeVersion, setProbeVersion] = useState(0);
+  // A new project or explicit LAB recheck invalidates cached sibling-LAB checks.
+  const [labRefreshVersion, setLabRefreshVersion] = useState(0);
   const sequence = useRef(0);
   const latestAdd = useRef(0);
   const catalogEpoch = useRef(0);
@@ -70,7 +72,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const mounted = useRef(false);
   // Synchronous guard closes the gap before React commits exportingId state.
   const singleExportLock = useRef(false);
-  const labStatuses = useLabStatus(items, active);
+  const labStatuses = useLabStatus(items, active, labRefreshVersion);
   const batch = useBatchUtteranceExport(draft, items, setItems,
     () => setProbeVersion((previous) => previous + 1),
     active && exportScope === "all" && !projectBusy && !exportingId,
@@ -157,6 +159,9 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
       ...item, wavPath: wavPaths[item.id] ?? item.wavPath,
       wav: inspected.wavs[item.id], result: null, error: "",
     })));
+    // Restore can reuse IDs, paths and WAV stat identity even when the LAB
+    // changed. Never reuse LAB inspection results from the prior project.
+    setLabRefreshVersion((previous) => previous + 1);
     setActiveId(project.selectedId);
     setDraft(nextDraft);
     setPsdLayers(inspected.psd.layers);
@@ -326,7 +331,9 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     <div className="intro"><h1>セリフ</h1></div>
     <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件はMOVと全体OTIO 1本を生成します。aiueoには同名の有効なLABとプリセット6口形の設定が必要です。瞬き・待機・変更点は後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
-    <UtteranceList items={items} labStatuses={labStatuses} presets={draft?.collection.items ?? []}
+    <UtteranceList items={items} labStatuses={labStatuses}
+      onRecheckLabs={() => setLabRefreshVersion((previous) => previous + 1)}
+      presets={draft?.collection.items ?? []}
       projectControls={<ProjectActions
         draft={draft} layers={psdLayers} items={items} selectedId={activeId} naming={naming}
         disabled={editingLocked || addingCount > 0 || presetStatus === "loading"}

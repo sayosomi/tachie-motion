@@ -9,8 +9,8 @@ export type LabInfo = {
 type LabResponse = { status: "valid" | "missing" | "invalid"; reason: string | null; source_identity: string | null };
 type CheckedStatus = { key: string; value: LabInfo };
 
-function identityKey(item: UtteranceItem): string {
-  return JSON.stringify([item.id, item.wavPath, item.wav.source_identity]);
+function identityKey(item: UtteranceItem, version: number): string {
+  return JSON.stringify([item.id, item.wavPath, item.wav.source_identity, version]);
 }
 
 function isLabResponse(value: unknown): value is LabResponse {
@@ -25,21 +25,23 @@ function isLabResponse(value: unknown): value is LabResponse {
 }
 
 /** Async WAV-side LAB inspections are derived state, never project JSON data. */
-export function useLabStatus(items: UtteranceItem[], active: boolean): Record<string, LabInfo> {
+export function useLabStatus(
+  items: UtteranceItem[], active: boolean, refreshVersion: number,
+): Record<string, LabInfo> {
   const [checked, setChecked] = useState<Record<string, CheckedStatus>>({});
-  const key = JSON.stringify(items.map((item) => identityKey(item)));
+  const key = JSON.stringify(items.map((item) => identityKey(item, refreshVersion)));
   useEffect(() => {
     let cancelled = false;
     if (!active) {
       setChecked({});
       return () => { cancelled = true; };
     }
-    const expected = new Set(items.map((item) => identityKey(item)));
+    const expected = new Set(items.map((item) => identityKey(item, refreshVersion)));
     setChecked((previous) => Object.fromEntries(
       Object.entries(previous).filter(([, value]) => expected.has(value.key))));
     const candidates = items.filter((item) =>
       typeof item.wav.source_identity === "string" && item.wav.source_identity.length > 0 &&
-      checked[item.id]?.key !== identityKey(item));
+      checked[item.id]?.key !== identityKey(item, refreshVersion));
     let next = 0;
     const worker = async () => {
       while (!cancelled) {
@@ -66,7 +68,7 @@ export function useLabStatus(items: UtteranceItem[], active: boolean): Record<st
         }
         if (!cancelled) {
           setChecked((previous) => ({
-            ...previous, [item.id]: { key: identityKey(item), value },
+            ...previous, [item.id]: { key: identityKey(item, refreshVersion), value },
           }));
         }
       }
@@ -80,7 +82,7 @@ export function useLabStatus(items: UtteranceItem[], active: boolean): Record<st
     if (!item.wav.source_identity) {
       return [item.id, { status: "unavailable", reason: null }];
     }
-    return [item.id, checked[item.id]?.key === identityKey(item)
+    return [item.id, checked[item.id]?.key === identityKey(item, refreshVersion)
       ? checked[item.id].value : { status: "checking", reason: null }];
   }));
 }
