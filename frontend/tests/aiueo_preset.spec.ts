@@ -113,7 +113,7 @@ test("unconfigured Open and aiueo poses keep base preview and enable zoom before
   await layer(page, "0/1/0").getByRole("button", { name: /を選択/ }).click();
   await expect(selectedZoom).toBeEnabled();
   await selectedZoom.click();
-  await expect(image).toHaveAttribute("style", /scale\\(8\\)/);
+  await expect(image).toHaveAttribute("style", /scale\(8\)/);
 
   await page.getByRole("group", { name: "口パク方式" })
     .getByRole("button", { name: "aiueo" }).click();
@@ -123,7 +123,7 @@ test("unconfigured Open and aiueo poses keep base preview and enable zoom before
   await expect(selectedZoom).toBeEnabled();
   await page.getByRole("button", { name: "全体表示" }).click();
   await mouthZoom.click();
-  await expect(image).toHaveAttribute("style", /scale\\(8\\)/);
+  await expect(image).toHaveAttribute("style", /scale\(8\)/);
   await shape(page, "え").click();
   await expect(image).toHaveAttribute("src", png);
   await expect(selectedZoom).toBeEnabled();
