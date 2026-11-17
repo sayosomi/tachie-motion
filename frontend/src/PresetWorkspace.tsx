@@ -17,6 +17,7 @@ import {
 } from "./characterProfile";
 import { saveCharacterProfileFile } from "./characterProfileSave";
 import { effectiveMouthGroups, setMouthGroups } from "./motionGroups";
+import { validatePsdChoices } from "./psdChoice";
 
 type PsdData = {
   width: number; height: number; fingerprint: string; source_identity?: string;
@@ -304,10 +305,22 @@ export default function PresetWorkspace() {
 
   function updatePresets(next: Presets, drafts: Record<string, string> = nameDrafts) {
     if (sourceChanged || next === collection) return;
+    // Validate the complete composed mouth/eye poses BEFORE writing the draft
+    // or triggering a render. A base radio switch can conflict with an older
+    // phoneme override that inherits the newly selected sibling.
+    if (psd) {
+      try {
+        validatePsdChoices(next, psd.layers, "edit");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        return; // Leave UI, original overrides and localStorage unchanged.
+      }
+    }
     editVersion.current += 1;
     persist(next, drafts);
     setCollection(next);
     setDirty(true);
+    setError("");
   }
 
   function changeNameDraft(id: string, name: string) {
