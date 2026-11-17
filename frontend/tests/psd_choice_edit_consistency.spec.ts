@@ -72,8 +72,8 @@ test("base * switch cannot invalidate inherited aiueo shape; resolving the pose 
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "動かすパーツ" }).click();
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "基本" }).click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "通常レイヤー" }).click();
   await expect(radio(page, "0/0")).toBeChecked();
   // This click is deliberately rejected, so Playwright's .check() (which
   // requires the radio to end checked) would report a false test failure.
@@ -91,12 +91,14 @@ test("base * switch cannot invalidate inherited aiueo shape; resolving the pose 
 
   // Explicitly resolve the existing 'あ' pose first; no old overrides are
   // silently removed, and the previously rejected base edit then succeeds.
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "動かすパーツ" }).click();
   await page.getByRole("group", { name: "口パク方式" })
     .getByRole("button", { name: "aiueo" }).click();
   await radio(page, "0/1").check();
   await expect(radio(page, "0/0")).not.toBeChecked();
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "基本" }).click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "通常レイヤー" }).click();
   await radio(page, "0/1").check();
   await expect(radio(page, "0/1")).toBeChecked();
   await expect(page.getByRole("alert")).toHaveCount(0);
