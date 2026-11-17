@@ -2,21 +2,18 @@ import { useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
 
 type Point = { x: number; y: number };
-type SelectionBox = { x: number; y: number; width: number; height: number;
-  sourceWidth: number; sourceHeight: number };
 type Props = {
   image?: string;
   alt: string;
   error?: string;
   focus?: Point;
   selectedFocus?: Point;
-  selectedBox?: SelectionBox;
 };
 
 const LEVELS = [1, 1.5, 2, 3, 4, 6, 8];
 
 export default function PresetImagePreview({
-  image, alt, error, focus, selectedFocus, selectedBox,
+  image, alt, error, focus, selectedFocus,
 }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const img = useRef<HTMLImageElement>(null);
@@ -139,13 +136,6 @@ export default function PresetImagePreview({
         style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
         onLoad={() => setPan((previous) => bound(previous, zoom))} /> :
         <span className="preview-empty">{error || "プレビューを更新中…"}</span>}
-      {image && selectedBox && <svg className="preset-image-selection" aria-hidden="true"
-        viewBox={`0 0 ${selectedBox.sourceWidth} ${selectedBox.sourceHeight}`}
-        preserveAspectRatio="xMidYMid meet"
-        style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
-        <rect x={selectedBox.x} y={selectedBox.y} width={selectedBox.width}
-          height={selectedBox.height} />
-      </svg>}
     </div>
   </>;
 }

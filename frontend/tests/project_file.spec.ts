@@ -9,9 +9,9 @@ import {
 const source = "/tmp/立ち絵 e\u0301.psd";
 const wavPath = "/tmp/音声 e\u0301.wav";
 const layers = [
-  { path: "0", kind: "group", visible: true },
-  { path: "0/0", kind: "pixel", visible: true },
-  { path: "0/1", kind: "pixel", visible: false },
+  { path: "0", name: "顔", kind: "group", visible: true },
+  { path: "0/0", name: "閉じ口", kind: "pixel", visible: true },
+  { path: "0/1", name: "開き口", kind: "pixel", visible: false },
 ] as Layer[];
 const draft: PresetDraft = {
   version: 1, path: source, fingerprint: "1000:2000", nameDrafts: {},

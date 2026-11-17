@@ -1,4 +1,6 @@
 import type { Layer } from "./LayerTree";
+import type { MotionGroups } from "./motionGroups";
+import { applyChoice, choiceChanges, initialChoiceVisibility } from "./psdChoice";
 
 export type Visibility = { path: string; visible: boolean };
 export type Shape = Visibility[];
@@ -10,16 +12,24 @@ export type UnifiedPreset = {
   aiueoMouth?: { a: Shape; i: Shape; u: Shape; e: Shape; o: Shape; n: Shape };
   eyes?: { opened: Shape; closed: Shape };
   blinkEnabled: boolean;
+  /** Optional for backwards compatibility. Undefined means enabled. */
+  mouthMotionEnabled?: boolean;
 };
-export type Presets = { items: UnifiedPreset[]; defaultId: string | null };
+export type Presets = {
+  items: UnifiedPreset[];
+  defaultId: string | null;
+  /** PSD source-group bindings shared by all presets of one character. */
+  motionGroups?: MotionGroups;
+};
 
 export function createPreset(name: string, layers: Layer[]): UnifiedPreset {
   if (!name.trim()) throw new Error("プリセット名を入力してください");
   return {
     id: crypto.randomUUID(),
     name,
-    base: layers.map(({ path, visible }) => ({ path, visible })),
+    base: initialChoiceVisibility(layers),
     blinkEnabled: false,
+    mouthMotionEnabled: true,
   };
 }
 
@@ -45,6 +55,7 @@ export function appendPreset(current: Presets, preset: UnifiedPreset): Presets {
   if (current.items.some((item) => item.id === preset.id)) throw new Error("Duplicate preset ID");
   if (nameTaken(current, preset.name)) throw new Error("同じ名前のプリセットがあります");
   return {
+    ...current,
     items: [...current.items, preset],
     defaultId: current.defaultId ?? preset.id,
   };
@@ -81,6 +92,14 @@ export function toggleBaseLayer(current: Presets, id: string, path: string): Pre
   };
 }
 
+/** Apply PSDTool's radio / forced-visible conventions to one base state. */
+export function setBaseLayerChoice(
+  current: Presets, id: string, layers: Layer[], path: string, visible: boolean,
+): Presets {
+  return { ...current, items: current.items.map((item) => item.id === id
+    ? { ...item, base: applyChoice(item.base, layers, path, visible) } : item) };
+}
+
 export function reorderPresets(current: Presets, sourceId: string, targetId: string): Presets {
   if (sourceId === targetId) return current;
   const from = current.items.findIndex((item) => item.id === sourceId);
@@ -102,7 +121,8 @@ export function movePreset(current: Presets, id: string, direction: -1 | 1): Pre
 export function removeSessionPreset(current: Presets, id: string): Presets {
   const items = current.items.filter((item) => item.id !== id);
   if (items.length === current.items.length) return current;
-  return { items, defaultId: current.defaultId === id ? (items[0]?.id ?? null) : current.defaultId };
+  return { ...current, items,
+    defaultId: current.defaultId === id ? (items[0]?.id ?? null) : current.defaultId };
 }
 
 /** Six independently editable phoneme mouth states; "n" also serves as rest. */
@@ -189,4 +209,69 @@ export function assignOpenLayerRole(
   // Only remove the set when completely empty; other custom entries survive.
   return setOpenMouth(current, id, closed.length || opened.length
     ? { closed, opened } : undefined);
+}
+
+/** Preset-specific motion switch. A disabled mouth retains all shape settings. */
+export function setMouthMotionEnabled(current: Presets, id: string, enabled: boolean): Presets {
+  return { ...current, items: current.items.map((item) =>
+    item.id === id ? { ...item, mouthMotionEnabled: enabled } : item) };
+}
+
+/**
+ * Edit one Open shape as a real visibility checkbox. The opposite shape keeps
+ * its previous visibility (or the base value when it has no override).
+ * Open's paired-target invariant is preserved for JSON and the renderer.
+ */
+export function setOpenShapeVisibility(
+  current: Presets, id: string, shape: "closed" | "opened", path: string, visible: boolean,
+): Presets {
+  const preset = current.items.find((item) => item.id === id);
+  const base = preset?.base.find((layer) => layer.path === path);
+  if (!preset || !base) throw new Error("Unknown preset or layer");
+  const oldClosed = preset.openMouth?.closed.find((layer) => layer.path === path);
+  const oldOpened = preset.openMouth?.opened.find((layer) => layer.path === path);
+  const nextClosed = shape === "closed" ? visible : (oldClosed?.visible ?? base.visible);
+  const nextOpened = shape === "opened" ? visible : (oldOpened?.visible ?? base.visible);
+  const closedMap = new Map(preset.openMouth?.closed.map((layer) => [layer.path, layer.visible]));
+  const openedMap = new Map(preset.openMouth?.opened.map((layer) => [layer.path, layer.visible]));
+  // Clearing both deviations removes the target altogether.
+  if (nextClosed === base.visible && nextOpened === base.visible) {
+    closedMap.delete(path);
+    openedMap.delete(path);
+  } else {
+    closedMap.set(path, nextClosed);
+    openedMap.set(path, nextOpened);
+  }
+  const closed = preset.base.filter((layer) => closedMap.has(layer.path))
+    .map((layer) => ({ path: layer.path, visible: closedMap.get(layer.path)! }));
+  const opened = preset.base.filter((layer) => openedMap.has(layer.path))
+    .map((layer) => ({ path: layer.path, visible: openedMap.get(layer.path)! }));
+  return setOpenMouth(current, id, closed.length ? { closed, opened } : undefined);
+}
+
+/** Set one radio selection in one Open shape, keeping the opposite shape intact. */
+export function setOpenPsdChoice(
+  current: Presets, id: string, layers: Layer[],
+  shape: "closed" | "opened", path: string, visible: boolean,
+): Presets {
+  return choiceChanges(layers, path, visible).reduce(
+    (next, entry) => setOpenShapeVisibility(next, id, shape, entry.path, entry.visible),
+    current,
+  );
+}
+
+/** Sibling radio exclusion is local to the selected aiueo mouth shape. */
+export function setAiueoPsdChoice(
+  current: Presets, id: string, layers: Layer[],
+  key: AiueoKey, path: string, visible: boolean,
+): Presets {
+  const preset = current.items.find((item) => item.id === id);
+  if (!preset) throw new Error("Unknown preset");
+  const base = new Map(preset.base.map((entry) => [entry.path, entry.visible]));
+  return choiceChanges(layers, path, visible).reduce((next, entry) => {
+    const baseline = base.get(entry.path);
+    if (baseline === undefined) throw new Error("Unknown source layer path");
+    return assignAiueoLayerRole(next, id, key, entry.path,
+      entry.visible === baseline ? "base" : entry.visible ? "show" : "hide");
+  }, current);
 }

@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { assignOpenPair } from "./motion_helpers";
 
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tmdoAAAAASUVORK5CYII=";
 const layers = [
@@ -45,12 +46,11 @@ test("new preset-backed none/open utterance workflow sends exact preset snapshot
   await page.locator("#preset-psd-path").fill("/tmp/character.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  const closedRole = page.locator('.preset-layer-role[data-layer-path="0/0"]');
-  const openRole = page.locator('.preset-layer-role[data-layer-path="0/1"]');
-  await closedRole.getByRole("button", { name: "Open: 閉じ口" }).click();
-  await openRole.getByRole("button", { name: "Open: 開き口" }).click();
-  await expect(closedRole).toHaveAttribute("data-open-role", "closed");
-  await expect(openRole).toHaveAttribute("data-open-role", "opened");
+  await assignOpenPair(page);
+  await expect(page.locator('.preset-layer[data-layer-path="0/0"]'))
+    .toHaveAttribute("data-open-role", "closed");
+  await expect(page.locator('.preset-layer[data-layer-path="0/1"]'))
+    .toHaveAttribute("data-open-role", "opened");
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await page.getByRole("button", { name: "セリフ", exact: true }).click();
   await expect(page.getByRole("heading", { name: "セリフ" })).toBeVisible();
@@ -222,10 +222,7 @@ test("one WAV sends identical open-mouth render settings through single and all 
   await page.locator("#preset-psd-path").fill("/tmp/character.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/0"]')
-    .getByRole("button", { name: "Open: 閉じ口" }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/1"]')
-    .getByRole("button", { name: "Open: 開き口" }).click();
+  await assignOpenPair(page);
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await page.getByRole("button", { name: "セリフ", exact: true }).click();
 
@@ -267,4 +264,39 @@ test("one WAV sends identical open-mouth render settings through single and all 
   expect(requests[2].mode).toBe("open");
   expect(requests[2].mouth).toEqual(requests[0].mouth);
   expect(requests[2].layers).toEqual(requests[0].layers);
+});
+
+test("a fixed-expression preset exports none even when the WAV row selects open", async ({ page }) => {
+  await mockPsd(page);
+  const exports: Array<Record<string, unknown>> = [];
+  await page.route("**/api/preset-utterance-export", route => {
+    exports.push(route.request().postDataJSON());
+    return route.fulfill({ json: {
+      mov: "/tmp/fixed.mov", otio: "/tmp/fixed.otio", frames: 30, sample_count: 1000,
+    } });
+  });
+  await page.goto("/");
+  await page.locator("#preset-psd-path-advanced").evaluate(el =>
+    { (el as HTMLDetailsElement).open = true; });
+  await page.locator("#preset-psd-path").fill("/tmp/character.psd");
+  await page.getByRole("button", { name: "読み込む", exact: true }).click();
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  await assignOpenPair(page);
+  await page.getByRole("checkbox", { name: "口パク", exact: true }).uncheck();
+  const before = JSON.parse((await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+  expect(before.collection.items[0].openMouth.closed).toHaveLength(2);
+  expect(before.collection.items[0].mouthMotionEnabled).toBe(false);
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await page.locator("#speech-wav-path-advanced").evaluate(el =>
+    { (el as HTMLDetailsElement).open = true; });
+  await page.locator("#speech-wav-path").fill("/tmp/voice.wav");
+  await page.getByRole("button", { name: "WAVを確認" }).click();
+  await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
+  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeEnabled();
+  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  expect(exports).toHaveLength(1);
+  expect(exports[0]).toMatchObject({ mode: "none", mouth: null, blink_enabled: false });
 });

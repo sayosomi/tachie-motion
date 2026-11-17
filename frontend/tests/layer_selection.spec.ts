@@ -31,9 +31,8 @@ test("PSD name selection uses unique paths without toggling base or Open roles",
   const previewRequestCount = await openDetail(page);
   const secondName = page.getByRole("button", { name: "目 [0/1] を選択" });
   const firstName = page.getByRole("button", { name: "目 [0/0] を選択" });
-  const secondCheckbox = page.getByRole("checkbox", { name: "目 [0/1] 表示" });
-  const secondRole = page.locator('.preset-layer-role[data-layer-path="0/1"]');
-  const overlay = page.locator(".preset-image-selection");
+  const secondCheckbox = page.getByRole("checkbox", { name: "目 [0/1] 基本" });
+
 
   await expect(page.getByRole("button", { name: "選択位置へ" })).toBeDisabled();
   const originalSaved = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
@@ -43,21 +42,16 @@ test("PSD name selection uses unique paths without toggling base or Open roles",
   await expect(secondName).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator('.preset-layer[data-layer-path="0/1"]')).toHaveAttribute("data-selected", "true");
   await expect(secondCheckbox).not.toBeChecked();
-  await expect(secondRole).toHaveAttribute("data-open-role", "none");
+
   await expect(page.locator(".preset-selected-summary")).toContainText("目 [0/1]");
-  await expect(overlay).toHaveAttribute("viewBox", "0 0 64 64");
-  await expect(overlay.locator("rect")).toHaveAttribute("x", "22");
-  await expect(overlay.locator("rect")).toHaveAttribute("y", "28");
-  await expect(overlay.locator("rect")).toHaveAttribute("width", "20");
-  await expect(overlay.locator("rect")).toHaveAttribute("height", "20");
+  await expect(page.locator(".preset-image-selection")).toHaveCount(0);
   expect(previewRequestCount()).toBe(previousCalls);
   expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(originalSaved);
 
   await firstName.click();
   await expect(firstName).toHaveAttribute("aria-pressed", "true");
   await expect(secondName).toHaveAttribute("aria-pressed", "false");
-  await expect(overlay.locator("rect")).toHaveAttribute("x", "4");
-  await expect(overlay.locator("rect")).toHaveAttribute("y", "6");
+  await expect(page.locator(".preset-selected-summary")).toContainText("目 [0/0]");
 
   await secondName.focus();
   await page.keyboard.press("Space");
@@ -66,30 +60,30 @@ test("PSD name selection uses unique paths without toggling base or Open roles",
 
   await page.getByRole("textbox", { name: "レイヤー検索" }).fill("0/0");
   await expect(secondName).toHaveCount(0);
-  await expect(overlay.locator("rect")).toHaveAttribute("x", "22");
+  await expect(page.locator(".preset-selected-summary")).toContainText("目 [0/1]");
   await page.getByRole("textbox", { name: "レイヤー検索" }).fill("");
   await expect(secondName).toHaveAttribute("aria-pressed", "true");
 
   await page.getByRole("button", { name: "顔 [0] を閉じる" }).click();
   await expect(secondName).toHaveCount(0);
-  await expect(overlay.locator("rect")).toHaveAttribute("x", "22");
+  await expect(page.locator(".preset-selected-summary")).toContainText("目 [0/1]");
   await page.getByRole("button", { name: "顔 [0] を開く" }).click();
   await expect(secondName).toHaveAttribute("aria-pressed", "true");
 
   await page.getByRole("button", { name: "選択位置へ" }).click();
   const img = page.locator(".preset-image-viewport img");
   await expect(img).toHaveAttribute("style", /scale\(8\)/);
-  await expect(overlay).toHaveAttribute("style", await img.getAttribute("style") ?? "");
+  await expect(page.locator(".preset-image-selection")).toHaveCount(0);
   await secondCheckbox.check();
   await expect(secondName).toHaveAttribute("aria-pressed", "true");
-  await expect(secondRole).toHaveAttribute("data-open-role", "none");
+
 
   await secondName.click();
-  await expect(overlay).toHaveCount(0);
+  await expect(page.locator(".preset-image-selection")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "選択位置へ" })).toBeDisabled();
 });
 
-test("empty bounding boxes omit misleading preview overlays; selection never persists", async ({ page }) => {
+test("empty bounding boxes disable focus; selection never persists", async ({ page }) => {
   await openDetail(page);
   await page.getByRole("button", { name: "範囲なし [1] を選択" }).click();
   await expect(page.locator(".preset-selected-summary")).toContainText("位置情報なし");
@@ -102,7 +96,7 @@ test("empty bounding boxes omit misleading preview overlays; selection never per
   await expect(page.locator(".preset-layer[data-selected=true]")).toHaveCount(0);
 });
 
-test("tall PSD overlay aligns with the image's contained canvas rather than viewport edges", async ({ page }) => {
+test("tall PSD selection zooms to the layer without drawing an outline", async ({ page }) => {
   const tall = "data:image/svg+xml," + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="3300">' +
     '<rect width="1500" height="3300" fill="#406080" /></svg>');
@@ -124,27 +118,15 @@ test("tall PSD overlay aligns with the image's contained canvas rather than view
   await page.locator("#preset-psd-path").fill("/tmp/tall-selection.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await expect(page.locator(".preset-image-viewport img")).toBeVisible();
+  const image = page.locator(".preset-image-viewport img");
+  await expect(image).toBeVisible();
   await page.getByRole("button", { name: "口 [0/0] を選択" }).click();
-
-  const position = await page.locator(".preset-image-viewport").evaluate((stage) => {
-    const rect = stage.querySelector(".preset-image-selection rect");
-    if (!rect) throw new Error("Missing selected PSD overlay");
-    const actual = rect.getBoundingClientRect();
-    const container = stage.getBoundingClientRect();
-    const scale = Math.min(stage.clientWidth / 1500, stage.clientHeight / 3300);
-    const letterboxX = (stage.clientWidth - 1500 * scale) / 2;
-    const letterboxY = (stage.clientHeight - 3300 * scale) / 2;
-    return {
-      x: actual.x - container.x, y: actual.y - container.y,
-      w: actual.width, h: actual.height,
-      expectedX: letterboxX + 650 * scale,
-      expectedY: letterboxY + 1100 * scale,
-      expectedW: 200 * scale, expectedH: 60 * scale,
-    };
-  });
-  expect(Math.abs(position.x - position.expectedX)).toBeLessThan(2);
-  expect(Math.abs(position.y - position.expectedY)).toBeLessThan(2);
-  expect(Math.abs(position.w - position.expectedW)).toBeLessThan(2);
-  expect(Math.abs(position.h - position.expectedH)).toBeLessThan(2);
+  await expect(page.getByRole("button", { name: "選択位置へ" })).toBeEnabled();
+  await expect(page.locator(".preset-image-selection")).toHaveCount(0);
+  await page.getByRole("button", { name: "選択位置へ" }).click();
+  await expect(image).toHaveAttribute("style", /scale\(8\)/);
+  await expect(image).not.toHaveAttribute("style", "transform: translate(0px, 0px) scale(8);");
+  await expect(page.locator(".preset-image-selection")).toHaveCount(0);
+  await page.getByRole("button", { name: "全体表示" }).click();
+  await expect(image).toHaveAttribute("style", "transform: translate(0px, 0px) scale(1);");
 });

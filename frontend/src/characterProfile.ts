@@ -1,6 +1,8 @@
 import type { Layer } from "./LayerTree";
 import type { Presets, UnifiedPreset, Visibility } from "./presetModel";
 import { AIUEO_KEYS } from "./presetModel";
+import { validMotionGroups } from "./motionGroups";
+import { validatePsdChoices } from "./psdChoice";
 
 // Portable, explicit character settings. Never a project snapshot or reload draft.
 export const CHARACTER_PROFILE_FORMAT = "tachie-motion-character-profile";
@@ -64,7 +66,7 @@ function paired(value: unknown, keys: string[], allowed: Set<string>): Record<st
 }
 
 function preset(value: unknown, allowed: Set<string>): UnifiedPreset {
-  fields(value, ["id", "name", "base", "blinkEnabled"], ["openMouth", "aiueoMouth", "eyes"]);
+  fields(value, ["id", "name", "base", "blinkEnabled"], ["openMouth", "aiueoMouth", "eyes", "mouthMotionEnabled"]);
   // Preset IDs are opaque stable identifiers, not necessarily UUIDs.
   // Reject Object.prototype property names because UI state indexes drafts
   // and previews by ID using ordinary JavaScript records.
@@ -73,6 +75,10 @@ function preset(value: unknown, allowed: Set<string>): UnifiedPreset {
       typeof value.name !== "string" || !value.name.trim() ||
       typeof value.blinkEnabled !== "boolean") {
     throw new Error("キャラクター設定JSONのプリセットが不正です");
+  }
+  if (Object.hasOwn(value, "mouthMotionEnabled") &&
+      typeof value.mouthMotionEnabled !== "boolean") {
+    throw new Error("キャラクター設定JSONの口パク切替が不正です");
   }
   state(value.base, allowed, true);
   if (Object.hasOwn(value, "openMouth")) {
@@ -110,8 +116,12 @@ export function parseCharacterProfile(text: string): CharacterProfile {
   }
   const allPaths = paths(source.layerPaths, false);
   const allowed = new Set(allPaths);
-  fields(data.collection, ["items", "defaultId"]);
+  fields(data.collection, ["items", "defaultId"], ["motionGroups"]);
   const collection = data.collection;
+  if (Object.hasOwn(collection, "motionGroups")) {
+    fields(collection.motionGroups, ["mouth"]);
+    paths(collection.motionGroups.mouth, true);
+  }
   if (!Array.isArray(collection.items) || collection.items.length > MAX_PRESETS) {
     throw new Error("キャラクター設定JSONのプリセット数が不正です");
   }
@@ -142,7 +152,10 @@ export function serializeCharacterProfile(
   if (new TextEncoder().encode(text).byteLength > MAX_PROFILE_SIZE) {
     throw new Error("キャラクター設定JSONが大きすぎます");
   }
-  parseCharacterProfile(text);
+  const parsed = parseCharacterProfile(text);
+  // Export uses source layer metadata too: never produce a portable JSON (or
+  // project JSON embedding it) with a conflicting effective PSDTool state.
+  validateCharacterProfileOpenTargets(parsed, layers);
   return text;
 }
 
@@ -152,6 +165,9 @@ export function serializeCharacterProfile(
  * allowed in the base visibility map, never as a mouth-shape target.
  */
 export function validateCharacterProfileOpenTargets(profile: CharacterProfile, layers: Layer[]): void {
+  if (!validMotionGroups(profile.collection, layers)) {
+    throw new Error("キャラクター設定JSONの動作対象グループが不正です。編集内容は保持しています。");
+  }
   const leafPaths = new Set(layers.filter((layer) => layer.kind !== "group")
     .map((layer) => layer.path));
   for (const preset of profile.collection.items) {
@@ -169,7 +185,14 @@ export function validateCharacterProfileOpenTargets(profile: CharacterProfile, l
         }
       }
     }
+    if (preset.eyes && [preset.eyes.opened, preset.eyes.closed].some((shape) =>
+      shape.some(({ path }) => !leafPaths.has(path)))) {
+      throw new Error("キャラクター設定JSONの瞬き設定にグループまたは存在しないレイヤーが指定されています。編集内容は保持しています。");
+    }
   }
+  // Checked only after /api/psd supplies the source layer names and kinds.
+  // Invalid legacy overrides must not become active UI/export state.
+  validatePsdChoices(profile.collection, layers);
 }
 
 export function matchesCharacterProfileSource(

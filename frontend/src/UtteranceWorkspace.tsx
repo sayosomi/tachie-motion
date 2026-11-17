@@ -347,7 +347,8 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
       onApplyToAll={applySelectedAnimationToAll} />
     <UtteranceExportPanel
         items={items} current={current} draftAvailable={!!draft}
-        openMouthMissing={current?.mode === "open" && !openMouthReady(selected)}
+        openMouthMissing={current?.mode === "open" && selected?.mouthMotionEnabled !== false
+          && !openMouthReady(selected)}
         blinkUnsupported={!!selected?.blinkEnabled}
         info={info} destinationError={destinationError}
         requiresAlternate={requiresAlternate} saveAsName={saveAsName}

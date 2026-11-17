@@ -5,8 +5,9 @@ import NativeFilePicker from "./NativeFilePicker";
 import { PreviewSourceChangedError, useBrowserPreview } from "./useBrowserPreview";
 import {
   appendPreset, availablePresetName, createPreset, duplicatePreset, movePreset,
-  removeSessionPreset, renamePreset, reorderPresets, toggleBaseLayer,
-  assignOpenLayerRole, assignAiueoLayerRole, type AiueoKey, type AiueoLayerRole,
+  removeSessionPreset, renamePreset, reorderPresets,
+  setBaseLayerChoice, setAiueoPsdChoice, setOpenPsdChoice, setMouthMotionEnabled,
+  type AiueoKey,
   type Presets, type UnifiedPreset,
 } from "./presetModel";
 import { matchesSource, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
@@ -15,6 +16,8 @@ import {
   serializeCharacterProfile, validateCharacterProfileOpenTargets,
 } from "./characterProfile";
 import { saveCharacterProfileFile } from "./characterProfileSave";
+import { effectiveMouthGroups, setMouthGroups } from "./motionGroups";
+import { validatePsdChoices } from "./psdChoice";
 
 type PsdData = {
   width: number; height: number; fingerprint: string; source_identity?: string;
@@ -92,7 +95,9 @@ export default function PresetWorkspace() {
       .then((data) => {
         if (cancelled) return;
         if (!matchesSource(recovery, data.fingerprint, data.layers)) {
-          setRestoreMessage("PSDが変更されています。保存済みの編集内容は保持していますが、復元はしていません。");
+          setRestoreMessage(data.fingerprint !== recovery.fingerprint
+            ? "PSDが変更されています。保存済みの編集内容は保持していますが、復元はしていません。"
+            : "PSDのレイヤー構造、口形参照、または*・!の保存状態に不整合があります。保存データは変更せず、復元を中止しました。");
           return;
         }
         setPsd(data);
@@ -169,7 +174,9 @@ export default function PresetWorkspace() {
       }
       if (recoveringSameSource && recovery) {
         if (!matchesSource(recovery, data.fingerprint, data.layers)) {
-          throw new Error("元PSDが変更されているため復元できません。保存済みデータは保持しています。");
+          throw new Error(data.fingerprint !== recovery.fingerprint
+            ? "元PSDが変更されているため復元できません。保存済みデータは保持しています。"
+            : "PSDのレイヤー構造、口形参照、または*・!の保存状態が一致しません。保存データは保持しています。");
         }
         setPsd(data);
         setLoadedPath(requested);
@@ -190,7 +197,8 @@ export default function PresetWorkspace() {
       setPsdPath(requested);
       setCollection(next);
       setNameDrafts({});
-      setPreviews({ [first.id]: { signature: signature(first), image: data.preview } });
+      setPreviews(first.base.every((state, i) => state.visible === data.layers[i].visible)
+        ? { [first.id]: { signature: signature(first), image: data.preview } } : {});
       setDirty(false);
       savedRecovery.current = null;
       setRestoreMessage("");
@@ -297,10 +305,22 @@ export default function PresetWorkspace() {
 
   function updatePresets(next: Presets, drafts: Record<string, string> = nameDrafts) {
     if (sourceChanged || next === collection) return;
+    // Validate the complete composed mouth/eye poses BEFORE writing the draft
+    // or triggering a render. A base radio switch can conflict with an older
+    // phoneme override that inherits the newly selected sibling.
+    if (psd) {
+      try {
+        validatePsdChoices(next, psd.layers, "edit");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        return; // Leave UI, original overrides and localStorage unchanged.
+      }
+    }
     editVersion.current += 1;
     persist(next, drafts);
     setCollection(next);
     setDirty(true);
+    setError("");
   }
 
   function changeNameDraft(id: string, name: string) {
@@ -366,9 +386,11 @@ export default function PresetWorkspace() {
     if (!psd) return;
     const preset = createPreset(availablePresetName(collection, "新しいプリセット"), psd.layers);
     updatePresets(appendPreset(collection, preset));
-    setPreviews((old) => ({
-      ...old, [preset.id]: { signature: signature(preset), image: psd.preview },
-    }));
+    if (preset.base.every((state, i) => state.visible === psd.layers[i].visible)) {
+      setPreviews((old) => ({
+        ...old, [preset.id]: { signature: signature(preset), image: psd.preview },
+      }));
+    }
     navigate(preset.id);
   }
 
@@ -471,10 +493,17 @@ export default function PresetWorkspace() {
         setNameDrafts(nextDrafts);
         setError("");
       } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }}
-      onToggle={(path) => updatePresets(toggleBaseLayer(collection, active.id, path))}
-      onOpenRoleChange={(path, role) => updatePresets(assignOpenLayerRole(collection, active.id, path, role))}
-      onAiueoRoleChange={(key: AiueoKey, path: string, role: AiueoLayerRole) =>
-        updatePresets(assignAiueoLayerRole(collection, active.id, key, path, role))}
+      onToggle={(path, visible) =>
+        updatePresets(setBaseLayerChoice(collection, active.id, psd.layers, path, visible))}
+      mouthGroups={effectiveMouthGroups(collection, psd.layers)}
+      onMouthGroupsChange={(groups) =>
+        updatePresets(setMouthGroups(collection, psd.layers, groups))}
+      onMouthMotionChange={(enabled) =>
+        updatePresets(setMouthMotionEnabled(collection, active.id, enabled))}
+      onOpenShapeChange={(shape, path, visible) =>
+        updatePresets(setOpenPsdChoice(collection, active.id, psd.layers, shape, path, visible))}
+      onAiueoChoiceChange={(key: AiueoKey, path: string, visible: boolean) =>
+        updatePresets(setAiueoPsdChoice(collection, active.id, psd.layers, key, path, visible))}
       onDelete={() => remove(active.id)}
     /> : psd && <section className="panel preset-list-section">
       <div className="preset-list-header">

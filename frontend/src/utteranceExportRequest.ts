@@ -7,7 +7,7 @@ export type ConflictPolicy = "error" | "overwrite";
 /** Both single and all-item exports must share the exact same render inputs. */
 export function exportReady(preset: UnifiedPreset | undefined, item: UtteranceItem): boolean {
   if (!preset || preset.blinkEnabled) return false;
-  if (item.mode === "none") return true;
+  if (item.mode === "none" || preset.mouthMotionEnabled === false) return true;
   const mouth = preset.openMouth;
   return item.mode === "open" && Boolean(
     mouth && mouth.closed.length > 0 &&
@@ -26,8 +26,8 @@ export function exportPayload(
     source_identity: item.wav.source_identity,
     fingerprint: draft.fingerprint,
     layers: preset.base,
-    mouth: preset.openMouth ?? null,
-    mode: item.mode,
+    mouth: preset.mouthMotionEnabled === false ? null : (preset.openMouth ?? null),
+    mode: preset.mouthMotionEnabled === false ? "none" : item.mode,
     blink_enabled: preset.blinkEnabled,
     output_dir: item.outputDir,
     basename,

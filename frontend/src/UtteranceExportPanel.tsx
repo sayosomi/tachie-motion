@@ -171,7 +171,8 @@ export default function UtteranceExportPanel({
             {wavFilename(plan.item.wavPath)}
           </span>
           <span>プリセット: {plan.preset.name}</span>
-          <span>口パク: {plan.item.mode === "open" ? "open" : "なし"} ／ {plan.item.fps} fps</span>
+          <span>口パク: {plan.preset.mouthMotionEnabled === false ? "なし（プリセット設定）"
+             : plan.item.mode === "open" ? "open" : "なし"} ／ {plan.item.fps} fps</span>
           <span className="export-plan-path" title={plan.canonicalOutputDir}>
             出力先: {plan.canonicalOutputDir}
           </span>

@@ -1,6 +1,8 @@
 import type { Layer } from "./LayerTree";
 import type { Presets } from "./presetModel";
 import { AIUEO_KEYS } from "./presetModel";
+import { validMotionGroups } from "./motionGroups";
+import { validatePsdChoices } from "./psdChoice";
 
 // Crash/reload recovery for this one browser and exact site origin only.
 // Not the versioned, portable character-profile format in PRODUCT_SPEC §7.
@@ -33,6 +35,17 @@ export function readPresetDraft(): PresetDraft | null {
     throw new Error("保存済みプリセットの形式が不正です");
   }
   const collection = value.collection as unknown as Presets;
+  if (collection.motionGroups !== undefined) {
+    const motion: unknown = collection.motionGroups;
+    if (!object(motion) || Object.keys(motion).length !== 1 ||
+        !Array.isArray(motion.mouth) || motion.mouth.length > 50_000 ||
+        new Set(motion.mouth).size !== motion.mouth.length ||
+        !motion.mouth.every((path: unknown) =>
+          typeof path === "string" && /^(0|[1-9][0-9]*)(\/(0|[1-9][0-9]*))*$/.test(path)
+          && path.length <= 256)) {
+      throw new Error("保存済み動作対象グループが不正です");
+    }
+  }
   if (typeof collection.defaultId !== "string" && collection.defaultId !== null) {
     throw new Error("既定プリセットのIDが不正です");
   }
@@ -42,7 +55,8 @@ export function readPresetDraft(): PresetDraft | null {
     if (!object(item) || typeof item.id !== "string" || !item.id
       || Object.hasOwn(Object.prototype, item.id)
       || typeof item.name !== "string" || !item.name.trim()
-      || !Array.isArray(item.base) || typeof item.blinkEnabled !== "boolean") {
+      || !Array.isArray(item.base) || typeof item.blinkEnabled !== "boolean"
+      || (item.mouthMotionEnabled !== undefined && typeof item.mouthMotionEnabled !== "boolean")) {
       throw new Error("保存済みプリセットの内容が不正です");
     }
     const name = item.name.trim().normalize("NFC").toLocaleLowerCase();
@@ -52,7 +66,8 @@ export function readPresetDraft(): PresetDraft | null {
     ids.add(item.id);
     names.add(name);
     for (const layer of item.base) {
-      if (!object(layer) || typeof layer.path !== "string" || typeof layer.visible !== "boolean") {
+      if (!object(layer) || Object.keys(layer).length !== 2 ||
+          typeof layer.path !== "string" || typeof layer.visible !== "boolean") {
         throw new Error("保存済みレイヤー設定が不正です");
       }
     }
@@ -60,7 +75,7 @@ export function readPresetDraft(): PresetDraft | null {
   // Stored edits must be safe to render after a reload, including aiueo
   // mappings that are not yet used for video export.
   for (const item of collection.items) {
-    if (item.openMouth === undefined && item.aiueoMouth === undefined) continue;
+    if (item.openMouth === undefined && item.aiueoMouth === undefined && item.eyes === undefined) continue;
     const basePaths = new Set(item.base.map((layer) => layer.path));
     const parseShape = (value: unknown): Set<string> => {
       if (!Array.isArray(value) || value.length > basePaths.size) {
@@ -68,8 +83,8 @@ export function readPresetDraft(): PresetDraft | null {
       }
       const paths = new Set<string>();
       for (const layer of value) {
-        if (!object(layer) || typeof layer.path !== "string" ||
-            typeof layer.visible !== "boolean" ||
+        if (!object(layer) || Object.keys(layer).length !== 2 ||
+            typeof layer.path !== "string" || typeof layer.visible !== "boolean" ||
             !basePaths.has(layer.path) || paths.has(layer.path)) {
           throw new Error("保存済み口形レイヤーが不正です");
         }
@@ -95,6 +110,15 @@ export function readPresetDraft(): PresetDraft | null {
       }
       for (const key of AIUEO_KEYS) parseShape(mouth[key]);
     }
+    if (item.eyes !== undefined) {
+      const eyes: unknown = item.eyes;
+      if (!object(eyes) || Object.keys(eyes).length !== 2 ||
+          !Object.hasOwn(eyes, "opened") || !Object.hasOwn(eyes, "closed")) {
+        throw new Error("保存済み瞬き設定が不正です");
+      }
+      parseShape(eyes.opened);
+      parseShape(eyes.closed);
+    }
   }
   if (collection.defaultId !== null && !ids.has(collection.defaultId)) {
     throw new Error("既定プリセットが見つかりません");
@@ -113,16 +137,32 @@ export function matchesSource(draft: PresetDraft, fingerprint: string, layers: L
   if (paths.size !== layers.length) return false;
   const leafPaths = new Set(layers.filter((layer) => layer.kind !== "group")
     .map((layer) => layer.path));
-  return draft.collection.items.every((item) => {
-    const savedPaths = new Set(item.base.map((layer) => layer.path));
-    const aiueoPathsValid = !item.aiueoMouth ||
-      AIUEO_KEYS.every((key) => item.aiueoMouth![key].every(({ path }) =>
-        leafPaths.has(path)));
-    return savedPaths.size === paths.size
-      && item.base.length === paths.size
-      && [...savedPaths].every((path) => paths.has(path))
-      && aiueoPathsValid;
-  });
+  const sourceMatches = validMotionGroups(draft.collection, layers)
+    && draft.collection.items.every((item) => {
+      const savedPaths = new Set(item.base.map((layer) => layer.path));
+      const openPathsValid = !item.openMouth ||
+        [item.openMouth.closed, item.openMouth.opened].every((shape) =>
+          shape.every(({ path }) => leafPaths.has(path)));
+      const aiueoPathsValid = !item.aiueoMouth ||
+        AIUEO_KEYS.every((key) => item.aiueoMouth![key].every(({ path }) =>
+          leafPaths.has(path)));
+      const eyePathsValid = !item.eyes ||
+        [item.eyes.opened, item.eyes.closed].every((shape) =>
+          shape.every(({ path }) => leafPaths.has(path)));
+      return savedPaths.size === paths.size
+        && item.base.length === paths.size
+        && [...savedPaths].every((path) => paths.has(path))
+        && openPathsValid && aiueoPathsValid && eyePathsValid;
+    });
+  if (!sourceMatches) return false;
+  try {
+    validatePsdChoices(draft.collection, layers);
+    return true;
+  } catch {
+    // A corrupt/legacy draft stays in localStorage for explicit recovery;
+    // never auto-normalize or render from conflicting saved layer states.
+    return false;
+  }
 }
 
 export function writePresetDraft(draft: PresetDraft): void {
