@@ -292,6 +292,13 @@ test("Open and aiueo have separate PSDTool sibling radio selections and a shared
     .getByRole("checkbox", { name: "!口 [0]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
 
+  // Repro: the selected '*あ' matches the base pose. The empty Open closed
+  // overrides must render the base portrait rather than the missing-shape UI.
+  await expect(layer(page, "0/0").getByRole("radio")).toBeChecked();
+  await expect(page.locator(".preset-image-viewport img")).toBeVisible();
+  await expect(page.getByText("口形を指定してください")).toHaveCount(0);
+  await expect(page.locator(".preview-empty")).toHaveCount(0);
+
   await shape(page, "開き口").click();
   await layer(page, "0/1").getByRole("radio").check();
   await expect(layer(page, "0/0").getByRole("radio")).not.toBeChecked();
