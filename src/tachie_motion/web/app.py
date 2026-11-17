@@ -78,6 +78,8 @@ class PresetUtteranceRequest(BaseModel):
     fingerprint: str
     layers: list[dict]
     mouth: dict | None = None
+    aiueo_mouth: dict | None = None
+    mouth_groups: list[str] | None = None
     mode: str
     blink_enabled: bool = False
     conflict_policy: str = "error"
@@ -314,6 +316,7 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
                 export_preset_utterance,
                 psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
                 layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
+                    aiueo_mouth=payload.aiueo_mouth, mouth_groups=payload.mouth_groups,
                 blink_enabled=payload.blink_enabled, conflict_policy=payload.conflict_policy,
                 mov=folder / (payload.basename + ".mov"),
                 otio=folder / (payload.basename + ".otio"),
@@ -409,6 +412,7 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
                     export_preset_utterance,
                     psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
                     layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
+                    aiueo_mouth=payload.aiueo_mouth, mouth_groups=payload.mouth_groups,
                     blink_enabled=payload.blink_enabled, conflict_policy="error",
                     mov=stage / (payload.basename + ".mov"), otio=None,
                     fps=payload.fps, source_identity=payload.source_identity,

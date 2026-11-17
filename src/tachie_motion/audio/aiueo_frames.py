@@ -1,9 +1,6 @@
-"""Integer-exact LAB frame sampling, separate from unfinished mouth-policy choices.
+"""Integer-exact LAB frame sampling with approved movie mapping.
 
-This module does not decide how consonants or devoiced vowels should move a
-mouth, or where within a video frame the pose should be sampled. Callers must
-supply every policy choice explicitly. Do not enable aiueo exports until the
-product owner approves the policy and the renderer is connected.
+Alternative choices are retained for focused tests. The renderer uses MOV_POLICY.
 """
 
 from dataclasses import dataclass
@@ -112,7 +109,7 @@ def shapes_by_frame(
     """Evaluate ALL offered policies; callers must explicitly select one.
 
     A phoneme gap, LAB pause/silence, or Japanese moraic nasal N is rest (n).
-    Consonant behavior and devoiced-vowel behavior are NOT yet product choices.
+    The standalone helper is supplemented by full LAB lookahead in schedule_aiueo.
     """
     if not isinstance(policy, FramePolicy) or not isinstance(phones, tuple):
         raise ValueError("An explicit frame policy and phoneme sequence are required")
@@ -157,4 +154,39 @@ def schedule_aiueo(
         intervals, samples=samples, sample_rate=sample_rate,
         fps=fps, anchor=policy.anchor,
     )
-    return shapes_by_frame(phones, policy=policy)
+    result = list(shapes_by_frame(phones, policy=policy))
+    if policy.consonants != "anticipate_next":
+        return tuple(result)
+    # Inspect the entire LAB sequence, not only phones that fell on a frame
+    # sample. An extremely short vowel still determines earlier consonants.
+    position = 0
+    for frame, phone in enumerate(phones):
+        if _classify(phone, policy)[0] != "consonant":
+            continue
+        sample = _frame_sample_index(
+            frame, samples=samples, sample_rate=sample_rate, fps=fps, anchor=policy.anchor,
+        )
+        tick = sample * TICKS_PER_SECOND // sample_rate
+        while position < len(intervals) and intervals[position].end_tick <= tick:
+            position += 1
+        if position < len(intervals) and intervals[position].start_tick <= tick:
+            for future in range(position + 1, len(intervals)):
+                following = intervals[future]
+                if following.start_tick > intervals[future - 1].end_tick:
+                    result[frame] = "n"
+                    break
+                kind, vowel = _classify(following.phoneme, policy)
+                if kind == "rest":
+                    result[frame] = "n"
+                    break
+                if kind == "vowel":
+                    result[frame] = vowel or "n"
+                    break
+            else:
+                result[frame] = "n"
+    return tuple(result)
+
+
+# Approved 2026-11-17: center-of-frame, next vowel for consonants,
+# voiced/devoiced uppercase-vowel shapes both use their vowel mouth (D27).
+MOV_POLICY = FramePolicy(anchor="middle", consonants="anticipate_next", devoiced="vowel")
