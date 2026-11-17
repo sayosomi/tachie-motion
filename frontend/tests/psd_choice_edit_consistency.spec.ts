@@ -4,6 +4,7 @@ import type { Presets } from "../src/presetModel";
 import type { PresetDraft } from "../src/presetDraftStorage";
 import { matchesSource } from "../src/presetDraftStorage";
 import { serializeCharacterProfile } from "../src/characterProfile";
+import { serializeProjectFile } from "../src/projectFile";
 
 const source = "/tmp/radio-e2e.psd";
 const fingerprint = "1000:2000";
@@ -107,6 +108,16 @@ test("base * switch cannot invalidate inherited aiueo shape; resolving the pose 
   await expect(page.getByRole("status")).toContainText("前回の編集を復元しました");
   expect(await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(JSON.stringify(saved));
+});
+
+test("direct character/project JSON export refuses base changes that violate saved phonemes", () => {
+  const invalid = draft();
+  invalid.collection.items[0].base[1].visible = false;
+  invalid.collection.items[0].base[2].visible = true;
+  expect(() => serializeCharacterProfile(source, fingerprint, layers, invalid.collection))
+    .toThrow("aiueo a");
+  expect(() => serializeProjectFile(invalid, layers, [], null))
+    .toThrow("aiueo a");
 });
 
 test("eyes recovery validates structure, duplicate/missing paths, and PSD leaf kinds", async ({ page }) => {
