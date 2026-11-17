@@ -216,7 +216,6 @@ export default function PresetDetail({
             onClick={() => { setRoleMode("open"); setPreviewState("closed"); }}>Open</button>
           <button type="button" aria-pressed={roleMode === "aiueo"}
             onClick={() => { setRoleMode("aiueo"); setPreviewState(`aiueo-${aiueoKey}`); }}>aiueo</button>
-          <button type="button" disabled title="後続対応">目・瞬き（未対応）</button>
         </div>
         {roleMode === "aiueo" && <div className="preset-aiueo-choice" role="group"
           aria-label="編集する口形">
@@ -292,7 +291,7 @@ export default function PresetDetail({
                   aria-label={layer.name + " [" + layer.path + "] を選択"}
                   onClick={() => setSelectedPath((previous) =>
                     previous === layer.path ? null : layer.path)}>
-                  <span className="layer-path">{layer.path}</span>
+                  {roleMode === "open" && <span className="layer-path">{layer.path}</span>}
                   <span className="preset-layer-name">{layer.name}</span>
                 </button>
               </div>
@@ -316,7 +315,7 @@ export default function PresetDetail({
           })}
           {activeFilter && matches.size === 0 && <p className="hint">該当するレイヤーがありません。</p>}
         </div>
-        {hiddenParents.length > 0 && <p className="hint warning" role="status">
+        {hiddenParents.length > 0 && !editingBase && <p className="hint warning" role="status">
           口形対象の親グループが非表示です。{roleMode === "aiueo"
             ? "「基本」に切り替えて親グループをONにしてください。"
             : "左側の基本表示をONにしてください。"}
@@ -337,12 +336,12 @@ export default function PresetDetail({
           <button type="button" aria-pressed={previewState === "opened"}
             onClick={() => setPreviewState("opened")}>開き口</button>
         </div>}
-        <p className="hint preset-selected-summary" aria-live="polite">
+        {(selectedLayer || roleMode === "open") && <p className="hint preset-selected-summary" aria-live="polite">
           {selectedLayer
             ? "選択中: " + selectedLayer.name + " [" + selectedLayer.path + "]" +
               (selectedBox ? "" : "（位置情報なし）")
             : "レイヤー名をクリックすると、その範囲をプレビューに表示します。"}
-        </p>
+        </p>}
         <PresetImagePreview image={shownPreview} alt={preset.name + " のプレビュー"}
           error={shownError} focus={focus} selectedBox={selectedBox}
           selectedFocus={selectedFocus} />
