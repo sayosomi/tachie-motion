@@ -10,7 +10,7 @@ except ImportError:
     TestClient = None
 
 from test_web_api import fixture
-from tachie_motion.web.service import describe_psd, describe_wav
+from tachie_motion.web.service import describe_psd, describe_wav, describe_wav_lab
 
 
 @unittest.skipUnless(TestClient is not None, "FastAPI test extra required")
@@ -22,7 +22,7 @@ class BatchGenerationApiTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.psd, self.wav, _, _ = fixture(self.root)
+        self.psd, self.wav, self.closed, self.opened = fixture(self.root)
         meta = describe_psd(str(self.psd))
         wav = describe_wav(str(self.wav))
         self.base = {
@@ -55,6 +55,7 @@ class BatchGenerationApiTests(unittest.TestCase):
                 "source_identity": self.base["source_identity"],
                 "fps": 30, "samples": self.samples,
                 "sample_rate": self.sample_rate, "conflict_policy": policy,
+                "lab_source_identity": self.base.get("lab_source_identity"),
             } for name in self.names],
         })
         self.token = session["batch_id"]
@@ -147,6 +148,80 @@ class BatchGenerationApiTests(unittest.TestCase):
         self.assertFalse(any(p.name.startswith(".tachie-batch-recovery-")
                              for p in self.root.iterdir()))
 
+
+    def test_aiueo_batch_generates_all_movs_and_one_otio(self):
+        lab = self.wav.with_suffix(".lab")
+        lab.write_text("0 200000 k\n200000 500000 a\n500000 1010000 i\n",
+                       encoding="utf-8")
+        shapes = {key: [
+            {"path": self.closed, "visible": key not in ("a", "u", "o")},
+            {"path": self.opened, "visible": key in ("a", "u", "o")},
+        ] for key in ("a", "i", "u", "e", "o", "n")}
+        self.base.update({
+            "mode": "aiueo", "aiueo_mouth": shapes,
+            "mouth_groups": [self.closed.rsplit("/", 1)[0]],
+            "lab_source_identity": describe_wav_lab(
+                str(self.wav), self.base["source_identity"])["source_identity"],
+        })
+        original_psd, original_wav, original_lab = (
+            self.psd.read_bytes(), self.wav.read_bytes(), lab.read_bytes())
+        policy = self.start(overwrite=False)
+        outputs = [self.mov(i, policy) for i in range(len(self.names))]
+        self.assertTrue(all(output["frames"] == 4 for output in outputs))
+        done = self.finish(policy, outputs)
+        self.assertEqual(done["entries"], len(self.names))
+        for name in self.names:
+            self.assertTrue((self.root / (name + ".mov")).is_file())
+        combined = self.root / (self.timeline + ".otio")
+        self.assertTrue(combined.is_file())
+        document = json.loads(combined.read_text("utf-8"))
+        self.assertEqual(len(document["tracks"]["children"][1]["children"]),
+                         len(self.names))
+        self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes(),
+                          lab.read_bytes()), (original_psd, original_wav, original_lab))
+
+    def test_lab_changed_after_aiueo_staging_blocks_combined_publication(self):
+        from unittest.mock import patch
+        from tachie_motion.web.combined_otio import create_combined_otio
+
+        self.names = self.names[:1]
+        lab = self.wav.with_suffix(".lab")
+        lab.write_text("0 200000 k\n200000 500000 a\n500000 1010000 i\n",
+                       encoding="utf-8")
+        shapes = {key: [
+            {"path": self.closed, "visible": key not in ("a", "u", "o")},
+            {"path": self.opened, "visible": key in ("a", "u", "o")},
+        ] for key in ("a", "i", "u", "e", "o", "n")}
+        self.base.update({
+            "mode": "aiueo", "aiueo_mouth": shapes,
+            "mouth_groups": [self.closed.rsplit("/", 1)[0]],
+            "lab_source_identity": describe_wav_lab(
+                str(self.wav), self.base["source_identity"])["source_identity"],
+        })
+        policy = self.start(overwrite=False)
+        output = self.mov(0, policy)
+        self.assertFalse((self.root / (self.names[0] + ".mov")).exists())
+
+        def edit_after_timeline(*args, **kwargs):
+            result = create_combined_otio(*args, **kwargs)
+            lab.write_text("0 1010000 u\n", encoding="utf-8")
+            return result
+
+        with patch("tachie_motion.web.app.create_combined_otio",
+                   side_effect=edit_after_timeline):
+            response = self.client.post("/api/preset-combined-otio", json={
+                "output_dir": str(self.root), "basename": self.timeline,
+                "conflict_policy": policy, "batch_id": self.token,
+                "entries": [{
+                    "basename": self.names[0], "frames": output["frames"], "fps": 30,
+                    "samples": output["sample_count"],
+                    "sample_rate": output["sample_rate"],
+                }],
+            })
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("LAB changed", response.text)
+        self.assertFalse((self.root / (self.names[0] + ".mov")).exists())
+        self.assertFalse((self.root / (self.timeline + ".otio")).exists())
 
     def test_wav_changed_after_staging_rejects_timeline_publication(self):
         policy = self.start(overwrite=False)

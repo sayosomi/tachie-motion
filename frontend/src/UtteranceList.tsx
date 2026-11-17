@@ -1,12 +1,15 @@
 import { useEffect, useState, type ReactNode } from "react";
 import NativeFilePicker from "./NativeFilePicker";
 import type { WavPlaybackControls } from "./WavPlayback";
+import type { LabInfo } from "./useLabStatus";
 import type { UnifiedPreset } from "./presetModel";
 import { wavFilename, type LipMode, type UtteranceItem } from "./utteranceItems";
 
 type Props = {
   projectControls?: ReactNode;
   items: UtteranceItem[];
+  labStatuses: Record<string, LabInfo>;
+  onRecheckLabs: () => void;
   presets: Pick<UnifiedPreset, "id" | "name">[];
   presetStatus: "loading" | "ready" | "error";
   selectedId: string | null;
@@ -30,7 +33,7 @@ type Props = {
 };
 
 export default function UtteranceList({
-  projectControls, items, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
+  projectControls, items, labStatuses, onRecheckLabs, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
   selectionLocked, exportingId, playback, onPathChange, onAdd, onAddMany, onSelect, onRevise,
   onMove, onReorder, onRemove, canApplyToAll, onApplyToAll,
 }: Props) {
@@ -49,6 +52,10 @@ export default function UtteranceList({
       <h2>WAV一覧</h2>
       <div className="utterance-list-toolbar">
         <span className="meta">{items.length}件</span>
+        <button type="button" disabled={disabled || selectionLocked || items.length === 0 ||
+          !!exportingId || addingCount > 0} onClick={onRecheckLabs}>
+          LABを再確認
+        </button>
         <button type="button" disabled={selectionLocked || items.length === 0}
           onClick={playback.playAll}>全件を連続再生</button>
         <button type="button" disabled={!playback.activeId}
@@ -131,6 +138,15 @@ export default function UtteranceList({
                 <small>{item.wav.duration_seconds.toFixed(2)}秒 ／ {item.wav.sample_rate}Hz
                   {item.result ? " ／ 書き出し済み" : item.error ? " ／ 書き出し失敗" : ""}
                 </small>
+                <small data-lab-status={labStatuses[item.id]?.status ?? "checking"}
+                  title={labStatuses[item.id]?.reason ?? undefined}>
+                  {labStatuses[item.id]?.status === "valid" ? "LAB: 有効"
+                    : labStatuses[item.id]?.status === "missing" ? "LAB: なし"
+                    : labStatuses[item.id]?.status === "invalid" ? "LAB: 不正"
+                    : labStatuses[item.id]?.status === "unavailable"
+                      ? (labStatuses[item.id]?.reason ? "LAB: 確認失敗" : "LAB: 未確認")
+                    : "LAB: 確認中…"}
+                </small>
               </span>
             </button>
             <label className="utterance-row-field utterance-row-preset">
@@ -156,6 +172,10 @@ export default function UtteranceList({
                 }}>
                 <option value="none">なし</option>
                 <option value="open">open</option>
+                <option value="aiueo"
+                  disabled={labStatuses[item.id]?.status !== "valid"}>
+                  aiueo{labStatuses[item.id]?.status === "valid" ? "" : "（有効なLABが必要）"}
+                </option>
               </select>
             </label>
             <div className="utterance-item-actions">

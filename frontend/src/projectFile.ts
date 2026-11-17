@@ -52,7 +52,7 @@ function item(value: unknown, ids: Set<string>): ProjectUtterance {
       (value.registrationOrder as number) < 1 ||
       !absolutePath(value.wavPath) ||
       typeof value.presetId !== "string" ||
-      (value.mode !== "none" && value.mode !== "open") ||
+      (value.mode !== "none" && value.mode !== "open" && value.mode !== "aiueo") ||
       ![24, 30, 60].includes(value.fps as number) ||
       !absolutePath(value.outputDir) ||
       typeof value.basename !== "string" ||

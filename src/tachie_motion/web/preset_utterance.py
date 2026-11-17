@@ -8,6 +8,10 @@ from pathlib import Path
 import tempfile
 
 from tachie_motion.audio.volume import analyze_wav
+from tachie_motion.web.aiueo_renderer import (
+    validate_aiueo_mouth, render_aiueo_states, inspect_export_lab,
+    verify_export_lab, aiueo_indices,
+)
 from tachie_motion.presets import LayerState, LayerStateSet
 from tachie_motion.psd.crop import write_fixed_crop_png
 from tachie_motion.psd.tree import walk_layers
@@ -88,14 +92,15 @@ def export_preset_utterance(
     *, psd_path: Path, wav: Path, fingerprint: str, layers: list[dict],
     mouth: dict | None, mode: str, blink_enabled: bool,
     mov: Path, otio: Path | None, fps: int = 30, conflict_policy: str = "error",
-    source_identity: str | None = None,
+    source_identity: str | None = None, aiueo_mouth: dict | None = None,
+    mouth_groups: list[str] | None = None, lab_source_identity: str | None = None,
 ):
     """Generate one preset-backed PCM-in-MOV and synchronized OTIO.
 
-    This slice supports none/open only. aiueo, blink, timeline change points,
-    and multiple character tracks are explicitly excluded until implemented.
+    Supports none/open/aiueo; blink, timeline change points and multiple
+    character tracks are explicitly excluded.
     """
-    if mode not in ("none", "open"):
+    if mode not in ("none", "open", "aiueo"):
         raise ValueError("Lip mode is not implemented")
     if type(blink_enabled) is not bool or blink_enabled:
         raise ValueError("Blink export is not implemented")
@@ -115,24 +120,47 @@ def export_preset_utterance(
 
     psd, base = validated_snapshot(psd_path, fingerprint, layers)
     shapes = validate_open_mouth(psd, base, mouth) if mode == "open" else None
+    six = (validate_aiueo_mouth(psd, base, aiueo_mouth, mouth_groups)
+           if mode == "aiueo" else None)
     schedule = analyze_wav(wav, fps=fps)
     if source_identity is not None:
         verify_wav_source(wav, source_identity)
-    indices = tuple(1 if shapes and frame.mouth == "open" else 0
-                    for frame in schedule.frames)
+    if six is not None:
+        if source_identity is None:
+            raise ValueError("aiueo requires registered WAV identity")
+        import re
+        if (type(lab_source_identity) is not str
+                or re.fullmatch(r"[0-9]+(:[0-9]+){4}", lab_source_identity) is None):
+            raise ValueError("aiueo requires verified LAB source identity")
+        intervals, lab_identity = inspect_export_lab(wav, source_identity)
+        if ":".join(map(str, lab_identity)) != lab_source_identity:
+            raise ValueError("LAB changed since selection; nothing was published")
+        indices = aiueo_indices(
+            intervals, samples=schedule.sample_count,
+            sample_rate=schedule.sample_rate, fps=fps,
+        )
+    else:
+        intervals, lab_identity = None, None
+        indices = tuple(1 if shapes and frame.mouth == "open" else 0
+                        for frame in schedule.frames)
+    if len(indices) != len(schedule.frames):
+        raise ValueError("LAB video frame count disagrees with WAV timing")
     work = tempfile.TemporaryDirectory(prefix=".tachie-preset-", dir=mov.parent)
     committed = False
     cleanup_warning = None
     try:
         directory = Path(work.name)
-        pngs = []
-        for state in (("closed", "opened") if shapes else ("base",)):
-            if shapes:
-                for path, visible in shapes[state].items():
-                    resolve_layer(psd, path).visible = visible
-            png = directory / (state + ".png")
-            write_fixed_crop_png(psd, png, padding=16)
-            pngs.append(png)
+        if six is not None:
+            pngs = render_aiueo_states(psd, base, six, directory)
+        else:
+            pngs = []
+            for state in (("closed", "opened") if shapes else ("base",)):
+                if shapes:
+                    for path, visible in shapes[state].items():
+                        resolve_layer(psd, path).visible = visible
+                png = directory / (state + ".png")
+                write_fixed_crop_png(psd, png, padding=16)
+                pngs.append(png)
         if psd_snapshot_token(str(psd_path)) != fingerprint:
             raise ValueError("PSD changed during rendering; nothing was published")
         staged_mov = directory / "staged.mov"
@@ -155,6 +183,8 @@ def export_preset_utterance(
         if source_identity is not None:
             # Nothing may reach the public output names after the WAV changes.
             verify_wav_source(wav, source_identity)
+        if intervals is not None:
+            verify_export_lab(wav, source_identity, intervals, lab_identity)
         if otio is not None:
             # The individual route retains its existing exact MOV+OTIO contract.
             document = build_rounded_utterance(
@@ -174,12 +204,16 @@ def export_preset_utterance(
             write_otio(document, staged_otio)
             if source_identity is not None:
                 verify_wav_source(wav, source_identity)
+            if intervals is not None:
+                verify_export_lab(wav, source_identity, intervals, lab_identity)
             warning = publish_pair(
                 pcm_mov, staged_otio, mov, otio,
                 policy=conflict_policy, prior=prior,
             )
         else:
             # Batch route produces only media; one shared OTIO follows after all MOVs.
+            if intervals is not None:
+                verify_export_lab(wav, source_identity, intervals, lab_identity)
             warning = publish_single(
                 pcm_mov, mov, policy=conflict_policy, prior=prior,
             )

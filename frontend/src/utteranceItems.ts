@@ -11,7 +11,7 @@ export type ExportData = {
   sample_count: number;
   warning?: string;
 };
-export type LipMode = "none" | "open";
+export type LipMode = "none" | "open" | "aiueo";
 export type Fps = 24 | 30 | 60;
 
 export type UtteranceItem = {

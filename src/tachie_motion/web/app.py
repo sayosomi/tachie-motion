@@ -22,12 +22,16 @@ from tachie_motion.web.combined_otio import create_combined_otio
 from tachie_motion.web.batch_session import BatchCoordinator, validate_names
 from tachie_motion.web.batch_publish import require_batch_recovery_clear
 from tachie_motion.web.service import (
-    describe_psd, describe_wav, load_psd, local_file, preview_mouth,
+    describe_psd, describe_wav, describe_wav_lab, load_psd, local_file, preview_mouth,
 )
 
 
 class FileRequest(BaseModel):
     path: str
+
+
+class WavLabRequest(FileRequest):
+    source_identity: str
 
 
 class BrowserLayersRequest(BaseModel):
@@ -74,6 +78,9 @@ class PresetUtteranceRequest(BaseModel):
     fingerprint: str
     layers: list[dict]
     mouth: dict | None = None
+    aiueo_mouth: dict | None = None
+    mouth_groups: list[str] | None = None
+    lab_source_identity: str | None = None
     mode: str
     blink_enabled: bool = False
     conflict_policy: str = "error"
@@ -93,6 +100,7 @@ class BatchPlannedMedia(BaseModel):
     basename: str
     wav: str
     source_identity: str
+    lab_source_identity: str | None = None
     fps: int
     samples: int
     sample_rate: int
@@ -244,6 +252,14 @@ def wav_info(payload: FileRequest):
         raise bad_request(exc) from exc
 
 
+@app.post("/api/wav-lab")
+def wav_lab_status(payload: WavLabRequest):
+    try:
+        return describe_wav_lab(payload.path, payload.source_identity)
+    except (ValueError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
 @app.post("/api/wav-playback")
 def wav_playback(payload: FileRequest):
     """Serve only an explicitly requested bounded local WAV for browser listening.
@@ -302,6 +318,8 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
                 export_preset_utterance,
                 psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
                 layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
+                    aiueo_mouth=payload.aiueo_mouth, mouth_groups=payload.mouth_groups,
+                    lab_source_identity=payload.lab_source_identity,
                 blink_enabled=payload.blink_enabled, conflict_policy=payload.conflict_policy,
                 mov=folder / (payload.basename + ".mov"),
                 otio=folder / (payload.basename + ".otio"),
@@ -390,13 +408,16 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
                 raise ValueError("Registered WAV identity is required for batch")
             app.state.batch.before(
                 payload.batch_id, payload.batch_index, canonical, payload.basename,
-                wav, payload.source_identity, payload.fps, payload.conflict_policy)
+                wav, payload.source_identity, payload.fps, payload.conflict_policy,
+                payload.lab_source_identity)
             try:
                 stage = app.state.batch.staged_folder(payload.batch_id)
                 result = await asyncio.to_thread(
                     export_preset_utterance,
                     psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
                     layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
+                    aiueo_mouth=payload.aiueo_mouth, mouth_groups=payload.mouth_groups,
+                    lab_source_identity=payload.lab_source_identity,
                     blink_enabled=payload.blink_enabled, conflict_policy="error",
                     mov=stage / (payload.basename + ".mov"), otio=None,
                     fps=payload.fps, source_identity=payload.source_identity,

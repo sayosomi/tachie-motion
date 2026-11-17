@@ -71,7 +71,7 @@ test("project parser rejects malformed IDs, paths, versions, references and sign
     (v) => { v.items[0].wav.source_identity = ""; },
     (v) => { v.items[0].wav.source_identity = "1:2:three:4:5"; },
     (v) => { v.items[0].presetId = "missing"; },
-    (v) => { v.items[0].mode = "aiueo"; },
+    (v) => { v.items[0].mode = "unsupported"; },
     (v) => { v.items[0].fps = 23; },
     (v) => { v.items[0].basename = "../escape"; },
     (v) => { v.items[0].outputDir = "relative"; },
@@ -127,4 +127,26 @@ test("a v1 project with zero WAVs can migrate and be re-saved as v2", () => {
   const restoredDraft = projectPresetDraft(converted);
   const next = serializeProjectFile(restoredDraft, layers, [], null, converted.naming);
   expect(parseProjectFile(next).items).toEqual([]);
+});
+
+
+test("aiueo mode roundtrips within project v2 without copying any LAB contents", () => {
+  const value = valid();
+  value.items[0].mode = "aiueo";
+  value.character.collection.items[0].aiueoMouth = {
+    a: [{ path: "0/1", visible: true }],
+    i: [{ path: "0/0", visible: true }],
+    u: [{ path: "0/1", visible: true }],
+    e: [{ path: "0/0", visible: true }],
+    o: [{ path: "0/1", visible: true }],
+    n: [{ path: "0/0", visible: true }],
+  };
+  const restored = parseProjectFile(JSON.stringify(value));
+  expect(restored.version).toBe(2);
+  expect(restored.items[0].mode).toBe("aiueo");
+  expect(restored.items[1].mode).toBe("open");
+  expect(restored.character.collection.items[0].aiueoMouth?.a).toEqual([
+    { path: "0/1", visible: true },
+  ]);
+  expect(JSON.stringify(restored)).not.toContain("LAB contents");
 });

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { PresetDraft } from "./presetDraftStorage";
 import type { UnifiedPreset } from "./presetModel";
-import { exportPayload, exportReady } from "./utteranceExportRequest";
+import { effectiveLabSourceIdentity, exportPayload, exportReady } from "./utteranceExportRequest";
 import { movName, otioName, validateBatchNaming, type BatchNaming } from "./nameTemplate";
 import type { UtteranceItem } from "./utteranceItems";
+import type { LabInfo } from "./useLabStatus";
 
 type Destination = {
   state: "available" | "complete" | "unsafe" | "recovery_required";
@@ -16,6 +17,7 @@ export type Plan = {
   basename: string;
   conflict_policy: Conflict;
   canonicalOutputDir: string;
+  labSourceIdentity: string | null;
 };
 export type TimelinePlan = {
   basename: string;
@@ -56,7 +58,8 @@ function allowedDestination(response: Destination, name: string): Conflict {
 export type BatchConflictChoice = "overwrite" | "rename";
 
 async function prepare(items: UtteranceItem[], draft: PresetDraft,
-  naming: BatchNaming, choice: BatchConflictChoice): Promise<PreparedBatch> {
+  naming: BatchNaming, choice: BatchConflictChoice,
+  labStatuses: Record<string, LabInfo>): Promise<PreparedBatch> {
   validateBatchNaming(naming);
   const rawMovieNames = items.map((item, index) => movName(
     naming.movTemplate, index + 1, item.wavPath,
@@ -102,7 +105,7 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   let overwrites = 0;
   for (const [index, item] of items.entries()) {
     const preset = draft.collection.items.find((entry) => entry.id === item.presetId);
-    if (!preset || !exportReady(preset, item)) {
+    if (!preset || !exportReady(preset, item, labStatuses[item.id])) {
       throw new Error(item.wavPath + " — 口パク・プリセットの設定を確認してください");
     }
     const basename = movieNames[index];
@@ -110,7 +113,10 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
     const conflict_policy = allowedDestination(destination, basename);
     if (conflict_policy === "overwrite") overwrites++;
     plans.push({ item, preset, basename, conflict_policy,
-      canonicalOutputDir: destination.canonical_output_dir });
+      canonicalOutputDir: destination.canonical_output_dir,
+      labSourceIdentity: effectiveLabSourceIdentity(
+        item, preset, labStatuses[item.id]?.source_identity,
+      ) });
   }
   const basename = timelineName;
   const policy = allowedDestination(dest, basename);
@@ -142,7 +148,7 @@ function planKey(draft: PresetDraft, batch: PreparedBatch): string {
     plans: batch.plans.map((plan) => ({
       id: plan.item.id, folder: plan.canonicalOutputDir,
       payload: exportPayload(draft, { ...plan.item, outputDir: plan.canonicalOutputDir },
-        plan.preset, plan.basename, plan.conflict_policy),
+        plan.preset, plan.basename, plan.conflict_policy, plan.labSourceIdentity),
     })),
   });
 }
@@ -151,7 +157,7 @@ export function useBatchUtteranceExport(
   draft: PresetDraft | null, items: UtteranceItem[],
   setItems: Dispatch<SetStateAction<UtteranceItem[]>>,
   onFinished: () => void, enabled: boolean, naming: BatchNaming,
-  otherBusy: () => boolean,
+  otherBusy: () => boolean, labStatuses: Record<string, LabInfo>,
 ) {
   const [conflictChoice, setConflictChoice] = useState<BatchConflictChoice>("overwrite");
   const [running, setRunning] = useState(false);
@@ -161,7 +167,11 @@ export function useBatchUtteranceExport(
   const [reviewError, setReviewError] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const busy = useRef(false);
-  const key = snapshotKey(draft, items, naming) + "|" + conflictChoice;
+  const key = snapshotKey(draft, items, naming) + "|" + conflictChoice +
+    "|" + JSON.stringify(items.map((item) => [
+      item.id, item.mode === "aiueo"
+        ? [labStatuses[item.id]?.status, labStatuses[item.id]?.source_identity] : null,
+    ]));
 
   useEffect(() => {
     if (running) return;
@@ -171,7 +181,7 @@ export function useBatchUtteranceExport(
     }
     let cancelled = false;
     setReview(null); setReviewError(""); setReviewing(true);
-    void prepare([...items], draft, naming, conflictChoice).then((prepared) => {
+    void prepare([...items], draft, naming, conflictChoice, labStatuses).then((prepared) => {
       if (!cancelled) setReview({ key, prepared });
     }).catch((error: unknown) => {
       if (!cancelled) setReviewError(error instanceof Error ? error.message : String(error));
@@ -190,7 +200,7 @@ export function useBatchUtteranceExport(
     setProgress("出力先と保存名を再確認中…");
     let sessionId: string | null = null;
     try {
-      const refreshed = await prepare([...items], draft, naming, conflictChoice);
+      const refreshed = await prepare([...items], draft, naming, conflictChoice, labStatuses);
       if (planKey(draft, refreshed) !== planKey(draft, displayed)) {
         setSummary("出力予定が変更されました。新しい予定を確認してから再実行してください。");
         return;
@@ -208,7 +218,8 @@ export function useBatchUtteranceExport(
         timeline_policy: timeline.conflict_policy,
         entries: plans.map((plan) => ({
           basename: plan.basename, wav: plan.item.wavPath,
-          source_identity: plan.item.wav.source_identity, fps: plan.item.fps,
+          source_identity: plan.item.wav.source_identity,
+          lab_source_identity: plan.labSourceIdentity, fps: plan.item.fps,
           samples: plan.item.wav.samples, sample_rate: plan.item.wav.sample_rate,
           conflict_policy: plan.conflict_policy,
         })),
@@ -228,7 +239,8 @@ export function useBatchUtteranceExport(
         try {
           const payload = exportPayload(draft, {
             ...item, outputDir: plan.canonicalOutputDir,
-          }, plan.preset, plan.basename, plan.conflict_policy);
+          }, plan.preset, plan.basename, plan.conflict_policy,
+            plan.labSourceIdentity);
           const result = await post<MovieResult>("preset-batch-mov-export", {
             ...payload, batch_id: sessionId, batch_index: index,
           });

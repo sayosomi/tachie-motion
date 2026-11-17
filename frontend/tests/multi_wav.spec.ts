@@ -1127,3 +1127,177 @@ test("batch alternate-name choice uses one shared suffix across MOVs and OTIO", 
   await expect(page.locator(".batch-timeline-plan")).toContainText("project_002.otio");
   await expect(page.getByText("書き出し予定を確認済み（上書き 0 件）")).toBeVisible();
 });
+
+
+test("LAB status is shown per WAV without enabling unimplemented aiueo export", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 1000, sample_rate: 1000, duration_seconds: 1,
+      source_identity: "1:2:3:4:5" },
+  }));
+  const requests: string[] = [];
+  await page.route("**/api/wav-lab", (route) => {
+    const { path, source_identity } = route.request().postDataJSON() as {
+      path: string; source_identity: string;
+    };
+    expect(source_identity).toBe("1:2:3:4:5");
+    requests.push(path);
+    if (path.endsWith("ok.wav"))
+      return route.fulfill({ json: { status: "valid", reason: null,
+        source_identity: "1:2:3:4:5" } });
+    if (path.endsWith("missing.wav"))
+      return route.fulfill({ json: { status: "missing", reason: null } });
+    return route.fulfill({ json: { status: "invalid", reason: "unsupported phoneme" } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/ok.wav");
+  await addWav(page, "/tmp/missing.wav");
+  await addWav(page, "/tmp/bad.wav");
+  const rows = page.locator("[data-utterance-id]");
+  await expect(rows.nth(0).locator('[data-lab-status="valid"]')).toContainText("LAB: 有効");
+  await expect(rows.nth(1).locator('[data-lab-status="missing"]')).toContainText("LAB: なし");
+  await expect(rows.nth(2).locator('[data-lab-status="invalid"]')).toContainText("LAB: 不正");
+  await expect(rows.nth(2).locator('[data-lab-status="invalid"]')).toHaveAttribute(
+    "title", "unsupported phoneme");
+  expect(new Set(requests)).toEqual(new Set(["/tmp/ok.wav", "/tmp/missing.wav", "/tmp/bad.wav"]));
+  await expect(rows.nth(0).locator(".utterance-row-mode option")).toHaveCount(3);
+  await rows.nth(0).locator(".utterance-item-select").click();
+  await expect(rows.nth(0).locator('[data-lab-status="valid"]')).toBeVisible();
+});
+
+
+test("aiueo requires valid LAB and all six preset shapes before export", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 1000, sample_rate: 1000, duration_seconds: 1,
+      source_identity: "1:2:3:4:5" },
+  }));
+  await page.route("**/api/wav-lab", (route) => {
+    const { path } = route.request().postDataJSON() as { path: string };
+    return route.fulfill({ json: path.endsWith("good.wav")
+      ? { status: "valid", reason: null, source_identity: "1:2:3:4:5" }
+      : { status: "missing", reason: null, source_identity: null } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/good.wav");
+  await expect(page.locator('[data-lab-status="valid"]')).toBeVisible();
+  await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("aiueo");
+  await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toHaveValue("aiueo");
+  await expect(page.getByText("「ん」は基本表示を利用できます。", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+  await addWav(page, "/tmp/missing.wav");
+  await expect(page.locator('[data-selected="true"] [data-lab-status="missing"]')).toBeVisible();
+  await expect(page.locator('[data-selected="true"] .utterance-row-mode option[value="aiueo"]'))
+    .toHaveAttribute("disabled", "");
+  await page.locator('[data-utterance-id]').first().locator(".utterance-item-select").click();
+  await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toHaveValue("aiueo");
+});
+
+
+test("batch manifest and actual MOV requests agree for valid LAB none/open/aiueo/disabled", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 800, sample_rate: 8000, duration_seconds: 0.1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  await page.route("**/api/wav-lab", (route) => route.fulfill({ json: {
+    status: "valid", reason: null, source_identity: "9:8:7:6:5",
+  } }));
+  await openSpeech(page);
+  // Supply a valid saved character setup with both open and all six aiueo
+  // shapes; this exercises the real React hook, not two calls to exportPayload.
+  await page.evaluate(() => {
+    const key = "tachie-motion.preset-draft.v1";
+    const value = localStorage.getItem(key);
+    if (!value) throw new Error("Missing preset draft");
+    const draft = JSON.parse(value) as {
+      collection: { items: Array<Record<string, unknown>>;
+        motionGroups?: { mouth: string[] } };
+    };
+    const preset = draft.collection.items[0];
+    if (!preset) throw new Error("Missing default preset");
+    preset.openMouth = {
+      closed: [{ path: "0/0", visible: true }],
+      opened: [{ path: "0/0", visible: false }],
+    };
+    preset.aiueoMouth = Object.fromEntries(["a", "i", "u", "e", "o", "n"].map((name) =>
+      [name, [{ path: "0/0", visible: name !== "a" }]]));
+    draft.collection.motionGroups = { mouth: ["0"] };
+    draft.collection.items.push({ ...structuredClone(preset), id: "mouth-off",
+      name: "口パクOFF", mouthMotionEnabled: false });
+    localStorage.setItem(key, JSON.stringify(draft));
+  });
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await expect(page.locator(".utterance-list-panel")).toBeVisible();
+  for (const name of ["none", "open", "aiueo", "disabled"]) {
+    await addWav(page, "/tmp/" + name + ".wav");
+  }
+  const rows = page.locator("[data-utterance-id]");
+  await expect(rows).toHaveCount(4);
+  await expect(rows.locator('[data-lab-status="valid"]')).toHaveCount(4);
+  await rows.nth(1).locator(".utterance-row-mode select").selectOption("open");
+  await rows.nth(2).locator(".utterance-row-mode select").selectOption("aiueo");
+  await rows.nth(3).locator(".utterance-row-mode select").selectOption("aiueo");
+  await rows.nth(3).locator(".utterance-row-preset select").selectOption("mouth-off");
+
+  type Entry = { basename: string; wav: string; lab_source_identity: string | null };
+  type Movie = Entry & { mode: string; batch_index: number };
+  const manifests: Entry[][] = [];
+  const requests: Movie[] = [];
+  await page.route("**/api/preset-batch-start", (route) => {
+    const body = route.request().postDataJSON() as { entries: Entry[] };
+    manifests.push(body.entries);
+    return route.fulfill({ json: { batch_id: "mixed-modes" } });
+  });
+  await page.route("**/api/preset-batch-mov-export", (route) => {
+    const body = route.request().postDataJSON() as Movie;
+    requests.push(body);
+    return route.fulfill({ json: {
+      mov: "/tmp/output/" + body.basename + ".mov",
+      frames: 3, sample_count: 800, sample_rate: 8000,
+    } });
+  });
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await expect(page.locator(".export-plan-items li")).toHaveCount(4);
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
+  await expect(page.getByText("一括書き出し完了：MOV 4件／全体OTIO", { exact: false }))
+    .toBeVisible();
+
+  expect(manifests).toHaveLength(1);
+  expect(requests).toHaveLength(4);
+  expect(manifests[0].map((entry) => entry.lab_source_identity))
+    .toEqual([null, null, "9:8:7:6:5", null]);
+  expect(requests.map((entry) => entry.mode)).toEqual(["none", "open", "aiueo", "none"]);
+  for (const [index, entry] of manifests[0].entries()) {
+    expect(requests[index].batch_index).toBe(index);
+    expect(requests[index].basename).toBe(entry.basename);
+    expect(requests[index].wav).toBe(entry.wav);
+    expect(requests[index].lab_source_identity).toBe(entry.lab_source_identity);
+  }
+});
+
+
+test("manual LAB recheck replaces a stale valid result without changing the WAV registration", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  let status: "valid" | "missing" = "valid";
+  let requests = 0;
+  await page.route("**/api/wav-lab", (route) => {
+    requests++;
+    return route.fulfill({ json: status === "valid"
+      ? { status: "valid", reason: null, source_identity: "9:8:7:6:5" }
+      : { status: "missing", reason: null, source_identity: null } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/external-lab-change.wav");
+  const row = page.locator("[data-utterance-id]").first();
+  const id = await row.getAttribute("data-utterance-id");
+  await expect(row.locator('[data-lab-status="valid"]')).toBeVisible();
+  status = "missing";
+  await page.getByRole("button", { name: "LABを再確認" }).click();
+  await expect(row.locator('[data-lab-status="missing"]')).toBeVisible();
+  await expect(row.locator('.utterance-row-mode option[value="aiueo"]'))
+    .toHaveAttribute("disabled", "");
+  expect(await row.getAttribute("data-utterance-id")).toBe(id);
+  expect(requests).toBeGreaterThanOrEqual(2);
+});

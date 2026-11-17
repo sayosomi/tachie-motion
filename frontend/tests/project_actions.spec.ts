@@ -554,3 +554,30 @@ test("same-tick batch start blocks a stale project save click", async ({ page })
   await expect(page.locator(".export-execution .hint[role=\"status\"]").filter({ hasText: "一括書き出し完了" }))
     .toContainText("一括書き出し完了");
 });
+
+
+test("project restore invalidates LAB status for the same WAV ID/path/identity", async ({ page }) => {
+  await mock(page);
+  let status: "valid" | "missing" = "valid";
+  let requests = 0;
+  await page.route("**/api/wav-lab", (route) => {
+    requests++;
+    return route.fulfill({ json: status === "valid"
+      ? { status: "valid", reason: null, source_identity: "9:8:7:6:5" }
+      : { status: "missing", reason: null, source_identity: null } });
+  });
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  const original = page.locator("[data-utterance-id]").first();
+  await expect(original.locator('[data-lab-status="valid"]')).toBeVisible();
+  const originalId = await original.getAttribute("data-utterance-id");
+  const project = await saved(page);
+  status = "missing";
+  await agreeToReplace(page);
+  await importProject(page, project);
+  await expect(page.getByRole("status")).toContainText("制作プロジェクトを読み込みました");
+  const restored = page.locator("[data-utterance-id]").first();
+  await expect(restored.locator('[data-lab-status="missing"]')).toBeVisible();
+  expect(await restored.getAttribute("data-utterance-id")).toBe(originalId);
+  expect(requests).toBeGreaterThanOrEqual(2);
+});
