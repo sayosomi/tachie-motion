@@ -19,7 +19,7 @@ from tachie_motion.web.preset_utterance import export_preset_utterance
 from tachie_motion.web.output_destinations import destination_info, validate_basename
 from tachie_motion.web.solo_output import validate_media_basename, single_destination
 from tachie_motion.web.combined_otio import create_combined_otio
-from tachie_motion.web.batch_session import BatchCoordinator, validate_names
+from tachie_motion.web.batch_session import BatchCoordinator, validate_names, has_foreign_otio
 from tachie_motion.web.batch_publish import require_batch_recovery_clear
 from tachie_motion.web.service import (
     describe_psd, describe_wav, describe_wav_lab, load_psd, local_file, preview_mouth,
@@ -386,7 +386,8 @@ def preset_combined_otio_destination(payload: DestinationRequest):
         canonical = folder.resolve(strict=True)
         require_batch_recovery_clear(canonical)
         return {**single_destination(canonical / (payload.basename + ".otio")),
-                "canonical_output_dir": str(canonical)}
+                "canonical_output_dir": str(canonical),
+                "other_otio_present": has_foreign_otio(canonical, payload.basename)}
     except (ValueError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 

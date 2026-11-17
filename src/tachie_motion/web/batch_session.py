@@ -44,6 +44,17 @@ def source_token(path: Path) -> str:
     return ":".join(map(str, file_identity(path)))
 
 
+def has_foreign_otio(folder: Path, timeline_name: str) -> bool:
+    """Conservative read-only check shared by preview and the start gate.
+
+    Other OTIO files may reference a MOV slated for overwrite. Do not infer
+    safety from names or parse untrusted external timeline references here.
+    """
+    target_name = timeline_name + ".otio"
+    return any(path.suffix.lower() == ".otio" and path.name != target_name
+               for path in folder.iterdir())
+
+
 @dataclass(frozen=True)
 class Planned:
     basename: str
@@ -132,15 +143,12 @@ class BatchCoordinator:
                                    lab_source_identity=lab_token))
         timeline_prior = initial_single_identity(
             folder / (timeline_name + ".otio"), timeline_policy)
-        # A different OTIO in this directory could also reference a MOV we
-        # intend to replace. Without parsing its dependency graph, reject it.
-        if any(item.conflict_policy == "overwrite" for item in planned):
-            foreign = [p for p in folder.iterdir()
-                       if p.suffix.lower() == ".otio"
-                       and p.name != timeline_name + ".otio"]
-            if foreign:
-                raise ValueError("Another OTIO may reference an overwritten MOV; "
-                                 "choose an isolated export folder")
+        # The same conservative rule is exposed to the browser as a preflight
+        # hint, but must remain authoritative here (TOCTOU after preview).
+        if (any(item.conflict_policy == "overwrite" for item in planned)
+                and has_foreign_otio(folder, timeline_name)):
+            raise ValueError("Another OTIO may reference an overwritten MOV; "
+                             "choose an isolated export folder")
         stage = create_stage(folder, allowed_files=(
             [item.basename + ".mov" for item in planned] +
             [timeline_name + ".otio"]))

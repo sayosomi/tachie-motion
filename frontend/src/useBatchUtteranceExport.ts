@@ -9,6 +9,8 @@ import type { LabInfo } from "./useLabStatus";
 type Destination = {
   state: "available" | "complete" | "unsafe" | "recovery_required";
   canonical_output_dir: string;
+  /** Server's conservative read-only scan; rechecked at actual batch start. */
+  other_otio_present?: boolean;
 };
 type Conflict = "overwrite" | "error";
 export type Plan = {
@@ -123,6 +125,16 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   if (policy === "overwrite") overwrites++;
   if (plans.some((plan) => plan.canonicalOutputDir !== dest.canonical_output_dir)) {
     throw new Error("一括MOVと全体OTIOの出力先が一致しません");
+  }
+  // Match BatchCoordinator.start: another OTIO might reference a MOV being
+  // replaced. Show this before enabling the button, without weakening the
+  // server's second check when the folder changes between preview and start.
+  if (plans.some((plan) => plan.conflict_policy === "overwrite") &&
+      dest.other_otio_present) {
+    throw new Error(
+      "別のOTIOが同じフォルダにあります。上書き対象MOVを参照している可能性があるため、" +
+      "保護のため停止します。「別名で保存」を選ぶか、別の出力フォルダを指定してください。"
+    );
   }
   return { plans, overwrites, timeline: {
     basename, conflict_policy: policy, canonicalOutputDir: dest.canonical_output_dir,

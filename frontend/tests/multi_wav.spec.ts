@@ -1301,3 +1301,69 @@ test("manual LAB recheck replaces a stale valid result without changing the WAV 
   expect(await row.getAttribute("data-utterance-id")).toBe(id);
   expect(requests).toBeGreaterThanOrEqual(2);
 });
+
+
+test("foreign OTIO blocks MOV overwrite in preview but permits whole-batch rename", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 800, sample_rate: 8000, duration_seconds: 0.1,
+  } }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/mix.wav");
+  await page.route("**/api/preset-batch-mov-destination", (route) => {
+    const body = route.request().postDataJSON() as { basename: string };
+    return route.fulfill({ json: {
+      state: body.basename.endsWith("_002") ? "available" : "complete",
+      canonical_output_dir: "/tmp/output",
+    } });
+  });
+  await page.route("**/api/preset-combined-otio-destination", (route) => {
+    const body = route.request().postDataJSON() as { basename: string };
+    return route.fulfill({ json: {
+      state: body.basename.endsWith("_002") ? "available" : "complete",
+      canonical_output_dir: "/tmp/output", other_otio_present: true,
+    } });
+  });
+  let starts = 0;
+  await page.route("**/api/preset-batch-start", (route) => {
+    starts++;
+    return route.fulfill({ status: 500, json: { detail: "should not start" } });
+  });
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await expect(page.getByRole("alert")).toContainText("別のOTIOが同じフォルダにあります");
+  await expect(page.getByRole("alert")).toContainText("別名で保存");
+  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeDisabled();
+  expect(starts).toBe(0);
+  await page.getByRole("radio", { name: "別名で保存（_002などを自動追加）" }).check();
+  await expect(page.locator(".export-plan-items")).toContainText("_002.mov");
+  await expect(page.locator(".batch-timeline-plan")).toContainText("_002.otio");
+  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeEnabled();
+});
+
+test("a foreign OTIO appearing after preview is rechecked before batch start", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 800, sample_rate: 8000, duration_seconds: 0.1,
+  } }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/mix.wav");
+  await page.route("**/api/preset-batch-mov-destination", (route) => route.fulfill({
+    json: { state: "complete", canonical_output_dir: "/tmp/output" },
+  }));
+  let foreign = false;
+  await page.route("**/api/preset-combined-otio-destination", (route) =>
+    route.fulfill({ json: {
+      state: "complete", canonical_output_dir: "/tmp/output",
+      other_otio_present: foreign,
+    } }));
+  let starts = 0;
+  await page.route("**/api/preset-batch-start", (route) => {
+    starts++;
+    return route.fulfill({ status: 500, json: { detail: "unexpected start" } });
+  });
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await expect(page.getByText("書き出し予定を確認済み", { exact: false })).toBeVisible();
+  foreign = true;
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
+  await expect(page.getByText("別のOTIOが同じフォルダにあります", { exact: false }))
+    .toBeVisible();
+  expect(starts).toBe(0);
+});
