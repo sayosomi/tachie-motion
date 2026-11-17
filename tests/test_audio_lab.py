@@ -157,7 +157,7 @@ class LabTests(unittest.TestCase):
                 nonlocal count
                 value = orig_lstat(path)
                 count += 1
-                if count == 4:
+                if count == 5:
                     # The final pathname check detects a replaced LAB.
                     values = list(value)
                     values[1] += 1
