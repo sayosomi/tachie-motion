@@ -267,7 +267,7 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     await importJson(fresh, saved);
     await expect(fresh.getByRole("status")).toContainText("キャラクター設定JSONを読み込みました");
     await fresh.getByRole("button", { name: "詳細を編集" }).click();
-    await expect(fresh.locator('.preset-layer[data-layer-path="0/0"]'))
+    await expect(fresh.locator('.preset-layer-role[data-layer-path="0/0"]'))
       .toHaveAttribute("data-open-role", "closed");
     await fresh.getByRole("button", { name: "aiueo", exact: true }).click();
     await expect(fresh.locator('.preset-layer[data-layer-path="0/1"]'))
