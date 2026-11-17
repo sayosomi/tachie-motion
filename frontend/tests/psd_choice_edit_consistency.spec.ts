@@ -72,7 +72,9 @@ test("base * switch cannot invalidate inherited aiueo shape; resolving the pose 
   await page.getByRole("group", { name: "編集する口形" })
     .getByRole("button", { name: "基本" }).click();
   await expect(radio(page, "0/0")).toBeChecked();
-  await radio(page, "0/1").check();
+  // This click is deliberately rejected, so Playwright's .check() (which
+  // requires the radio to end checked) would report a false test failure.
+  await radio(page, "0/1").click();
   await expect(page.getByRole("alert")).toContainText("aiueo a");
   await expect(page.getByRole("alert")).toContainText("変更は適用・保存していません");
   await expect(radio(page, "0/0")).toBeChecked();
