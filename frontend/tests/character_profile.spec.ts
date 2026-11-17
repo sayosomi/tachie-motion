@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { assignOpenPair, openMotion } from "./motion_helpers";
 
 type SaveProbe = {
   options: unknown[];
@@ -187,8 +188,7 @@ test("character JSON roundtrip keeps ordered preset IDs, Open roles, Unicode and
   await page.getByRole("button", { name: "＋ 作成" }).click();
   await page.locator("#preset-name").fill("にっこり え\u0301");
   await page.getByRole("button", { name: "名前を変更" }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/0"]').getByRole("button", { name: "Open: 閉じ口" }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/1"]').getByRole("button", { name: "Open: 開き口" }).click();
+  await assignOpenPair(page, "0/0", "0/1", "顔");
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await page.locator("[data-preset-id]").nth(1).getByRole("button", { name: "既定にする" }).click();
   await page.getByRole("button", { name: "にっこり え\u0301 を上へ移動" }).click();
@@ -223,7 +223,8 @@ test("character JSON roundtrip keeps ordered preset IDs, Open roles, Unicode and
       .toBe(saved.collection.items[0].id);
     await expect(fresh.locator("[data-preset-id]").first()).toContainText("既定");
     await fresh.locator("[data-preset-id]").first().getByRole("button", { name: "詳細を編集" }).click();
-    await expect(fresh.locator('.preset-layer-role[data-layer-path="0/0"]'))
+    await openMotion(fresh);
+    await expect(fresh.locator('.preset-layer[data-layer-path="0/0"]'))
       .toHaveAttribute("data-open-role", "closed");
     await fresh.getByRole("button", { name: "← 一覧へ" }).click();
     await fresh.reload();
@@ -235,11 +236,9 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
   await mockPsd(page);
   await openPsd(page);
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/0"]')
-    .getByRole("button", { name: "Open: 閉じ口" }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/1"]')
-    .getByRole("button", { name: "Open: 開き口" }).click();
-  await page.getByRole("button", { name: "aiueo", exact: true }).click();
+  await assignOpenPair(page, "0/0", "0/1", "顔");
+  await page.getByRole("group", { name: "口パク方式" })
+      .getByRole("button", { name: "aiueo" }).click();
   await page.locator('.preset-layer[data-layer-path="0/0"]')
     .getByRole("checkbox", { name: "閉じ口 [0/0] あ" }).uncheck();
   await page.locator('.preset-layer[data-layer-path="0/1"]')
@@ -267,9 +266,11 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     await importJson(fresh, saved);
     await expect(fresh.getByRole("status")).toContainText("キャラクター設定JSONを読み込みました");
     await fresh.getByRole("button", { name: "詳細を編集" }).click();
-    await expect(fresh.locator('.preset-layer-role[data-layer-path="0/0"]'))
+    await openMotion(fresh);
+    await expect(fresh.locator('.preset-layer[data-layer-path="0/0"]'))
       .toHaveAttribute("data-open-role", "closed");
-    await fresh.getByRole("button", { name: "aiueo", exact: true }).click();
+    await fresh.getByRole("group", { name: "口パク方式" })
+      .getByRole("button", { name: "aiueo" }).click();
     await expect(fresh.locator('.preset-layer[data-layer-path="0/1"]'))
       .toHaveAttribute("data-aiueo-role", "show");
     await fresh.getByRole("group", { name: "編集する口形" })
@@ -279,7 +280,8 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     await fresh.getByRole("button", { name: "← 一覧へ" }).click();
     await fresh.reload();
     await fresh.getByRole("button", { name: "詳細を編集" }).click();
-    await fresh.getByRole("button", { name: "aiueo", exact: true }).click();
+    await fresh.getByRole("group", { name: "口パク方式" })
+      .getByRole("button", { name: "aiueo" }).click();
     await expect(fresh.locator('.preset-layer[data-layer-path="0/1"]'))
       .toHaveAttribute("data-aiueo-role", "show");
 
@@ -385,7 +387,8 @@ test("group Open targets reject without replacing edits; custom leaf targets rem
   const roundtrip = await exportJson(page);
   expect(roundtrip.collection.items[0].openMouth).toEqual(valid.collection.items[0].openMouth);
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await expect(page.locator('.preset-layer-role[data-layer-path="0/0"]'))
+  await openMotion(page);
+  await expect(page.locator('.preset-layer[data-layer-path="0/0"]'))
     .toHaveAttribute("data-open-role", "custom");
 });
 
@@ -504,8 +507,8 @@ test("pending editing during async profile read prevents a stale import", async 
   });
   await importJson(page, saved);
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.getByRole("checkbox", { name: "開き口 [0/1] 表示" }).check();
+  await page.getByRole("checkbox", { name: "開き口 [0/1] 基本" }).check();
   unblock();
   await expect(page.getByRole("alert")).toContainText("読込み中に編集内容が変更");
-  await expect(page.getByRole("checkbox", { name: "開き口 [0/1] 表示" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "開き口 [0/1] 基本" })).toBeChecked();
 });
