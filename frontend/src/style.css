@@ -254,6 +254,15 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .preset-image-selection rect { fill:rgba(139,216,197,.16); stroke:#b4fce9; stroke-width:2;
   stroke-dasharray:5 3; vector-effect:non-scaling-stroke; }
 .preset-role-tabs button:disabled { opacity:.55; }
+.preset-aiueo-choice { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 12px; }
+.preset-aiueo-choice button { flex:1 1 38px; min-width:38px; min-height:38px; padding:6px;
+  font-size:13px; font-weight:700; }
+.preset-aiueo-choice button[aria-pressed="true"] { border-color:#8bd8c5; background:#275063; color:#e6fff7; }
+.preset-editor[data-role-mode="aiueo"] .preset-role-head > span:last-child,
+.preset-editor[data-role-mode="aiueo"] .preset-layer-role,
+.preset-editor[data-role-mode="aiueo"] .preset-role-group-count { flex:0 0 150px; width:150px; }
+.preset-editor[data-role-mode="aiueo"] .preset-layer-role button { font-size:11px; }
+
 @media(max-width:560px) {
   .preset-role-head > span:last-child,.preset-layer-role,.preset-role-group-count { flex-basis:102px; width:102px; }
   .preset-layer-role button { min-height:32px; font-size:11px; }
