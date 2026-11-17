@@ -45,6 +45,51 @@ async function chooseMouthGroups(page: Page) {
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
 }
 
+test("Open closed mouth inherits the base preview without needing a duplicate mouth assignment", async ({ page }) => {
+  const requests: State[][] = [];
+  await openEditor(page, requests);
+  const portrait = page.locator(".preset-image-viewport img");
+  await expect(portrait).toBeVisible();
+  const baseSource = await portrait.getAttribute("src");
+  expect(baseSource).toBe(png);
+
+  await chooseMouthGroups(page); // Opens the closed-mouth editing state.
+  await expect(shape(page, "閉じ口")).toHaveAttribute("aria-pressed", "true");
+  await expect(portrait).toHaveAttribute("src", baseSource!);
+  await expect(page.getByText("口形を指定してください")).toHaveCount(0);
+  await expect(page.locator(".preview-empty")).toHaveCount(0);
+  expect(requests).toHaveLength(0); // Inherited state needs no extra preview render.
+
+  await shape(page, "開き口").click();
+  await expect(page.getByText("開き口を指定してください")).toBeVisible();
+  await shape(page, "閉じ口").click();
+  await expect(portrait).toHaveAttribute("src", baseSource!);
+  await expect(page.getByText("開き口を指定してください")).toHaveCount(0);
+
+  // Only the opened mouth is edited; the closed state is inherited and stored
+  // as the paired base values for the targeted layers when Open is configured.
+  await shape(page, "開き口").click();
+  await checkbox(page, "0/0/0").uncheck();
+  await checkbox(page, "0/1/0").check();
+  await shape(page, "閉じ口").click();
+  await expect(checkbox(page, "0/0/0")).toBeChecked();
+  await expect(checkbox(page, "0/1/0")).not.toBeChecked();
+  await expect(portrait).toBeVisible();
+  await expect(page.locator(".preview-empty")).toHaveCount(0);
+
+  const saved = JSON.parse((await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+  expect(saved.collection.items[0].openMouth.closed).toEqual([
+    { path: "0/0/0", visible: true }, { path: "0/1/0", visible: false },
+  ]);
+  expect(saved.collection.items[0].openMouth.opened).toEqual([
+    { path: "0/0/0", visible: false }, { path: "0/1/0", visible: true },
+  ]);
+  await shape(page, "基本").click();
+  await expect(checkbox(page, "0/0/0")).toBeChecked();
+  await expect(checkbox(page, "0/1/0")).not.toBeChecked();
+});
+
 test("mouth motion scopes original PSD groups and Open/aiueo each have independent leaf checkboxes", async ({ page }) => {
   const requests: State[][] = [];
   await openEditor(page, requests);
