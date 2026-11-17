@@ -224,6 +224,25 @@ class LabTests(unittest.TestCase):
                 finally:
                     wav.unlink()
 
+    def test_rejected_wav_does_not_leak_descriptor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = Path(tmp) / "directory.wav"
+            wav.mkdir()
+            original_open = os.open
+            opened = []
+
+            def capture_open(path, flags, *args, **kwargs):
+                descriptor = original_open(path, flags, *args, **kwargs)
+                if Path(path) == wav:
+                    opened.append(descriptor)
+                return descriptor
+
+            with patch.object(os, "open", side_effect=capture_open):
+                self.assertEqual(inspect_adjacent_lab(wav).status, "invalid")
+            self.assertEqual(len(opened), 1)
+            with self.assertRaises(OSError):
+                os.fstat(opened[0])
+
     def test_wav_header_check_stays_on_open_inode_during_path_swap(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
