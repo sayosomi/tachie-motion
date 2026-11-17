@@ -152,7 +152,10 @@ export function serializeCharacterProfile(
   if (new TextEncoder().encode(text).byteLength > MAX_PROFILE_SIZE) {
     throw new Error("キャラクター設定JSONが大きすぎます");
   }
-  parseCharacterProfile(text);
+  const parsed = parseCharacterProfile(text);
+  // Export uses source layer metadata too: never produce a portable JSON (or
+  // project JSON embedding it) with a conflicting effective PSDTool state.
+  validateCharacterProfileOpenTargets(parsed, layers);
   return text;
 }
 
@@ -181,6 +184,10 @@ export function validateCharacterProfileOpenTargets(profile: CharacterProfile, l
           throw new Error("キャラクター設定JSONのaiueo口形にグループまたは存在しないレイヤーが指定されています。編集内容は保持しています。");
         }
       }
+    }
+    if (preset.eyes && [preset.eyes.opened, preset.eyes.closed].some((shape) =>
+      shape.some(({ path }) => !leafPaths.has(path)))) {
+      throw new Error("キャラクター設定JSONの瞬き設定にグループまたは存在しないレイヤーが指定されています。編集内容は保持しています。");
     }
   }
   // Checked only after /api/psd supplies the source layer names and kinds.
