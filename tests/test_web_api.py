@@ -22,7 +22,7 @@ except (ImportError, RuntimeError):
     TestClient = None
 
 from tachie_motion.psd.tree import walk_layers
-from tachie_motion.web.service import describe_psd, preview_mouth, describe_wav
+from tachie_motion.web.service import describe_psd, preview_mouth, describe_wav, describe_wav_lab
 from tachie_motion.web.origin import configured_tailscale_origin
 
 
@@ -118,6 +118,43 @@ class WebApiTests(unittest.TestCase):
 
     def json_post(self, endpoint, body, **kwargs):
         return self.client.post(endpoint, json=body, **kwargs)
+
+
+    def test_wav_lab_status_uses_original_name_and_registered_source_identity(self):
+        metadata = describe_wav(str(self.wav))
+        body = {"path": str(self.wav), "source_identity": metadata["source_identity"]}
+        lab = self.wav.with_suffix(".lab")
+        wav_before = self.wav.read_bytes()
+        self.assertEqual(self.json_post("/api/wav-lab", body).json(),
+                         {"status": "missing", "reason": None})
+        lab.write_text("0 250000 a\n250000 1010000 i\n", encoding="utf-8")
+        lab_before = lab.read_bytes()
+        response = self.json_post("/api/wav-lab", body)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"status": "valid", "reason": None})
+        self.assertEqual(describe_wav_lab(str(self.wav), metadata["source_identity"]),
+                         {"status": "valid", "reason": None})
+        self.assertEqual((self.wav.read_bytes(), lab.read_bytes()), (wav_before, lab_before))
+        self.assertEqual(
+            self.json_post("/api/wav-lab", body, headers={
+                "Origin": "https://untrusted.example",
+            }).status_code, 403,
+        )
+        self.assertEqual(self.json_post("/api/wav-lab", {
+            **body, "source_identity": "0:0:0:0:0",
+        }).json()["status"], "invalid")
+        self.assertEqual(self.json_post("/api/wav-lab", {
+            **body, "source_identity": "bad-token",
+        }).status_code, 400)
+        self.assertEqual(self.json_post("/api/wav-lab", {
+            **body, "path": "relative.wav",
+        }).status_code, 400)
+        lab.write_text("0 1010000 unknown\n", encoding="utf-8")
+        invalid = self.json_post("/api/wav-lab", body)
+        self.assertEqual(invalid.status_code, 200)
+        self.assertEqual(invalid.json()["status"], "invalid")
+        self.assertIn("unsupported phoneme", invalid.json()["reason"])
+        self.assertEqual(self.wav.read_bytes(), wav_before)
 
     def test_preset_base_preview_http_guards_and_original_immutability(self):
         metadata = describe_psd(str(self.psd))

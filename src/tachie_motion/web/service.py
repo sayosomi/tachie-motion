@@ -7,6 +7,7 @@ from pathlib import Path
 
 from psd_tools import PSDImage
 
+from tachie_motion.audio.lab import inspect_adjacent_lab
 from tachie_motion.presets import LayerState
 from tachie_motion.psd.raster import composite_rgba
 from tachie_motion.web.preview_frame import (
@@ -113,3 +114,22 @@ def describe_wav(raw: str) -> dict:
         # sample-rate checks. Never treat sample counts alone as file identity.
         "source_identity": ":".join(map(str, before)),
     }
+
+
+def describe_wav_lab(raw: str, source_identity: str) -> dict:
+    """Inspect exact LAB sibling using the already-registered WAV stat identity.
+
+    Do not resolve the source pathname first: the LAB reader must detect a
+    symlink instead of silently following it. No LAB contents are sent to UI.
+    """
+    import re
+
+    wav = Path(raw).expanduser()
+    if not wav.is_absolute() or wav.suffix.lower() != ".wav":
+        raise ValueError("Expected an absolute WAV path")
+    if (type(source_identity) is not str or len(source_identity) > 128
+            or re.fullmatch(r"[0-9]+(:[0-9]+){4}", source_identity) is None):
+        raise ValueError("Invalid registered WAV identity")
+    expected = tuple(int(field) for field in source_identity.split(":"))
+    inspection = inspect_adjacent_lab(wav, expected_wav_identity=expected)
+    return {"status": inspection.status, "reason": inspection.reason}

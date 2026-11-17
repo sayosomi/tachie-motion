@@ -22,12 +22,16 @@ from tachie_motion.web.combined_otio import create_combined_otio
 from tachie_motion.web.batch_session import BatchCoordinator, validate_names
 from tachie_motion.web.batch_publish import require_batch_recovery_clear
 from tachie_motion.web.service import (
-    describe_psd, describe_wav, load_psd, local_file, preview_mouth,
+    describe_psd, describe_wav, describe_wav_lab, load_psd, local_file, preview_mouth,
 )
 
 
 class FileRequest(BaseModel):
     path: str
+
+
+class WavLabRequest(FileRequest):
+    source_identity: str
 
 
 class BrowserLayersRequest(BaseModel):
@@ -240,6 +244,14 @@ def preset_preview(payload: PresetPreviewRequest):
 def wav_info(payload: FileRequest):
     try:
         return describe_wav(payload.path)
+    except (ValueError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/wav-lab")
+def wav_lab_status(payload: WavLabRequest):
+    try:
+        return describe_wav_lab(payload.path, payload.source_identity)
     except (ValueError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 
