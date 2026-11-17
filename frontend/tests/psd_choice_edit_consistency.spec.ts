@@ -65,7 +65,7 @@ test("base * switch cannot invalidate inherited aiueo shape; resolving the pose 
   const rendered: Array<Array<{ path: string; visible: boolean }>> = [];
   await intercept(page, rendered);
   const raw = await restore(page, draft());
-  await expect(page.getByRole("status")).toContainText("前回の編集を復元しました");
+  await expect(page.getByRole("status").filter({ hasText: "前回の編集を復元しました" })).toBeVisible();
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "動かすパーツ" }).click();
@@ -107,7 +107,7 @@ test("base * switch cannot invalidate inherited aiueo shape; resolving the pose 
   expect(() => serializeCharacterProfile(source, fingerprint, layers, saved.collection))
     .not.toThrow();
   await page.reload();
-  await expect(page.getByRole("status")).toContainText("前回の編集を復元しました");
+  await expect(page.getByRole("status").filter({ hasText: "前回の編集を復元しました" })).toBeVisible();
   expect(await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(JSON.stringify(saved));
 });
@@ -134,7 +134,7 @@ test("eyes recovery validates structure, duplicate/missing paths, and PSD leaf k
   expect(() => serializeCharacterProfile(source, fingerprint, layers, valid.collection))
     .not.toThrow();
   await restore(page, valid);
-  await expect(page.getByRole("status")).toContainText("前回の編集を復元しました");
+  await expect(page.getByRole("status").filter({ hasText: "前回の編集を復元しました" })).toBeVisible();
   await expect(page.locator("[data-preset-id]")).toHaveCount(1);
 
   const cases = [
