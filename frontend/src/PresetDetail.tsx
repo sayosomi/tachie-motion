@@ -58,6 +58,7 @@ export default function PresetDetail({
   const [previewState, setPreviewState] = useState<PreviewState>("base");
   const [roleMode, setRoleMode] = useState<"open" | "aiueo">("open");
   const [motionKind, setMotionKind] = useState<"mouth" | "eyes">("mouth");
+  const [showAdvancedPose, setShowAdvancedPose] = useState(false);
   const [aiueoKey, setAiueoKey] = useState<AiueoKey>("a");
   const [shapePreview, setShapePreview] = useState<ShapePreview | null>(null);
 
@@ -270,43 +271,62 @@ export default function PresetDetail({
           </button>
           <button type="button" aria-pressed={area === "motion"}
             onClick={() => { setArea("motion"); setPreviewState(motionKind === "eyes"
-              ? "eyes-opened" : roleMode === "open" ? "closed" : `aiueo-${aiueoKey}`);
-              setQuery(""); }}>
+              ? "eyes-closed" : roleMode === "open" ? "opened" : `aiueo-${aiueoKey}`);
+              setShowAdvancedPose(false); setQuery(""); }}>
             動かすパーツ
           </button>
         </div>
         {area === "motion" && <>
+          <div className="preset-motion-switches" role="group" aria-label="このプリセットの動作">
+            <label className="motion-enabled-toggle">
+              <input type="checkbox" checked={preset.mouthMotionEnabled !== false}
+                onChange={(event) => onMouthMotionChange(event.target.checked)} />
+              口パク
+            </label>
+            <label className="motion-enabled-toggle">
+              <input type="checkbox" checked={preset.blinkEnabled}
+                onChange={(event) => onBlinkChange(event.target.checked)} />
+              瞬き
+            </label>
+          </div>
+          <p className="hint">通常時の口と目は「通常レイヤー」で設定します。ここでは動いたときの形を設定します。</p>
           <div className="preset-role-tabs" role="group" aria-label="動作の種類">
             <button type="button" aria-pressed={motionKind === "mouth"}
               onClick={() => { setMotionKind("mouth"); setPreviewState(roleMode === "open"
-                ? "closed" : `aiueo-${aiueoKey}`); }}>口パク</button>
+                ? "opened" : `aiueo-${aiueoKey}`); setShowAdvancedPose(false); }}>口パク</button>
             <button type="button" aria-pressed={motionKind === "eyes"}
-              onClick={() => { setMotionKind("eyes"); setPreviewState("eyes-opened"); }}>瞬き</button>
+              onClick={() => { setMotionKind("eyes"); setPreviewState("eyes-closed");
+                setShowAdvancedPose(false); }}>瞬き</button>
           </div>
           {motionKind === "mouth" ? <>
-          <label className="motion-enabled-toggle">
-            <input type="checkbox" checked={preset.mouthMotionEnabled !== false}
-              onChange={(event) => onMouthMotionChange(event.target.checked)} />
-            口パク
-          </label>
           <div className="preset-role-tabs" role="group" aria-label="口パク方式">
             <button type="button" aria-pressed={roleMode === "open"}
-              onClick={() => { setRoleMode("open"); setPreviewState("closed"); }}>Open</button>
+              onClick={() => { setRoleMode("open"); setPreviewState("opened"); setShowAdvancedPose(false); }}>Open</button>
             <button type="button" aria-pressed={roleMode === "aiueo"}
-              onClick={() => { setRoleMode("aiueo"); setPreviewState(`aiueo-${aiueoKey}`); }}>aiueo</button>
+              onClick={() => { setRoleMode("aiueo"); setPreviewState(`aiueo-${aiueoKey}`);
+                setShowAdvancedPose(false); }}>aiueo</button>
           </div>
-          {roleMode === "open" ? <div className="preset-aiueo-choice" role="group"
+          {roleMode === "open" ? <>
+            <div className="preset-aiueo-choice" role="group" aria-label="編集する口形">
+              <button type="button" aria-pressed={previewState === "opened"}
+                onClick={() => setPreviewState("opened")}>開き口</button>
+              {showAdvancedPose && <button type="button"
+                aria-pressed={previewState === "closed"}
+                onClick={() => setPreviewState("closed")}>閉じ口</button>}
+            </div>
+            <button type="button" className="secondary"
+              aria-expanded={showAdvancedPose}
+              onClick={() => {
+                if (showAdvancedPose && previewState === "closed") setPreviewState("opened");
+                setShowAdvancedPose(!showAdvancedPose);
+              }}>
+              {showAdvancedPose ? "閉じ口の詳細設定を閉じる" : "閉じ口の詳細設定を表示"}
+            </button>
+            {preset.openMouth?.closed.some((item) =>
+              preset.base.find((base) => base.path === item.path)?.visible !== item.visible
+            ) && !showAdvancedPose && <p className="hint">閉じ口には個別設定があります。</p>}
+          </> : <div className="preset-aiueo-choice" role="group"
             aria-label="編集する口形">
-            <button type="button" aria-pressed={previewState === "base"}
-              onClick={() => setPreviewState("base")}>基本</button>
-            <button type="button" aria-pressed={previewState === "closed"}
-              onClick={() => setPreviewState("closed")}>閉じ口</button>
-            <button type="button" aria-pressed={previewState === "opened"}
-              onClick={() => setPreviewState("opened")}>開き口</button>
-          </div> : <div className="preset-aiueo-choice" role="group"
-            aria-label="編集する口形">
-            <button type="button" aria-pressed={previewState === "base"}
-              onClick={() => setPreviewState("base")}>基本</button>
             {AIUEO_KEYS.map((key) => <button key={key} type="button"
               aria-pressed={previewState === `aiueo-${key}`}
               title={key === "n" ? "ん（無音・静止口）" : undefined}
@@ -315,19 +335,25 @@ export default function PresetDetail({
             </button>)}
           </div>}
           </> : <>
-            <label className="motion-enabled-toggle">
-              <input type="checkbox" checked={preset.blinkEnabled}
-                onChange={(event) => onBlinkChange(event.target.checked)} />
-              瞬き
-            </label>
             <div className="preset-aiueo-choice" role="group" aria-label="編集する目の形">
-              <button type="button" aria-pressed={previewState === "base"}
-                onClick={() => setPreviewState("base")}>基本</button>
-              <button type="button" aria-pressed={previewState === "eyes-opened"}
-                onClick={() => setPreviewState("eyes-opened")}>開眼</button>
               <button type="button" aria-pressed={previewState === "eyes-closed"}
                 onClick={() => setPreviewState("eyes-closed")}>閉眼</button>
+              {showAdvancedPose && <button type="button"
+                aria-pressed={previewState === "eyes-opened"}
+                onClick={() => setPreviewState("eyes-opened")}>開眼</button>}
             </div>
+            <button type="button" className="secondary"
+              aria-expanded={showAdvancedPose}
+              onClick={() => {
+                if (showAdvancedPose && previewState === "eyes-opened") {
+                  setPreviewState("eyes-closed");
+                }
+                setShowAdvancedPose(!showAdvancedPose);
+              }}>
+              {showAdvancedPose ? "開眼の詳細設定を閉じる" : "開眼の詳細設定を表示"}
+            </button>
+            {Boolean(preset.eyes?.opened.length) && !showAdvancedPose
+              && <p className="hint">開眼には個別設定があります。</p>}
             <p className="hint">瞬きの動画書き出しは未実装です。ここでは静止プレビューと設定保存のみ行います。</p>
           </>}
           <MotionGroupSelector groups={layers.filter((layer) => layer.kind === "group")}
@@ -417,7 +443,7 @@ export default function PresetDetail({
         </div>
         {area === "motion" && hiddenParents.length > 0 && !editingBase &&
           <p className="hint warning" role="status">
-            {motionKind === "eyes" ? "目の対象" : "口形対象"}の親グループが非表示です。「基本」または「通常レイヤー」で親グループをONにしてください。
+            {motionKind === "eyes" ? "目の対象" : "口形対象"}の親グループが非表示です。「通常レイヤー」で親グループをONにしてください。
           </p>}
         <button type="button" className="secondary preset-delete"
           onClick={onDelete}>このプリセットを削除</button>
@@ -437,7 +463,7 @@ export default function PresetDetail({
         {area === "motion" && motionKind === "mouth" && unconfiguredOpened &&
           preset.mouthMotionEnabled !== false
           && !sourceChanged && <p className="hint warning">開き口を指定してください</p>}
-        <p className="hint">全体表示と口元の拡大を切り替えられます。拡大時はドラッグで移動できます。</p>
+        <p className="hint">全体表示と{area === "motion" && motionKind === "eyes" ? "目元" : "口元"}の拡大を切り替えられます。拡大時はドラッグで移動できます。</p>
       </section>
     </div>
   </div>;
