@@ -1,5 +1,5 @@
 import type { Layer } from "./LayerTree";
-import type { Visibility } from "./presetModel";
+import type { Presets, Visibility } from "./presetModel";
 
 /**
  * PSDTool's documented authoring conventions:
@@ -63,4 +63,54 @@ export function initialChoiceVisibility(layers: Layer[]): Visibility[] {
     for (const layer of choices) defaults.set(layer.path, layer.path === winner.path);
   }
   return layers.map((layer) => ({ path: layer.path, visible: defaults.get(layer.path)! }));
+}
+
+
+/**
+ * Source-aware boundary check for legacy character JSON, project JSON and
+ * browser drafts. Reject inconsistent saved states rather than silently
+ * replacing a user's saved choices. This runs after reading the real PSD.
+ *
+ * Inactive PSD parents may hide children effectively, but each saved direct
+ * child's own visibility must still obey '!' and '*' conventions.
+ */
+export function validatePsdChoices(collection: Presets, layers: Layer[]): void {
+  const mandatory = layers.filter((layer) => psdChoiceKind(layer.name) === "fixed");
+  const siblingGroups = new Map<string, string[]>();
+  for (const layer of layers) {
+    if (psdChoiceKind(layer.name) !== "radio") continue;
+    const parent = psdParentPath(layer.path);
+    const siblings = siblingGroups.get(parent) ?? [];
+    siblings.push(layer.path);
+    siblingGroups.set(parent, siblings);
+  }
+  if (!mandatory.length && !siblingGroups.size) return;
+
+  for (const preset of collection.items) {
+    const base = new Map(preset.base.map((entry) => [entry.path, entry.visible]));
+    const check = (label: string, overrides?: Visibility[]) => {
+      const changes = new Map(overrides?.map((entry) => [entry.path, entry.visible]) ?? []);
+      const visible = (path: string) => changes.get(path) ?? base.get(path);
+      for (const layer of mandatory) {
+        if (visible(layer.path) !== true) {
+          throw new Error(`プリセット「${preset.name}」の${label}: !強制表示レイヤー「${layer.name}」がOFFです。保存データを変更せず読み込みを中止しました。`);
+        }
+      }
+      for (const [parent, paths] of siblingGroups) {
+        if (paths.filter((path) => visible(path) === true).length > 1) {
+          throw new Error(`プリセット「${preset.name}」の${label}: グループ「${parent || "最上位"}」内で*排他レイヤーが複数ONです。保存データを変更せず読み込みを中止しました。`);
+        }
+      }
+    };
+    check("基本");
+    if (preset.openMouth) {
+      check("Open閉じ口", preset.openMouth.closed);
+      check("Open開き口", preset.openMouth.opened);
+    }
+    if (preset.aiueoMouth) {
+      for (const key of ["a", "i", "u", "e", "o", "n"] as const) {
+        check(`aiueo ${key}`, preset.aiueoMouth[key]);
+      }
+    }
+  }
 }
