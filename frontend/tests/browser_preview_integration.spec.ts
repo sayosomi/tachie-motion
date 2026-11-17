@@ -88,6 +88,7 @@ test("Canvas fast path respects the parent, rapid edits and Open shapes without 
   await page.locator('.preset-layer[data-layer-path="0/1"]').getByRole("checkbox").check();
   await page.getByRole("button", { name: "開き口", exact: true }).click();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
+  await page.getByRole("button", { name: "閉じ口の詳細設定を表示" }).click();
   await page.getByRole("button", { name: "閉じ口", exact: true }).click();
   await expect.poll(() => pixel(page)).toEqual([255, 0, 0, 255]);
   expect(pythonRequests).toBe(0);
@@ -119,17 +120,17 @@ test("aiueo Canvas preview renders independent overrides and hidden parents with
   await page.locator('.preset-layer[data-layer-path="0/1"]')
     .getByRole("checkbox", { name: "mouth-open [0/1] あ" }).check();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "基本", exact: true }).click();
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "基本" }).click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "通常レイヤー" }).click();
   await page.getByRole("checkbox", { name: "face [0] 基本" }).uncheck();
+  await openMotion(page);
   await page.getByRole("group", { name: "編集する口形" })
     .getByRole("button", { name: "あ", exact: true }).click();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 0, 0]);
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "基本" }).click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "通常レイヤー" }).click();
   await page.getByRole("checkbox", { name: "face [0] 基本" }).check();
+  await openMotion(page);
   await page.getByRole("group", { name: "編集する口形" })
     .getByRole("button", { name: "あ", exact: true }).click();
   await page.getByRole("group", { name: "編集する口形" })
