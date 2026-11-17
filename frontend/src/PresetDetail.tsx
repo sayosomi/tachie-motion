@@ -118,16 +118,20 @@ export default function PresetDetail({
     previewState === "closed" || previewState === "opened"
       ? preset.openMouth?.[previewState]
       : preset.aiueoMouth?.[previewState.slice(6) as AiueoKey];
+  // Open's closed pose inherits the preset's base portrait until overridden.
+  // This is not an invalid/unconfigured mouth; the opened pose is still required
+  // for animated export and keeps its separate missing-shape warning.
+  const inheritedClosed = previewState === "closed" && !shape?.length;
   const shapeKey = JSON.stringify([sourcePath, fingerprint, sourceIdentity,
     preset.base, shape, previewState, preset.mouthMotionEnabled]);
   useEffect(() => {
-    if (previewState === "base" || preset.mouthMotionEnabled === false ||
-        sourceChanged || previewLoading) return;
+    if (previewState === "base" || inheritedClosed ||
+        preset.mouthMotionEnabled === false || sourceChanged || previewLoading) return;
     if (!shape?.length) {
-      // An unconfigured aiueo shape starts from the full base portrait,
-      // not a blank checkerboard. Unconfigured Open keeps its existing guard.
+      // Aiueo and an unconfigured Open closed pose use the full base portrait.
+      // Open's opened pose remains required for animated export.
       setShapePreview(previewState.startsWith("aiueo-")
-        ? null : { key: shapeKey, error: "口形を指定してください" });
+        ? null : { key: shapeKey, error: "開き口を指定してください" });
       return;
     }
     const abort = new AbortController();
@@ -171,15 +175,15 @@ export default function PresetDetail({
     }
     return () => abort.abort();
   }, [shapeKey, browserRenderer, sourceChanged, previewLoading, verifySource,
-    preset.mouthMotionEnabled]);
+    preset.mouthMotionEnabled, inheritedClosed]);
 
   const unconfiguredAiueo = previewState.startsWith("aiueo-") && !shape?.length;
+  const usingBasePreview = previewState === "base" || inheritedClosed
+    || unconfiguredAiueo || preset.mouthMotionEnabled === false;
   const shownPreview = sourceChanged ? undefined :
-    previewState === "base" || unconfiguredAiueo || preset.mouthMotionEnabled === false ? preview :
-    shapePreview?.key === shapeKey ? shapePreview.image : undefined;
+    usingBasePreview ? preview : shapePreview?.key === shapeKey ? shapePreview.image : undefined;
   const shownError = sourceChanged ? "PSDが変更されました。再読み込みしてください。" :
-    previewState === "base" || unconfiguredAiueo || preset.mouthMotionEnabled === false ? previewError :
-    shapePreview?.key === shapeKey ? shapePreview.error : undefined;
+    usingBasePreview ? previewError : shapePreview?.key === shapeKey ? shapePreview.error : undefined;
   const focusPaths = new Set((roleMode === "open" ? [
     ...(preset.openMouth?.closed ?? []), ...(preset.openMouth?.opened ?? []),
   ] : AIUEO_KEYS.flatMap((key) => preset.aiueoMouth?.[key] ?? [])).map((item) => item.path));
