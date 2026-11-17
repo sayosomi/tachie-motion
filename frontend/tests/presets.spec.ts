@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { assignOpenPair, openMotion } from "./motion_helpers";
 
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tmdoAAAAASUVORK5CYII=";
 const layers = [
@@ -33,16 +34,16 @@ test("preset-first list, detail ON/OFF, copy, reorder and refresh recovery", asy
   await expect(page).toHaveURL(/\?preset=/);
   await page.locator("#preset-name").fill("にっこり");
   await page.getByRole("button", { name: "名前を変更" }).click();
-  await page.getByRole("checkbox", { name: "目 [0/1] 表示" }).check();
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 表示" })).toBeChecked();
+  await page.getByRole("checkbox", { name: "目 [0/1] 基本" }).check();
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).toBeChecked();
   await expect.poll(() => previews.at(-1)?.layers.find((x) => x.path === "0/1")?.visible).toBe(true);
   expect(previews.at(-1)?.fingerprint).toBe("1000:2000");
   await expect(page.getByAltText("にっこり のプレビュー")).toBeVisible();
 
   await page.getByRole("button", { name: "顔 [0] を閉じる" }).click();
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 表示" })).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).toHaveCount(0);
   await page.getByRole("button", { name: "顔 [0] を開く" }).click();
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 表示" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).toBeChecked();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await expect(page.getByText("にっこり")).toBeVisible();
   await expect(page.locator("[data-preset-id]")).toHaveCount(2);
@@ -111,17 +112,17 @@ test("drafting a different PSD path cannot silently discard unsaved preset edits
   await page.locator("#preset-psd-path").fill("/tmp/original.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.getByRole("checkbox", { name: "目 [0/1] 表示" }).check();
+  await page.getByRole("checkbox", { name: "目 [0/1] 基本" }).check();
   await expect.poll(() => paths.length).toBeGreaterThan(0);
   await page.locator("#preset-psd-path-advanced").evaluate((el) => { (el as HTMLDetailsElement).open = true; });
   await page.locator("#preset-psd-path").fill("/tmp/other.psd");
   await expect(page.getByText("新しいPSDパスを入力中です。")).toBeVisible();
-  await page.getByRole("checkbox", { name: "目 [0/1] 表示" }).uncheck();
+  await page.getByRole("checkbox", { name: "目 [0/1] 基本" }).uncheck();
   await expect.poll(() => paths.length).toBeGreaterThan(1);
   expect(paths.every((path) => path === "/tmp/original.psd")).toBe(true);
   page.once("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 表示" })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).not.toBeChecked();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await expect(page.locator("[data-preset-id]")).toHaveCount(1);
 });
@@ -155,11 +156,11 @@ test("a delayed PSD response cannot discard an edit made while it was loading", 
   });
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await expect(page.getByRole("button", { name: "読み込み中…" })).toBeDisabled();
-  await page.getByRole("checkbox", { name: "目 [0/0] 表示" }).uncheck();
+  await page.getByRole("checkbox", { name: "目 [0/0] 基本" }).uncheck();
   release();
 
   await expect(page.getByRole("alert")).toContainText("読み込み結果を破棄しました");
-  await expect(page.getByRole("checkbox", { name: "目 [0/0] 表示" })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "目 [0/0] 基本" })).not.toBeChecked();
   await expect(page.getByRole("note")).toContainText("このブラウザに自動保存");
   await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
 });
@@ -250,12 +251,12 @@ test("refresh restores an unfinished name edit and modified ON/OFF states", asyn
   await page.locator("#preset-psd-path").fill("/tmp/リロード.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.getByRole("checkbox", { name: "目 [0/1] 表示" }).check();
+  await page.getByRole("checkbox", { name: "目 [0/1] 基本" }).check();
   await page.locator("#preset-name").fill("編集中の名前");
   await page.reload();
   await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
   await expect(page.locator("#preset-name")).toHaveValue("編集中の名前");
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 表示" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).toBeChecked();
 });
 
 test("changed PSD fingerprint fails closed without erasing the stored draft", async ({ page }) => {
@@ -368,7 +369,7 @@ test("desktop preset cards keep all controls beside, never on top of, the image"
 });
 
 
-test("Open roles belong to the original PSD tree, retain base visibility and preview two shapes", async ({ page }) => {
+test("Open shapes preserve base visibility and group-scoped search with large PSDs", async ({ page }) => {
   const manyLayers = [
     { path: "0", name: "顔", kind: "group", visible: true, effective_visible: true, bbox: [0,0,64,64] },
     ...Array.from({ length: 85 }, (_, i) => ({
@@ -377,80 +378,63 @@ test("Open roles belong to the original PSD tree, retain base visibility and pre
     })),
   ];
   const previews: Array<{ layers: Array<{ path: string; visible: boolean }> }> = [];
-  await page.route("**/api/psd", (route) => route.fulfill({ json: {
+  await page.route("**/api/psd", route => route.fulfill({ json: {
     width: 64, height: 64, fingerprint: "large-psd", preview: png, layers: manyLayers,
   }}));
-  await page.route("**/api/preset-preview", (route) => {
+  await page.route("**/api/preset-preview", route => {
     previews.push(route.request().postDataJSON());
     return route.fulfill({ json: { preview: png } });
   });
   await page.goto("/");
-  await page.locator("#preset-psd-path-advanced").evaluate((el) => {
-    (el as HTMLDetailsElement).open = true;
-  });
+  await page.locator("#preset-psd-path-advanced").evaluate(el =>
+    { (el as HTMLDetailsElement).open = true; });
   await page.locator("#preset-psd-path").fill("/tmp/85-layers.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
+  await assignOpenPair(page, "0/0", "0/1", "顔");
 
-  const closed = page.locator('.preset-layer-role[data-layer-path="0/0"]');
-  const opened = page.locator('.preset-layer-role[data-layer-path="0/1"]');
-  await expect(closed).toHaveAttribute("data-open-role", "none");
-  await expect(page.getByRole("button", { name: "aiueo", exact: true })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "目・瞬き（未対応）" })).toHaveCount(0);
-  await closed.getByRole("button", { name: "Open: 閉じ口" }).click();
-  await opened.getByRole("button", { name: "Open: 開き口" }).click();
-  await expect(closed.getByRole("button", { name: "Open: 閉じ口" }))
-    .toHaveAttribute("aria-pressed", "true");
-  await closed.getByRole("button", { name: "Open: なし" }).click();
-  await expect(closed).toHaveAttribute("data-open-role", "none");
-  await closed.getByRole("button", { name: "Open: 閉じ口" }).focus();
-  await page.keyboard.press("Enter");
-  await expect(closed).toHaveAttribute("data-open-role", "closed");
-  // Assigning a role must not turn the preset's base PSD leaf visibility on/off.
-  await expect(page.getByRole("checkbox", { name: "口閉じ [0/0] 表示" })).toBeChecked();
-  await expect(page.getByRole("checkbox", { name: "口開き [0/1] 表示" })).not.toBeChecked();
-
-  await page.getByRole("button", { name: "開き口", exact: true }).click();
-  await expect.poll(() => previews.at(-1)?.layers.find((item) => item.path === "0/0")?.visible).toBe(false);
-  await expect.poll(() => previews.at(-1)?.layers.find((item) => item.path === "0/1")?.visible).toBe(true);
-  await page.getByRole("button", { name: "閉じ口", exact: true }).click();
-  await expect.poll(() => previews.at(-1)?.layers.find((item) => item.path === "0/0")?.visible).toBe(true);
-  await expect.poll(() => previews.at(-1)?.layers.find((item) => item.path === "0/1")?.visible).toBe(false);
-
-  // Filtering reveals matching ancestors, but a subsequent manual fold wins.
-  await page.getByRole("button", { name: "顔 [0] を閉じる" }).click();
-  await expect(closed).toHaveCount(0);
-  await page.getByRole("checkbox", { name: "割当済みのみ" }).check();
-  await expect(closed).toBeVisible();
-  await expect(page.locator(".preset-layer-role")).toHaveCount(2);
-  await page.getByRole("button", { name: "顔 [0] を閉じる" }).click();
-  await expect(closed).toHaveCount(0);
-  await expect(opened).toHaveCount(0);
-  await page.getByRole("button", { name: "顔 [0] を開く" }).click();
-  await expect(closed).toBeVisible();
-  await expect(opened).toBeVisible();
-  await page.getByRole("button", { name: "すべて閉じる" }).click();
-  await expect(page.locator(".preset-layer-role")).toHaveCount(0);
-  await page.getByRole("button", { name: "すべて開く" }).click();
-  await expect(page.locator(".preset-layer-role")).toHaveCount(2);
-
-  await page.getByRole("textbox", { name: "レイヤー検索" }).fill("口閉じ");
-  await expect(page.locator(".preset-layer-role")).toHaveCount(1);
-  // Searching a parent group must find its assigned descendants too.
-  await page.getByRole("button", { name: "顔 [0] を閉じる" }).click();
-  await expect(closed).toHaveCount(0);
-  await page.getByRole("textbox", { name: "レイヤー検索" }).fill("顔");
-  await expect(page.locator(".preset-layer-role")).toHaveCount(2);
-  await page.getByRole("button", { name: "顔 [0] を閉じる" }).click();
-  await expect(page.locator(".preset-layer-role")).toHaveCount(0);
-  await page.getByRole("button", { name: "顔 [0] を開く" }).click();
-  await expect(page.locator(".preset-layer-role")).toHaveCount(2);
-  await page.getByRole("textbox", { name: "レイヤー検索" }).fill("");
-
-  await page.reload();
+  const closed = page.locator('.preset-layer[data-layer-path="0/0"]');
+  const opened = page.locator('.preset-layer[data-layer-path="0/1"]');
   await expect(closed).toHaveAttribute("data-open-role", "closed");
   await expect(opened).toHaveAttribute("data-open-role", "opened");
-  await expect(page.getByRole("checkbox", { name: "口開き [0/1] 表示" })).not.toBeChecked();
+  await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/0")?.visible)
+    .toBe(false);
+  await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/1")?.visible)
+    .toBe(true);
+  const shapeTabs = page.getByRole("group", { name: "編集する口形" });
+  await shapeTabs.getByRole("button", { name: "閉じ口" }).click();
+  await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/0")?.visible)
+    .toBe(true);
+  await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/1")?.visible)
+    .toBe(false);
+  await shapeTabs.getByRole("button", { name: "基本" }).click();
+  await expect(closed.getByRole("checkbox")).toBeChecked();
+  await expect(opened.getByRole("checkbox")).not.toBeChecked();
+
+  // Manual folding takes precedence over search highlighting.
+  await page.getByRole("button", { name: "顔 [0] を閉じる" }).click();
+  await expect(closed).toHaveCount(0);
+  await page.getByRole("button", { name: "顔 [0] を開く" }).click();
+  await expect(closed).toBeVisible();
+  await page.getByRole("textbox", { name: "レイヤー検索" }).fill("口閉じ");
+  await expect(closed).toBeVisible();
+  await expect(opened).toHaveCount(0);
+  await page.getByRole("textbox", { name: "レイヤー検索" }).fill("顔");
+  await expect(closed).toBeVisible();
+  await expect(opened).toBeVisible();
+  await page.getByRole("textbox", { name: "レイヤー検索" }).fill("");
+  await page.getByRole("button", { name: "すべて閉じる" }).click();
+  await expect(closed).toHaveCount(0);
+  await page.getByRole("button", { name: "すべて開く" }).click();
+  await expect(closed).toBeVisible();
+
+  await page.reload();
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  await openMotion(page);
+  await expect(page.locator('.preset-layer[data-layer-path="0/0"]'))
+    .toHaveAttribute("data-open-role", "closed");
+  await expect(page.locator('.preset-layer[data-layer-path="0/1"]'))
+    .toHaveAttribute("data-open-role", "opened");
 });
 
 test("older custom mouth overrides are preserved until explicitly changed", async ({ page }) => {
@@ -477,14 +461,20 @@ test("older custom mouth overrides are preserved until explicitly changed", asyn
   });
   await page.reload();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  const legacy = page.locator('.preset-layer-role[data-layer-path="0/0"]');
-  const second = page.locator('.preset-layer-role[data-layer-path="0/1"]');
+  await openMotion(page);
+  const legacy = page.locator('.preset-layer[data-layer-path="0/0"]');
+  const second = page.locator('.preset-layer[data-layer-path="0/1"]');
   await expect(legacy).toHaveAttribute("data-open-role", "custom");
-  await second.getByRole("button", { name: "Open: 開き口" }).click();
-  const value = await page.evaluate(() => JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v1")!));
-  expect(value.collection.items[0].openMouth.closed).toContainEqual({ path: "0/0", visible: true });
-  expect(value.collection.items[0].openMouth.opened).toContainEqual({ path: "0/0", visible: true });
-  await legacy.getByRole("button", { name: "Open: 閉じ口" }).click();
+  await page.getByRole("group", { name: "編集する口形" })
+    .getByRole("button", { name: "開き口" }).click();
+  await second.getByRole("checkbox").check();
+  const value = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v1")!));
+  expect(value.collection.items[0].openMouth.closed)
+    .toContainEqual({ path: "0/0", visible: true });
+  expect(value.collection.items[0].openMouth.opened)
+    .toContainEqual({ path: "0/0", visible: true });
+  await legacy.getByRole("checkbox").uncheck();
   await expect(legacy).toHaveAttribute("data-open-role", "closed");
 });
 
@@ -533,8 +523,7 @@ test("tall PSD preview fits its whole canvas and supports mouth focus, pan and s
   expect(geometry.scaledHeight).toBeLessThanOrEqual(geometry.height + 1);
 
   await expect(page.getByRole("button", { name: "口元へ" })).toBeDisabled();
-  await page.locator('.preset-layer-role[data-layer-path="0/0"]').getByRole("button", { name: "Open: 閉じ口" }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/1"]').getByRole("button", { name: "Open: 開き口" }).click();
+  await assignOpenPair(page, "0/0", "0/1", "顔");
   await page.getByRole("button", { name: "口元へ" }).click();
   // HTML <output> has the implicit ARIA role 'status', not 'output'.
   await expect(page.locator('output[aria-label="プレビュー倍率"]')).toHaveText("8×");
