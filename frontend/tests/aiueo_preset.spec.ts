@@ -14,9 +14,9 @@ const labels = ["あ", "い", "う", "え", "お", "ん"];
 const layer = (page: Page, path: string) => page.locator(`.preset-layer[data-layer-path="${path}"]`);
 const checkbox = (page: Page, path: string) => layer(page, path).getByRole("checkbox");
 
-async function openEditor(page: Page, requests: State[][]) {
+async function openEditor(page: Page, requests: State[][], psdLayers = layers) {
   await page.route("**/api/psd", (route) => route.fulfill({ json: {
-    width: 64, height: 64, fingerprint: "1000:2000", preview: png, layers,
+    width: 64, height: 64, fingerprint: "1000:2000", preview: png, layers: psdLayers,
   } }));
   await page.route("**/api/preset-preview", (route) => {
     requests.push(route.request().postDataJSON().layers);
@@ -123,4 +123,80 @@ test("single checkbox and search follow selected mouth, unconfigured shows base"
   await page.getByRole("textbox", { name: "レイヤー検索" }).fill("0/1");
   await expect(page.locator(".preset-layer-list").getByRole("checkbox")).toHaveCount(1);
   await expect(checkbox(page, "0/1")).toBeChecked();
+});
+
+test("group-only view persists across Open and aiueo, composes with search and restores full tree", async ({ page }) => {
+  const requests: State[][] = [];
+  await openEditor(page, requests);
+  await expect(page.locator(".preset-layer-list .preset-layer")).toHaveCount(5);
+  const initialDraft = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
+
+  await page.getByRole("button", { name: "顔 [0] だけ表示" }).click();
+  await expect(page.getByRole("group", { name: "表示中のグループ" })).toContainText("顔");
+  await expect(page.locator(".preset-layer-list .preset-layer")).toHaveCount(4);
+  await expect(layer(page, "1")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "顔 [0] だけ表示" })).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1")))
+    .toEqual(initialDraft);
+
+  await layer(page, "0/0").getByRole("button", { name: "Open: 閉じ口" }).click();
+  await page.getByRole("button", { name: "aiueo", exact: true }).click();
+  await expect(page.locator(".preset-layer-list .preset-layer")).toHaveCount(4);
+  await checkbox(page, "0/1").check();
+  await expect(layer(page, "0/1")).toHaveAttribute("data-aiueo-role", "show");
+  await page.getByRole("group", { name: "編集する口形" })
+    .getByRole("button", { name: "い", exact: true }).click();
+  await expect(page.locator(".preset-layer-list .preset-layer")).toHaveCount(4);
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(layer(page, "0/0").locator(".preset-layer-role")).toHaveAttribute("data-open-role", "closed");
+
+  // Scoped search must never show a match from a different group.
+  await page.getByRole("textbox", { name: "レイヤー検索" }).fill("体");
+  await expect(page.locator(".preset-layer-list .preset-layer")).toHaveCount(0);
+  await expect(page.getByText("該当するレイヤーがありません。")).toBeVisible();
+  await page.getByRole("textbox", { name: "レイヤー検索" }).fill("");
+  await expect(page.locator(".preset-layer-list .preset-layer")).toHaveCount(4);
+
+  // Manual folding still works while the view is scoped.
+  await page.getByRole("button", { name: "顔 [0] を閉じる" }).click();
+  await expect(page.locator(".preset-layer-list .preset-layer")).toHaveCount(1);
+  await page.getByRole("button", { name: "顔 [0] を開く" }).click();
+  await expect(page.locator(".preset-layer-list .preset-layer")).toHaveCount(4);
+
+  await page.getByRole("button", { name: "全体へ戻る" }).click();
+  await expect(page.getByRole("group", { name: "表示中のグループ" })).toHaveCount(0);
+  await expect(page.locator(".preset-layer-list .preset-layer")).toHaveCount(5);
+  await expect(layer(page, "1")).toBeVisible();
+});
+
+test("a nested group becomes the visible root regardless of collapsed ancestors", async ({ page }) => {
+  const nested = [
+    layers[0],
+    ...layers.slice(1, 4),
+    { path: "0/3", name: "口", kind: "group", visible: true, effective_visible: true,
+      bbox: [0, 0, 64, 64] },
+    { path: "0/3/0", name: "あ口", kind: "pixel", visible: false, effective_visible: false,
+      bbox: [10, 10, 25, 20] },
+    layers[4],
+  ];
+  await openEditor(page, [], nested);
+  await page.getByRole("button", { name: "口 [0/3] だけ表示" }).click();
+  await expect(page.locator(".preset-layer-list .preset-layer")).toHaveCount(2);
+  await expect(layer(page, "0")).toHaveCount(0);
+  await expect(layer(page, "0/3")).toBeVisible();
+  await expect(layer(page, "0/3/0")).toBeVisible();
+  await page.getByRole("button", { name: "すべて閉じる" }).click();
+  await expect(layer(page, "0/3")).toBeVisible();
+  await expect(layer(page, "0/3/0")).toHaveCount(0);
+  await page.getByRole("button", { name: "口 [0/3] を開く" }).click();
+  await expect(layer(page, "0/3/0")).toBeVisible();
+  await page.getByRole("button", { name: "aiueo", exact: true }).click();
+  await expect(layer(page, "0/3/0")).toBeVisible();
+  await checkbox(page, "0/3/0").check();
+  await expect(layer(page, "0/3/0")).toHaveAttribute("data-aiueo-role", "show");
+  await page.getByRole("button", { name: "全体へ戻る" }).click();
+  // Root group "顔" is still manually folded; returning does not silently reopen it.
+  await expect(layer(page, "0/3/0")).toHaveCount(0);
+  await page.getByRole("button", { name: "顔 [0] を開く" }).click();
+  await expect(layer(page, "0/3/0")).toBeVisible();
 });
