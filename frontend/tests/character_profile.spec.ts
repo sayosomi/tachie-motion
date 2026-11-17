@@ -512,3 +512,43 @@ test("pending editing during async profile read prevents a stale import", async 
   await expect(page.getByRole("alert")).toContainText("読込み中に編集内容が変更");
   await expect(page.getByRole("checkbox", { name: "開き口 [0/1] 基本" })).toBeChecked();
 });
+
+test("character JSON validates real group paths and the preset mouth switch", async ({ page }) => {
+  await mockPsd(page);
+  await openPsd(page);
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  await assignOpenPair(page, "0/0", "0/1", "顔");
+  await page.getByRole("checkbox", { name: "口パク", exact: true }).uncheck();
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  const saved = await exportJson(page);
+  expect(saved.version).toBe(1);
+  expect(saved.collection.motionGroups).toEqual({ mouth: ["0"] });
+  expect(saved.collection.items[0].mouthMotionEnabled).toBe(false);
+  const before = await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1"));
+
+  const leafAsGroup = structuredClone(saved);
+  leafAsGroup.collection.motionGroups.mouth = ["0/0"];
+  await importJson(page, leafAsGroup);
+  await expect(page.getByRole("alert")).toContainText("動作対象グループ");
+  expect(await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(before);
+
+  const missingAssignedGroup = structuredClone(saved);
+  missingAssignedGroup.collection.motionGroups.mouth = [];
+  await importJson(page, missingAssignedGroup);
+  await expect(page.getByRole("alert")).toContainText("動作対象グループ");
+
+  const invalidBoolean = structuredClone(saved);
+  invalidBoolean.collection.items[0].mouthMotionEnabled = "false";
+  await importJson(page, invalidBoolean);
+  await expect(page.getByRole("alert")).toContainText("口パク切替");
+
+  const duplicateGroup = structuredClone(saved);
+  duplicateGroup.collection.motionGroups.mouth = ["0", "0"];
+  await importJson(page, duplicateGroup);
+  await expect(page.getByRole("alert")).toContainText("レイヤーパス");
+
+  expect(await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(before);
+});
