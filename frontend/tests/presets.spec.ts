@@ -402,8 +402,8 @@ test("Open shapes preserve base visibility and group-scoped search with large PS
   await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/1")?.visible)
     .toBe(true);
   const shapeTabs = page.getByRole("group", { name: "編集する口形" });
-  await page.getByRole("button", { name: "閉じ口の詳細設定を表示" }).click();
-  await shapeTabs.getByRole("button", { name: "閉じ口" }).click();
+  await page.getByRole("button", { name: "閉じたときの口も設定" }).click();
+  await shapeTabs.getByRole("button", { name: "口を閉じたとき" }).click();
   await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/0")?.visible)
     .toBe(true);
   await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/1")?.visible)
@@ -468,8 +468,7 @@ test("older custom mouth overrides are preserved until explicitly changed", asyn
   const legacy = page.locator('.preset-layer[data-layer-path="0/0"]');
   const second = page.locator('.preset-layer[data-layer-path="0/1"]');
   await expect(legacy).toHaveAttribute("data-open-role", "custom");
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "開き口" }).click();
+  // 開閉の初期状態で開いた口を編集する。
   await second.getByRole("checkbox").check();
   const value = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v1")!));
@@ -534,7 +533,8 @@ test("tall PSD preview fits its whole canvas and supports mouth focus, pan and s
   expect(first).toMatch(/scale\(8\)/);
   expect(first).not.toContain("translate(0px, 0px)");
 
-  await page.getByRole("button", { name: "開き口", exact: true }).click();
+  await expect(page.getByRole("group", { name: "口パク方式" })
+    .getByRole("button", { name: "開閉" })).toHaveAttribute("aria-pressed", "true");
   await expect(image).toBeVisible();
   await expect(image).toHaveAttribute("style", first!);
   // The preset editor sits below the source picker and may be outside the

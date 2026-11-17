@@ -94,7 +94,7 @@ test("base * switch cannot invalidate inherited aiueo shape; resolving the pose 
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "動かすパーツ" }).click();
   await page.getByRole("group", { name: "口パク方式" })
-    .getByRole("button", { name: "aiueo" }).click();
+    .getByRole("button", { name: "あいうえお" }).click();
   await radio(page, "0/1").check();
   await expect(radio(page, "0/0")).not.toBeChecked();
   await page.getByRole("group", { name: "編集区分" })
@@ -210,7 +210,7 @@ test("browser recovery rejects extra layer fields in base, Open and aiueo withou
         opened: [{ path: "0/0", visible: false }],
       };
     } },
-    { name: "aiueo", mutate: value => {
+    { name: "あいうえお", mutate: value => {
       (value.collection.items[0].aiueoMouth!.a[0] as unknown as Record<string, unknown>).unexpected = 123;
     } },
   ];

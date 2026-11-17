@@ -82,14 +82,14 @@ test("Canvas fast path respects the parent, rapid edits and Open shapes without 
 
   await openMotion(page);
   await selectMouthGroup(page, "face", "0");
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "開き口" }).click();
+  // 開閉では開いた口が初期編集対象。選択ボタンは表示しない。
   await page.locator('.preset-layer[data-layer-path="0/0"]').getByRole("checkbox").uncheck();
   await page.locator('.preset-layer[data-layer-path="0/1"]').getByRole("checkbox").check();
-  await page.getByRole("button", { name: "開き口", exact: true }).click();
+  await expect(page.getByRole("group", { name: "口パク方式" })
+    .getByRole("button", { name: "開閉" })).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
-  await page.getByRole("button", { name: "閉じ口の詳細設定を表示" }).click();
-  await page.getByRole("button", { name: "閉じ口", exact: true }).click();
+  await page.getByRole("button", { name: "閉じたときの口も設定" }).click();
+  await page.getByRole("button", { name: "口を閉じたとき", exact: true }).click();
   await expect.poll(() => pixel(page)).toEqual([255, 0, 0, 255]);
   expect(pythonRequests).toBe(0);
   expect(statusReads).toBeGreaterThanOrEqual(4);
@@ -114,7 +114,7 @@ test("aiueo Canvas preview renders independent overrides and hidden parents with
   await openMotion(page);
   await selectMouthGroup(page, "face", "0");
   await page.getByRole("group", { name: "口パク方式" })
-    .getByRole("button", { name: "aiueo" }).click();
+    .getByRole("button", { name: "あいうえお" }).click();
   await page.locator('.preset-layer[data-layer-path="0/0"]')
     .getByRole("checkbox", { name: "mouth-closed [0/0] あ" }).uncheck();
   await page.locator('.preset-layer[data-layer-path="0/1"]')
@@ -165,7 +165,7 @@ test("aiueo Python fallback receives the exact overlay without changing base or 
   await openMotion(page);
   await selectMouthGroup(page, "face", "0");
   await page.getByRole("group", { name: "口パク方式" })
-    .getByRole("button", { name: "aiueo" }).click();
+    .getByRole("button", { name: "あいうえお" }).click();
   await page.locator('.preset-layer[data-layer-path="0/0"]')
     .getByRole("checkbox", { name: "mouth-closed [0/0] あ" }).uncheck();
   await page.locator('.preset-layer[data-layer-path="0/1"]')

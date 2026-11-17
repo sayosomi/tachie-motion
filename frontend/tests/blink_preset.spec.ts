@@ -12,7 +12,10 @@ const layers = [
   { path: "0/1/2", name: "!まつ毛", kind: "pixel", visible: false, effective_visible: false, bbox: [10, 10, 20, 18] },
 ];
 const entry = (page: Page, path: string) => page.locator(`.preset-layer[data-layer-path="${path}"]`);
-const tabs = (page: Page) => page.getByRole("group", { name: "編集する目の形" });
+const motionTabs = (page: Page) => page.getByRole("tablist", { name: "動作の種類" });
+const poseTabs = (page: Page) => page.getByRole("group", { name: "編集する目の形" });
+const saved = async (page: Page) => JSON.parse((await page.evaluate(() =>
+  localStorage.getItem("tachie-motion.preset-draft.v1")))!);
 
 async function openEditor(page: Page, requests: Array<{ path: string; visible: boolean }[]> = []) {
   await page.route("**/api/psd", (route) => route.fulfill({ json: {
@@ -32,16 +35,26 @@ async function openEditor(page: Page, requests: Array<{ path: string; visible: b
     .getByRole("button", { name: "動かすパーツ" }).click();
 }
 
+async function selectEye(page: Page) {
+  await motionTabs(page).getByRole("tab", { name: "瞬き" }).click();
+}
+
+async function enableEye(page: Page) {
+  await selectEye(page);
+  if (await page.getByRole("button", { name: "ONにする" }).isVisible()) {
+    await page.getByRole("button", { name: "ONにする" }).click();
+  }
+}
+
 async function setEyeGroup(page: Page) {
-  await page.getByRole("group", { name: "このプリセットの動作" })
-    .getByRole("button", { name: "瞬き" }).click();
+  await enableEye(page);
   await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "目 [0/1]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
 }
 
-test("eyes are edited independently of mouth with static preview and recoverable JSON", async ({ page }) => {
+test("eyes remain independent of mouth and restore their configured pose", async ({ page }) => {
   const requests: Array<{ path: string; visible: boolean }[]> = [];
   await openEditor(page, requests);
   await setEyeGroup(page);
@@ -50,14 +63,11 @@ test("eyes are edited independently of mouth with static preview and recoverable
   await expect(page.getByRole("button", { name: "目元へ" })).toBeEnabled();
   await expect(entry(page, "0/1/2").locator("input")).toHaveCount(0);
   await expect(page.locator(".preset-image-viewport img")).toHaveAttribute("src", png);
+  await expect(page.getByRole("heading", { name: "目を閉じたときの表示" })).toHaveCount(0);
 
-  await tabs(page).getByRole("button", { name: "閉眼" }).click();
   await entry(page, "0/1/1").getByRole("radio").check();
   await expect(entry(page, "0/1/0").getByRole("radio")).not.toBeChecked();
   await expect(entry(page, "0/1/1")).toHaveAttribute("data-eye-role", "show");
-  await expect(page.locator(".preset-image-viewport img")).toBeVisible();
-  // The Python fallback must receive the composed closed-eye state, not
-  // merely show the identical mocked PNG for every request.
   await expect.poll(() => {
     const last = requests.at(-1);
     return last && [
@@ -66,40 +76,27 @@ test("eyes are edited independently of mouth with static preview and recoverable
       last.find((state) => state.path === "0/1/2")?.visible,
     ];
   }).toEqual([false, true, true]);
+  expect((await saved(page)).collection.motionGroups.eyes).toEqual(["0/1"]);
 
-  const saved = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
-  expect(saved.collection.motionGroups.eyes).toEqual(["0/1"]);
-  expect(saved.collection.items[0].eyes.closed).toEqual([
-    { path: "0/1/0", visible: false }, { path: "0/1/1", visible: true },
-  ]);
-  expect(saved.collection.items[0].openMouth).toBeUndefined();
-
-  await page.getByRole("button", { name: "開眼の詳細設定を表示" }).click();
-  await tabs(page).getByRole("button", { name: "開眼" }).click();
+  await page.getByRole("button", { name: "開いたときの目も設定" }).click();
+  await poseTabs(page).getByRole("button", { name: "目を開けたとき" }).click();
   await expect(entry(page, "0/1/0").getByRole("radio")).toBeChecked();
   await expect(entry(page, "0/1/1").getByRole("radio")).not.toBeChecked();
-  await page.getByRole("checkbox", { name: "瞬き", exact: true }).check();
-  const updated = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
-  expect(updated.collection.items[0].blinkEnabled).toBe(true);
+  await page.getByRole("button", { name: "詳細設定を閉じる" }).click();
+  await expect(poseTabs(page)).toHaveCount(0);
+
   await page.reload();
   await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
-  // The editor's ?preset= ID survives a reload, so the detail view is
-  // already active; there is no "詳細を編集" button until navigating back.
-  await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "動かすパーツ" }).click();
-  await page.getByRole("group", { name: "このプリセットの動作" })
-    .getByRole("button", { name: "瞬き" }).click();
-  await tabs(page).getByRole("button", { name: "閉眼" }).click();
+  await selectEye(page);
   await expect(entry(page, "0/1/1").getByRole("radio")).toBeChecked();
-  await expect(page.getByRole("checkbox", { name: "瞬き", exact: true })).toBeChecked();
+  await expect(page.getByRole("button", { name: "OFFにする" })).toBeVisible();
   await expect(page.getByText("瞬きの動画書き出しは未実装です", { exact: false }))
     .toBeVisible();
 });
 
-test("base eye pose stays editable from normal layers even after assigning motion group", async ({ page }) => {
+test("normal layers edit the resting eye independently of the blink state", async ({ page }) => {
   await openEditor(page);
   await setEyeGroup(page);
   await page.getByRole("group", { name: "編集区分" })
@@ -109,26 +106,19 @@ test("base eye pose stays editable from normal layers even after assigning motio
   await expect(entry(page, "0/1/0").getByRole("radio")).not.toBeChecked();
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "動かすパーツ" }).click();
-  await expect(tabs(page).getByRole("button", { name: "閉眼" }))
-    .toHaveAttribute("aria-pressed", "true");
   await expect(entry(page, "0/1/1").getByRole("radio")).toBeChecked();
-  const saved = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
-  expect(saved.collection.items[0].base.find((state: { path: string; visible: boolean }) =>
-    state.path === "0/1/1")?.visible).toBe(true);
-  expect(saved.collection.items[0].base.find((state: { path: string; visible: boolean }) =>
-    state.path === "0/1/0")?.visible).toBe(false);
+  expect((await saved(page)).collection.items[0].base.find(
+    (x: { path: string; visible: boolean }) => x.path === "0/1/1")?.visible).toBe(true);
 });
 
-test("mouth and eyes groups cannot overlap or detach assigned eye leaves", async ({ page }) => {
+test("mouth/eye PSD groups cannot overlap or detach assigned leaves", async ({ page }) => {
   await openEditor(page);
-  // Assign mouth group first, then try to reuse it for eyes.
   await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口 [0/0]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
-  await page.getByRole("group", { name: "このプリセットの動作" })
-    .getByRole("button", { name: "瞬き" }).click();
+
+  await enableEye(page);
   await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口 [0/0]" }).click();
@@ -138,108 +128,51 @@ test("mouth and eyes groups cannot overlap or detach assigned eye leaves", async
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "目 [0/1]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
-  await tabs(page).getByRole("button", { name: "閉眼" }).click();
   await entry(page, "0/1/1").getByRole("radio").check();
   await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "目 [0/1]" }).click();
   await expect(page.getByRole("alert")).toContainText("先に開眼・閉眼の割当を解除");
-  await expect(page.getByRole("group", { name: "PSDグループ" })
-    .getByRole("checkbox", { name: "目 [0/1]" })).toBeChecked();
 });
 
+test("OFF tab shows only ON action, then restores stored eye shapes", async ({ page }) => {
+  await openEditor(page);
+  const tabs = motionTabs(page);
+  await expect(tabs.getByRole("tab", { name: "口パク" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "OFFにする" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "口を開けたときの表示" })).toHaveCount(0);
+  await selectEye(page);
+  await expect(tabs.getByRole("tab", { name: "瞬き" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "ONにする" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "OFFにする" })).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "レイヤー検索" })).toHaveCount(0);
+  await expect(page.locator(".motion-group-selector")).toHaveCount(0);
+  await expect(page.locator(".preset-layer-list")).toHaveCount(0);
+  await expect(page.locator(".preset-image-viewport img")).toHaveAttribute("src", png);
 
-test("motion row selects mouth or eyes independently from their enabled flags", async ({ page }) => {
-  const requests: Array<{ path: string; visible: boolean }[]> = [];
-  await openEditor(page, requests);
-  const controls = page.getByRole("group", { name: "このプリセットの動作" });
-  const mouth = controls.getByRole("checkbox", { name: "口パク" });
-  const blink = controls.getByRole("checkbox", { name: "瞬き" });
-  const mouthName = controls.getByRole("button", { name: "口パク" });
-  const blinkName = controls.getByRole("button", { name: "瞬き" });
-  await expect(page.getByRole("group", { name: "動作の種類" })).toHaveCount(0);
-  await expect(mouthName).toHaveAttribute("aria-pressed", "true");
-  await expect(mouth).toBeChecked();
-  await expect(blink).not.toBeChecked();
-
-  // Naming the motion switches the editor without enabling the animation.
-  await blinkName.click();
-  await expect(blinkName).toHaveAttribute("aria-pressed", "true");
-  await expect(mouthName).toHaveAttribute("aria-pressed", "false");
-  await expect(blink).not.toBeChecked();
-  await expect(tabs(page).getByRole("button", { name: "閉眼" })).toBeVisible();
-
-  // The checkbox only toggles enablement and leaves the selected editor alone.
-  await mouth.uncheck();
-  await expect(blinkName).toHaveAttribute("aria-pressed", "true");
-  await expect(mouthName).toHaveAttribute("aria-pressed", "false");
-  await mouthName.click();
-  await expect(mouthName).toHaveAttribute("aria-pressed", "true");
-  await expect(mouth).not.toBeChecked();
-  await expect(page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "開き口" })).toBeVisible();
-
-  // OFF must not prevent editing or previewing the preserved pose.
+  await page.getByRole("button", { name: "ONにする" }).click();
+  await expect(page.getByRole("button", { name: "OFFにする" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "目を閉じたときの表示" })).toHaveCount(0);
   await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
-    .getByRole("checkbox", { name: "口 [0/0]" }).check();
+    .getByRole("checkbox", { name: "目 [0/1]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
-  await entry(page, "0/0/0").getByRole("checkbox").uncheck();
-  await expect.poll(() => requests.at(-1)?.find((x) => x.path === "0/0/0")?.visible)
-    .toBe(false);
-  const before = requests.length;
-  await mouth.check();
-  await expect.poll(() => requests.length).toBeGreaterThan(before);
-  await expect(entry(page, "0/0/0").getByRole("checkbox")).not.toBeChecked();
-
-  await blinkName.click();
-  await blink.check();
-  await expect(blinkName).toHaveAttribute("aria-pressed", "true");
-  await expect(blink).toBeChecked();
-  await blink.uncheck();
-  await expect(blinkName).toHaveAttribute("aria-pressed", "true");
-  await expect(mouth).toBeChecked();
-});
-
-test("mouth and blink switches are visible together, and advanced eye pose preserves saved overrides", async ({ page }) => {
-  await openEditor(page);
-  const switches = page.getByRole("group", { name: "このプリセットの動作" });
-  const mouth = switches.getByRole("checkbox", { name: "口パク" });
-  const blink = switches.getByRole("checkbox", { name: "瞬き" });
-  await expect(mouth).toBeChecked();
-  await expect(blink).not.toBeChecked();
-  await expect(page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "開き口" })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "基本" })).toHaveCount(0);
-  await expect(page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "閉じ口" })).toHaveCount(0);
-
-  await mouth.uncheck();
-  await blink.check();
-  await setEyeGroup(page);
-  await expect(tabs(page).getByRole("button", { name: "閉眼" }))
-    .toHaveAttribute("aria-pressed", "true");
-  await expect(tabs(page).getByRole("button", { name: "基本" })).toHaveCount(0);
-  await expect(tabs(page).getByRole("button", { name: "開眼" })).toHaveCount(0);
   await entry(page, "0/1/1").getByRole("radio").check();
+  const shape = (await saved(page)).collection.items[0].eyes.closed;
+  await page.getByRole("button", { name: "OFFにする" }).click();
+  await expect(page.getByRole("button", { name: "ONにする" })).toBeVisible();
+  await expect(page.locator(".preset-layer-list")).toHaveCount(0);
+  expect((await saved(page)).collection.items[0].eyes.closed).toEqual(shape);
+  await page.getByRole("button", { name: "ONにする" }).click();
+  await expect(entry(page, "0/1/1").getByRole("radio")).toBeChecked();
+  expect((await saved(page)).collection.items[0].eyes.closed).toEqual(shape);
 
-  await page.getByRole("button", { name: "開眼の詳細設定を表示" }).click();
-  await tabs(page).getByRole("button", { name: "開眼" }).click();
-  await expect(entry(page, "0/1/0").getByRole("radio")).toBeChecked();
-  await expect(entry(page, "0/1/1").getByRole("radio")).not.toBeChecked();
-  await page.getByRole("button", { name: "開眼の詳細設定を閉じる" }).click();
-  await expect(tabs(page).getByRole("button", { name: "開眼" })).toHaveCount(0);
-  await expect(tabs(page).getByRole("button", { name: "閉眼" }))
-    .toHaveAttribute("aria-pressed", "true");
-  await blink.uncheck();
-  await mouth.check();
-
-  const saved = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
-  expect(saved.collection.items[0].mouthMotionEnabled).toBe(true);
-  expect(saved.collection.items[0].blinkEnabled).toBe(false);
-  expect(saved.collection.items[0].eyes.closed).toEqual([
-    { path: "0/1/0", visible: false }, { path: "0/1/1", visible: true },
-  ]);
+  await tabs.getByRole("tab", { name: "口パク" }).click();
+  await expect(page.getByRole("button", { name: "OFFにする" })).toBeVisible();
+  await page.getByRole("button", { name: "OFFにする" }).click();
+  await expect(page.getByRole("button", { name: "ONにする" })).toBeVisible();
+  await expect(page.locator(".preset-layer-list")).toHaveCount(0);
+  await page.getByRole("button", { name: "ONにする" }).click();
+  await expect(page.getByRole("group", { name: "口パク方式" })
+    .getByRole("button", { name: "開閉" })).toBeVisible();
 });

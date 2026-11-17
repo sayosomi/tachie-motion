@@ -238,7 +238,7 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await assignOpenPair(page, "0/0", "0/1", "顔");
   await page.getByRole("group", { name: "口パク方式" })
-      .getByRole("button", { name: "aiueo" }).click();
+      .getByRole("button", { name: "あいうえお" }).click();
   await page.locator('.preset-layer[data-layer-path="0/0"]')
     .getByRole("checkbox", { name: "閉じ口 [0/0] あ" }).uncheck();
   await page.locator('.preset-layer[data-layer-path="0/1"]')
@@ -270,7 +270,7 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     await expect(fresh.locator('.preset-layer[data-layer-path="0/0"]'))
       .toHaveAttribute("data-open-role", "closed");
     await fresh.getByRole("group", { name: "口パク方式" })
-      .getByRole("button", { name: "aiueo" }).click();
+      .getByRole("button", { name: "あいうえお" }).click();
     await expect(fresh.locator('.preset-layer[data-layer-path="0/1"]'))
       .toHaveAttribute("data-aiueo-role", "show");
     await fresh.getByRole("group", { name: "編集する口形" })
@@ -282,7 +282,7 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     await fresh.getByRole("button", { name: "詳細を編集" }).click();
     await openMotion(fresh);
     await fresh.getByRole("group", { name: "口パク方式" })
-      .getByRole("button", { name: "aiueo" }).click();
+      .getByRole("button", { name: "あいうえお" }).click();
     await expect(fresh.locator('.preset-layer[data-layer-path="0/1"]'))
       .toHaveAttribute("data-aiueo-role", "show");
 
