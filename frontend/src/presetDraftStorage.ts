@@ -40,7 +40,7 @@ export function readPresetDraft(): PresetDraft | null {
         !Array.isArray(motion.mouth) || motion.mouth.length > 50_000 ||
         new Set(motion.mouth).size !== motion.mouth.length ||
         !motion.mouth.every((path: unknown) =>
-          typeof path === "string" && /^(0|[1-9][0-9]*)(\\/(0|[1-9][0-9]*))*$/.test(path)
+          typeof path === "string" && /^(0|[1-9][0-9]*)(\/(0|[1-9][0-9]*))*$/.test(path)
           && path.length <= 256)) {
       throw new Error("保存済み動作対象グループが不正です");
     }
