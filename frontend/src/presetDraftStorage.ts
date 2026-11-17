@@ -111,11 +111,13 @@ export function matchesSource(draft: PresetDraft, fingerprint: string, layers: L
   if (draft.fingerprint !== fingerprint) return false;
   const paths = new Set(layers.map((layer) => layer.path));
   if (paths.size !== layers.length) return false;
+  const leafPaths = new Set(layers.filter((layer) => layer.kind !== "group")
+    .map((layer) => layer.path));
   return draft.collection.items.every((item) => {
     const savedPaths = new Set(item.base.map((layer) => layer.path));
     const aiueoPathsValid = !item.aiueoMouth ||
       AIUEO_KEYS.every((key) => item.aiueoMouth![key].every(({ path }) =>
-        layers.some((layer) => layer.path === path && layer.kind !== "group")));
+        leafPaths.has(path)));
     return savedPaths.size === paths.size
       && item.base.length === paths.size
       && [...savedPaths].every((path) => paths.has(path))
