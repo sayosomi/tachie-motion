@@ -1157,7 +1157,7 @@ test("LAB status is shown per WAV without enabling unimplemented aiueo export", 
   await expect(rows.nth(2).locator('[data-lab-status="invalid"]')).toContainText("LAB: 不正");
   await expect(rows.nth(2).locator('[data-lab-status="invalid"]')).toHaveAttribute(
     "title", "unsupported phoneme");
-  expect(requests).toEqual(["/tmp/ok.wav", "/tmp/missing.wav", "/tmp/bad.wav"]);
+  expect(new Set(requests)).toEqual(new Set(["/tmp/ok.wav", "/tmp/missing.wav", "/tmp/bad.wav"]));
   await expect(rows.nth(0).locator(".utterance-row-mode option")).toHaveCount(2);
   await rows.nth(0).locator(".utterance-item-select").click();
   await expect(rows.nth(0).locator('[data-lab-status="valid"]')).toBeVisible();

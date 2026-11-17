@@ -6,7 +6,7 @@ export type LabInfo = {
   reason: string | null;
 };
 type LabResponse = { status: "valid" | "missing" | "invalid"; reason: string | null };
-type CheckedStatus = { key: string; value: LabResponse };
+type CheckedStatus = { key: string; value: LabInfo };
 
 function identityKey(item: UtteranceItem): string {
   return JSON.stringify([item.id, item.wavPath, item.wav.source_identity]);
@@ -25,16 +25,22 @@ export function useLabStatus(items: UtteranceItem[], active: boolean): Record<st
   const key = JSON.stringify(items.map((item) => identityKey(item)));
   useEffect(() => {
     let cancelled = false;
-    setChecked({});
-    if (!active) return () => { cancelled = true; };
+    if (!active) {
+      setChecked({});
+      return () => { cancelled = true; };
+    }
+    const expected = new Set(items.map((item) => identityKey(item)));
+    setChecked((previous) => Object.fromEntries(
+      Object.entries(previous).filter(([, value]) => expected.has(value.key))));
     const candidates = items.filter((item) =>
-      typeof item.wav.source_identity === "string" && item.wav.source_identity.length > 0);
+      typeof item.wav.source_identity === "string" && item.wav.source_identity.length > 0 &&
+      checked[item.id]?.key !== identityKey(item));
     let next = 0;
     const worker = async () => {
       while (!cancelled) {
         const item = candidates[next++];
         if (!item) return;
-        let value: LabResponse;
+        let value: LabInfo;
         try {
           const response = await fetch("/api/wav-lab", {
             method: "POST", headers: { "Content-Type": "application/json" },
@@ -49,7 +55,7 @@ export function useLabStatus(items: UtteranceItem[], active: boolean): Record<st
           value = result;
         } catch (error) {
           value = {
-            status: "invalid",
+            status: "unavailable",
             reason: error instanceof Error ? error.message : String(error),
           };
         }

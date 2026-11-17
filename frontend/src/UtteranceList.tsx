@@ -138,7 +138,8 @@ export default function UtteranceList({
                   {labStatuses[item.id]?.status === "valid" ? "LAB: 有効"
                     : labStatuses[item.id]?.status === "missing" ? "LAB: なし"
                     : labStatuses[item.id]?.status === "invalid" ? "LAB: 不正"
-                    : labStatuses[item.id]?.status === "unavailable" ? "LAB: 未確認"
+                    : labStatuses[item.id]?.status === "unavailable"
+                      ? (labStatuses[item.id]?.reason ? "LAB: 確認失敗" : "LAB: 未確認")
                     : "LAB: 確認中…"}
                 </small>
               </span>
