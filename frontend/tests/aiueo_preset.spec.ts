@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC0lEQVR42mP8/x8AAwMCAO+tmdoAAAAASUVORK5CYII=";
+const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tmdoAAAAASUVORK5CYII=";
 const source = "/tmp/立ち絵 e\u0301.psd";
 const layers = [
   { path: "0", name: "顔", kind: "group", visible: true, effective_visible: true, bbox: [0, 0, 64, 64] },
@@ -46,7 +46,7 @@ test("six mouth shapes keep independent per-layer overrides, Open roles and base
   expect(baseBefore).toBe(false);
   const chosen = page.getByRole("group", { name: "編集するaiueo口形" });
 
-  for (const [index, label] of labels.entries()) {
+  for (const label of labels) {
     await chosen.getByRole("button", { name: label, exact: true }).click();
     await roleButton(page, "0/1", label, "表示").click();
     await roleButton(page, "0/0", label, "非表示").click();
@@ -58,7 +58,6 @@ test("six mouth shapes keep independent per-layer overrides, Open roles and base
     }).toBe(true);
     await expect.poll(() =>
       requests.at(-1)?.find((row) => row.path === "0/0")?.visible).toBe(false);
-    expect(index).toBeLessThan(6);
   }
   await expect(page.getByRole("checkbox", { name: "開き口 [0/1] 表示" })).not.toBeChecked();
   await expect(page.getByRole("checkbox", { name: "閉じ口 [0/0] 表示" })).toBeChecked();
@@ -70,7 +69,7 @@ test("six mouth shapes keep independent per-layer overrides, Open roles and base
     requests.at(-1)?.find((row) => row.path === "0/1")?.visible).toBe(false);
 
   await page.getByRole("checkbox", { name: "顔 [0] 表示" }).uncheck();
-  await expect(page.getByRole("status")).toContainText("親グループが非表示");
+  await expect(page.locator(".preset-editor [role=status]")).toContainText("親グループが非表示");
   await page.getByRole("checkbox", { name: "顔 [0] 表示" }).check();
 
   await page.getByRole("button", { name: "Open", exact: true }).click();
@@ -86,7 +85,6 @@ test("six mouth shapes keep independent per-layer overrides, Open roles and base
   await chosen.getByRole("button", { name: "い", exact: true }).click();
   await expect(roleButton(page, "0/1", "い", "表示")).toHaveAttribute("aria-pressed", "true");
 
-  await page.getByRole("button", { name: "選択位置へ" }).isDisabled();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const drafts = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
   const saved = JSON.parse(drafts!);
