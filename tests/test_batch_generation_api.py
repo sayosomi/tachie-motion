@@ -149,6 +149,37 @@ class BatchGenerationApiTests(unittest.TestCase):
                              for p in self.root.iterdir()))
 
 
+    def test_aiueo_batch_generates_all_movs_and_one_otio(self):
+        lab = self.wav.with_suffix(".lab")
+        lab.write_text("0 200000 k\n200000 500000 a\n500000 1010000 i\n",
+                       encoding="utf-8")
+        shapes = {key: [
+            {"path": self.closed, "visible": key not in ("a", "u", "o")},
+            {"path": self.opened, "visible": key in ("a", "u", "o")},
+        ] for key in ("a", "i", "u", "e", "o", "n")}
+        self.base.update({
+            "mode": "aiueo", "aiueo_mouth": shapes,
+            "mouth_groups": [self.closed.rsplit("/", 1)[0]],
+            "lab_source_identity": describe_wav_lab(
+                str(self.wav), self.base["source_identity"])["source_identity"],
+        })
+        original_psd, original_wav, original_lab = (
+            self.psd.read_bytes(), self.wav.read_bytes(), lab.read_bytes())
+        policy = self.start(overwrite=False)
+        outputs = [self.mov(i, policy) for i in range(len(self.names))]
+        self.assertTrue(all(output["frames"] == 4 for output in outputs))
+        done = self.finish(policy, outputs)
+        self.assertEqual(done["entries"], len(self.names))
+        for name in self.names:
+            self.assertTrue((self.root / (name + ".mov")).is_file())
+        combined = self.root / (self.timeline + ".otio")
+        self.assertTrue(combined.is_file())
+        document = json.loads(combined.read_text("utf-8"))
+        self.assertEqual(len(document["tracks"]["children"][1]["children"]),
+                         len(self.names))
+        self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes(),
+                          lab.read_bytes()), (original_psd, original_wav, original_lab))
+
     def test_lab_changed_after_aiueo_staging_blocks_combined_publication(self):
         from unittest.mock import patch
         from tachie_motion.web.combined_otio import create_combined_otio
