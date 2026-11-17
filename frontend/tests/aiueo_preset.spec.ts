@@ -361,6 +361,7 @@ test("Open and aiueo have separate PSDTool sibling radio selections and a shared
   await expect(layer(page, "0/0").getByRole("radio")).not.toBeChecked();
   await expect(layer(page, "0/1").getByRole("radio")).toBeChecked();
   await expect(layer(page, "0/2").locator('input')).toHaveCount(0);
+  await page.getByRole("button", { name: "閉じ口の詳細設定を表示" }).click();
   await shape(page, "閉じ口").click();
   await expect(layer(page, "0/0").getByRole("radio")).toBeChecked();
   await expect(layer(page, "0/1").getByRole("radio")).not.toBeChecked();
