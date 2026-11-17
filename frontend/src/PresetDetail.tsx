@@ -122,18 +122,13 @@ export default function PresetDetail({
   // This is not an invalid/unconfigured mouth; the opened pose is still required
   // for animated export and keeps its separate missing-shape warning.
   const inheritedClosed = previewState === "closed" && !shape?.length;
+  const unconfiguredOpened = previewState === "opened" && !shape?.length;
   const shapeKey = JSON.stringify([sourcePath, fingerprint, sourceIdentity,
     preset.base, shape, previewState, preset.mouthMotionEnabled]);
   useEffect(() => {
-    if (previewState === "base" || inheritedClosed ||
+    if (previewState === "base" || inheritedClosed || unconfiguredOpened ||
         preset.mouthMotionEnabled === false || sourceChanged || previewLoading) return;
-    if (!shape?.length) {
-      // Aiueo and an unconfigured Open closed pose use the full base portrait.
-      // Open's opened pose remains required for animated export.
-      setShapePreview(previewState.startsWith("aiueo-")
-        ? null : { key: shapeKey, error: "開き口を指定してください" });
-      return;
-    }
+    if (!shape?.length) return; // The unconfigured phoneme inherits the base preview.
     const abort = new AbortController();
     const overrides = new Map(shape.map((item) => [item.path, item.visible]));
     const states = preset.base.map((layer) => ({
@@ -175,11 +170,11 @@ export default function PresetDetail({
     }
     return () => abort.abort();
   }, [shapeKey, browserRenderer, sourceChanged, previewLoading, verifySource,
-    preset.mouthMotionEnabled, inheritedClosed]);
+    preset.mouthMotionEnabled, inheritedClosed, unconfiguredOpened]);
 
   const unconfiguredAiueo = previewState.startsWith("aiueo-") && !shape?.length;
   const usingBasePreview = previewState === "base" || inheritedClosed
-    || unconfiguredAiueo || preset.mouthMotionEnabled === false;
+    || unconfiguredOpened || unconfiguredAiueo || preset.mouthMotionEnabled === false;
   const shownPreview = sourceChanged ? undefined :
     usingBasePreview ? preview : shapePreview?.key === shapeKey ? shapePreview.image : undefined;
   const shownError = sourceChanged ? "PSDが変更されました。再読み込みしてください。" :
@@ -187,9 +182,23 @@ export default function PresetDetail({
   const focusPaths = new Set((roleMode === "open" ? [
     ...(preset.openMouth?.closed ?? []), ...(preset.openMouth?.opened ?? []),
   ] : AIUEO_KEYS.flatMap((key) => preset.aiueoMouth?.[key] ?? [])).map((item) => item.path));
-  const focusBounds = layers.filter((layer) =>
-    focusPaths.has(layer.path) && layer.bbox.length === 4
-    && layer.bbox.every(Number.isFinite));
+  const hasBounds = (layer: Layer) => layer.bbox.length === 4
+    && layer.bbox.every(Number.isFinite)
+    && layer.bbox[2] > layer.bbox[0] && layer.bbox[3] > layer.bbox[1];
+  // A mouth must be reachable before its first shape is authored.
+  // Prefer assigned leaves, then a selected mouth-layer, then the original
+  // PSD motion groups' descendants, finally the groups' own bounds.
+  const assignedBounds = layers.filter((layer) =>
+    focusPaths.has(layer.path) && hasBounds(layer));
+  const selectedMouth = layers.find((layer) => layer.path === selectedPath
+    && isMouthLayer(layer.path, mouthGroups) && hasBounds(layer));
+  const unassignedLeaves = layers.filter((layer) => layer.kind !== "group"
+    && mouthGroups.some((group) => layer.path.startsWith(group + "/"))
+    && hasBounds(layer));
+  const focusBounds = assignedBounds.length ? assignedBounds
+    : selectedMouth ? [selectedMouth]
+    : unassignedLeaves.length ? unassignedLeaves
+    : layers.filter((layer) => mouthGroups.includes(layer.path) && hasBounds(layer));
   const focus = focusBounds.length && canvasWidth > 0 && canvasHeight > 0
     ? {
       x: Math.max(0, Math.min(1,
@@ -369,6 +378,8 @@ export default function PresetDetail({
         <PresetImagePreview image={shownPreview} alt={preset.name + " のプレビュー"}
           error={shownError} focus={focus}
           selectedFocus={selectedFocus} />
+        {area === "motion" && unconfiguredOpened && preset.mouthMotionEnabled !== false
+          && !sourceChanged && <p className="hint warning">開き口を指定してください</p>}
         <p className="hint">全体表示と口元の拡大を切り替えられます。拡大時はドラッグで移動できます。</p>
       </section>
     </div>
