@@ -7,6 +7,7 @@ import { projectPresetDraft, type ProjectFile } from "./projectFile";
 import type { ProjectInspection } from "./projectRestore";
 import { initialNaming, type BatchNaming } from "./nameTemplate";
 import useWavPlayback from "./WavPlayback";
+import { useLabStatus } from "./useLabStatus";
 import { useBatchUtteranceExport } from "./useBatchUtteranceExport";
 import { exportPayload, exportReady } from "./utteranceExportRequest";
 import type { UnifiedPreset } from "./presetModel";
@@ -74,6 +75,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     active && exportScope === "all" && !projectBusy && !exportingId,
     naming, () => projectBusyRef.current || singleExportLock.current);
   const playback = useWavPlayback(items);
+  const labStatuses = useLabStatus(items, active);
   const editingLocked = batch.running || batch.isBusy() || !!exportingId || projectBusy;
   const projectLock = (locked: boolean) => {
     projectBusyRef.current = locked;
@@ -322,7 +324,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     <div className="intro"><h1>セリフ</h1></div>
     <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件はMOVと全体OTIO 1本を生成します。aiueo・瞬き・待機・変更点は後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
-    <UtteranceList items={items} presets={draft?.collection.items ?? []}
+    <UtteranceList items={items} labStatuses={labStatuses} presets={draft?.collection.items ?? []}
       projectControls={<ProjectActions
         draft={draft} layers={psdLayers} items={items} selectedId={activeId} naming={naming}
         disabled={editingLocked || addingCount > 0 || presetStatus === "loading"}

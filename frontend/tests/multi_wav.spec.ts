@@ -1127,3 +1127,38 @@ test("batch alternate-name choice uses one shared suffix across MOVs and OTIO", 
   await expect(page.locator(".batch-timeline-plan")).toContainText("project_002.otio");
   await expect(page.getByText("書き出し予定を確認済み（上書き 0 件）")).toBeVisible();
 });
+
+
+test("LAB status is shown per WAV without enabling unimplemented aiueo export", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 1000, sample_rate: 1000, duration_seconds: 1,
+      source_identity: "1:2:3:4:5" },
+  }));
+  const requests: string[] = [];
+  await page.route("**/api/wav-lab", (route) => {
+    const { path, source_identity } = route.request().postDataJSON() as {
+      path: string; source_identity: string;
+    };
+    expect(source_identity).toBe("1:2:3:4:5");
+    requests.push(path);
+    if (path.endsWith("ok.wav"))
+      return route.fulfill({ json: { status: "valid", reason: null } });
+    if (path.endsWith("missing.wav"))
+      return route.fulfill({ json: { status: "missing", reason: null } });
+    return route.fulfill({ json: { status: "invalid", reason: "unsupported phoneme" } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/ok.wav");
+  await addWav(page, "/tmp/missing.wav");
+  await addWav(page, "/tmp/bad.wav");
+  const rows = page.locator("[data-utterance-id]");
+  await expect(rows.nth(0).locator('[data-lab-status="valid"]')).toContainText("LAB: 有効");
+  await expect(rows.nth(1).locator('[data-lab-status="missing"]')).toContainText("LAB: なし");
+  await expect(rows.nth(2).locator('[data-lab-status="invalid"]')).toContainText("LAB: 不正");
+  await expect(rows.nth(2).locator('[data-lab-status="invalid"]')).toHaveAttribute(
+    "title", "unsupported phoneme");
+  expect(requests).toEqual(["/tmp/ok.wav", "/tmp/missing.wav", "/tmp/bad.wav"]);
+  await expect(rows.nth(0).locator(".utterance-row-mode option")).toHaveCount(2);
+  await rows.nth(0).locator(".utterance-item-select").click();
+  await expect(rows.nth(0).locator('[data-lab-status="valid"]')).toBeVisible();
+});

@@ -1,12 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import NativeFilePicker from "./NativeFilePicker";
 import type { WavPlaybackControls } from "./WavPlayback";
+import type { LabInfo } from "./useLabStatus";
 import type { UnifiedPreset } from "./presetModel";
 import { wavFilename, type LipMode, type UtteranceItem } from "./utteranceItems";
 
 type Props = {
   projectControls?: ReactNode;
   items: UtteranceItem[];
+  labStatuses: Record<string, LabInfo>;
   presets: Pick<UnifiedPreset, "id" | "name">[];
   presetStatus: "loading" | "ready" | "error";
   selectedId: string | null;
@@ -30,7 +32,7 @@ type Props = {
 };
 
 export default function UtteranceList({
-  projectControls, items, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
+  projectControls, items, labStatuses, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
   selectionLocked, exportingId, playback, onPathChange, onAdd, onAddMany, onSelect, onRevise,
   onMove, onReorder, onRemove, canApplyToAll, onApplyToAll,
 }: Props) {
@@ -130,6 +132,14 @@ export default function UtteranceList({
                 <small title={item.wavPath}>{item.wavPath}</small>
                 <small>{item.wav.duration_seconds.toFixed(2)}秒 ／ {item.wav.sample_rate}Hz
                   {item.result ? " ／ 書き出し済み" : item.error ? " ／ 書き出し失敗" : ""}
+                </small>
+                <small data-lab-status={labStatuses[item.id]?.status ?? "checking"}
+                  title={labStatuses[item.id]?.reason ?? undefined}>
+                  {labStatuses[item.id]?.status === "valid" ? "LAB: 有効"
+                    : labStatuses[item.id]?.status === "missing" ? "LAB: なし"
+                    : labStatuses[item.id]?.status === "invalid" ? "LAB: 不正"
+                    : labStatuses[item.id]?.status === "unavailable" ? "LAB: 未確認"
+                    : "LAB: 確認中…"}
                 </small>
               </span>
             </button>
