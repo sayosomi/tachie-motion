@@ -28,23 +28,28 @@ type Props = {
   onRename: (name: string) => void;
   onToggle: (path: string, visible: boolean) => void;
   mouthGroups: string[];
+  eyeGroups: string[];
   onMouthGroupsChange: (groups: string[]) => void;
+  onEyeGroupsChange: (groups: string[]) => void;
   onMouthMotionChange: (enabled: boolean) => void;
+  onBlinkChange: (enabled: boolean) => void;
+  onEyeShapeChange: (pose: "opened" | "closed", path: string, visible: boolean) => void;
   onOpenShapeChange: (shape: "closed" | "opened", path: string, visible: boolean) => void;
   onAiueoChoiceChange: (key: AiueoKey, path: string, visible: boolean) => void;
   onDelete: () => void;
 };
 
-type PreviewState = "base" | "closed" | "opened" | `aiueo-${AiueoKey}`;
+type PreviewState = "base" | "closed" | "opened" | `aiueo-${AiueoKey}`
+  | "eyes-opened" | "eyes-closed";
 type ShapePreview = { key: string; image?: string; error?: string };
 
 export default function PresetDetail({
   preset, layers, preview, previewError, browserRenderer, sourceChanged = false,
   previewLoading = false, verifySource = async () => {}, sourceIdentity = "",
   sourcePath, fingerprint, canvasWidth, canvasHeight, nameDraft,
-  onNameDraftChange, onBack, onRename, onToggle, mouthGroups,
-  onMouthGroupsChange, onMouthMotionChange, onOpenShapeChange,
-  onAiueoChoiceChange, onDelete,
+  onNameDraftChange, onBack, onRename, onToggle, mouthGroups, eyeGroups,
+  onMouthGroupsChange, onEyeGroupsChange, onMouthMotionChange, onBlinkChange,
+  onEyeShapeChange, onOpenShapeChange, onAiueoChoiceChange, onDelete,
 }: Props) {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -52,6 +57,7 @@ export default function PresetDetail({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState>("base");
   const [roleMode, setRoleMode] = useState<"open" | "aiueo">("open");
+  const [motionKind, setMotionKind] = useState<"mouth" | "eyes">("mouth");
   const [aiueoKey, setAiueoKey] = useState<AiueoKey>("a");
   const [shapePreview, setShapePreview] = useState<ShapePreview | null>(null);
 
@@ -61,14 +67,23 @@ export default function PresetDetail({
   }, [layers]);
 
   const editingBase = area === "normal" || previewState === "base";
+  const eyePose = previewState === "eyes-closed" ? "closed" : "opened";
+  const selectedGroups = motionKind === "mouth" ? mouthGroups : eyeGroups;
   const baseByPath = new Map(preset.base.map((layer) => [layer.path, layer.visible]));
   const roles = new Map(layers.filter((layer) => layer.kind !== "group")
-    .map((layer) => [layer.path, roleMode === "open"
-      ? openLayerRole(preset, layer.path) : aiueoLayerRole(preset, aiueoKey, layer.path)]));
-  const unsetRole = roleMode === "open" ? "none" : "base";
+    .map((layer) => {
+      if (motionKind === "eyes") {
+        const eye = preset.eyes?.[eyePose].find((entry) => entry.path === layer.path);
+        return [layer.path, eye === undefined ? "base" : eye.visible ? "show" : "hide"];
+      }
+      return [layer.path, roleMode === "open"
+        ? openLayerRole(preset, layer.path) : aiueoLayerRole(preset, aiueoKey, layer.path)];
+    }));
+  const unsetRole = motionKind === "mouth" && roleMode === "open" ? "none" : "base";
   const eligible = new Set(layers.filter((layer) =>
-    area === "motion" ? isMouthLayer(layer.path, mouthGroups)
-      : !isMouthLayer(layer.path, mouthGroups)).map((layer) => layer.path));
+    area === "motion" ? isMouthLayer(layer.path, selectedGroups)
+      : !isMouthLayer(layer.path, mouthGroups) && !isMouthLayer(layer.path, eyeGroups)
+  ).map((layer) => layer.path));
   const queryText = query.trim().toLocaleLowerCase();
   const activeFilter = Boolean(queryText);
   const matches = new Set<string>();
@@ -96,7 +111,7 @@ export default function PresetDetail({
     const matchedGroups = layers.filter((layer) => layer.kind === "group"
       && matches.has(layer.path)).map((layer) => layer.path);
     setExpanded((old) => [...new Set([...old, ...matchedGroups])]);
-  }, [queryText, area, mouthGroups.join("/")]);
+  }, [queryText, area, mouthGroups.join("/"), eyeGroups.join("/"), motionKind]);
 
   function visibleInTree(path: string): boolean {
     const parts = path.split("/");
@@ -109,7 +124,7 @@ export default function PresetDetail({
 
   function layerDepth(path: string): number {
     if (area === "normal") return path.split("/").length - 1;
-    const root = mouthGroups.filter((group) => isMouthLayer(path, [group]))
+    const root = selectedGroups.filter((group) => isMouthLayer(path, [group]))
       .sort((a, b) => b.length - a.length)[0];
     return root ? path.split("/").length - root.split("/").length : 0;
   }
@@ -117,17 +132,20 @@ export default function PresetDetail({
   const shape = previewState === "base" ? undefined :
     previewState === "closed" || previewState === "opened"
       ? preset.openMouth?.[previewState]
-      : preset.aiueoMouth?.[previewState.slice(6) as AiueoKey];
+      : previewState === "eyes-opened" || previewState === "eyes-closed"
+        ? preset.eyes?.[eyePose]
+        : preset.aiueoMouth?.[previewState.slice(6) as AiueoKey];
   // Open's closed pose inherits the preset's base portrait until overridden.
   // This is not an invalid/unconfigured mouth; the opened pose is still required
   // for animated export and keeps its separate missing-shape warning.
   const inheritedClosed = previewState === "closed" && !shape?.length;
   const unconfiguredOpened = previewState === "opened" && !shape?.length;
   const shapeKey = JSON.stringify([sourcePath, fingerprint, sourceIdentity,
-    preset.base, shape, previewState, preset.mouthMotionEnabled]);
+    preset.base, shape, previewState, preset.mouthMotionEnabled, preset.blinkEnabled]);
   useEffect(() => {
     if (previewState === "base" || inheritedClosed || unconfiguredOpened ||
-        preset.mouthMotionEnabled === false || sourceChanged || previewLoading) return;
+        (motionKind === "mouth" && preset.mouthMotionEnabled === false)
+        || sourceChanged || previewLoading) return;
     if (!shape?.length) return; // The unconfigured phoneme inherits the base preview.
     const abort = new AbortController();
     const overrides = new Map(shape.map((item) => [item.path, item.visible]));
@@ -170,16 +188,20 @@ export default function PresetDetail({
     }
     return () => abort.abort();
   }, [shapeKey, browserRenderer, sourceChanged, previewLoading, verifySource,
-    preset.mouthMotionEnabled, inheritedClosed, unconfiguredOpened]);
+    preset.mouthMotionEnabled, inheritedClosed, unconfiguredOpened, motionKind]);
 
   const unconfiguredAiueo = previewState.startsWith("aiueo-") && !shape?.length;
+  const unconfiguredEyes = previewState.startsWith("eyes-") && !shape?.length;
   const usingBasePreview = previewState === "base" || inheritedClosed
-    || unconfiguredOpened || unconfiguredAiueo || preset.mouthMotionEnabled === false;
+    || unconfiguredOpened || unconfiguredAiueo || unconfiguredEyes
+    || (motionKind === "mouth" && preset.mouthMotionEnabled === false);
   const shownPreview = sourceChanged ? undefined :
     usingBasePreview ? preview : shapePreview?.key === shapeKey ? shapePreview.image : undefined;
   const shownError = sourceChanged ? "PSDが変更されました。再読み込みしてください。" :
     usingBasePreview ? previewError : shapePreview?.key === shapeKey ? shapePreview.error : undefined;
-  const focusPaths = new Set((roleMode === "open" ? [
+  const focusPaths = new Set((motionKind === "eyes" ? [
+    ...(preset.eyes?.opened ?? []), ...(preset.eyes?.closed ?? []),
+  ] : roleMode === "open" ? [
     ...(preset.openMouth?.closed ?? []), ...(preset.openMouth?.opened ?? []),
   ] : AIUEO_KEYS.flatMap((key) => preset.aiueoMouth?.[key] ?? [])).map((item) => item.path));
   const hasBounds = (layer: Layer) => layer.bbox.length === 4
@@ -191,14 +213,14 @@ export default function PresetDetail({
   const assignedBounds = layers.filter((layer) =>
     focusPaths.has(layer.path) && hasBounds(layer));
   const selectedMouth = layers.find((layer) => layer.path === selectedPath
-    && isMouthLayer(layer.path, mouthGroups) && hasBounds(layer));
+    && isMouthLayer(layer.path, selectedGroups) && hasBounds(layer));
   const unassignedLeaves = layers.filter((layer) => layer.kind !== "group"
-    && mouthGroups.some((group) => layer.path.startsWith(group + "/"))
+    && selectedGroups.some((group) => layer.path.startsWith(group + "/"))
     && hasBounds(layer));
   const focusBounds = assignedBounds.length ? assignedBounds
     : selectedMouth ? [selectedMouth]
     : unassignedLeaves.length ? unassignedLeaves
-    : layers.filter((layer) => mouthGroups.includes(layer.path) && hasBounds(layer));
+    : layers.filter((layer) => selectedGroups.includes(layer.path) && hasBounds(layer));
   const focus = focusBounds.length && canvasWidth > 0 && canvasHeight > 0
     ? {
       x: Math.max(0, Math.min(1,
@@ -247,12 +269,21 @@ export default function PresetDetail({
             通常レイヤー
           </button>
           <button type="button" aria-pressed={area === "motion"}
-            onClick={() => { setArea("motion"); setPreviewState(roleMode === "open"
-              ? "closed" : `aiueo-${aiueoKey}`); setQuery(""); }}>
+            onClick={() => { setArea("motion"); setPreviewState(motionKind === "eyes"
+              ? "eyes-opened" : roleMode === "open" ? "closed" : `aiueo-${aiueoKey}`);
+              setQuery(""); }}>
             動かすパーツ
           </button>
         </div>
         {area === "motion" && <>
+          <div className="preset-role-tabs" role="group" aria-label="動作の種類">
+            <button type="button" aria-pressed={motionKind === "mouth"}
+              onClick={() => { setMotionKind("mouth"); setPreviewState(roleMode === "open"
+                ? "closed" : `aiueo-${aiueoKey}`); }}>口パク</button>
+            <button type="button" aria-pressed={motionKind === "eyes"}
+              onClick={() => { setMotionKind("eyes"); setPreviewState("eyes-opened"); }}>瞬き</button>
+          </div>
+          {motionKind === "mouth" ? <>
           <label className="motion-enabled-toggle">
             <input type="checkbox" checked={preset.mouthMotionEnabled !== false}
               onChange={(event) => onMouthMotionChange(event.target.checked)} />
@@ -283,8 +314,25 @@ export default function PresetDetail({
               {AIUEO_LABELS[key]}
             </button>)}
           </div>}
+          </> : <>
+            <label className="motion-enabled-toggle">
+              <input type="checkbox" checked={preset.blinkEnabled}
+                onChange={(event) => onBlinkChange(event.target.checked)} />
+              瞬き
+            </label>
+            <div className="preset-aiueo-choice" role="group" aria-label="編集する目の形">
+              <button type="button" aria-pressed={previewState === "base"}
+                onClick={() => setPreviewState("base")}>基本</button>
+              <button type="button" aria-pressed={previewState === "eyes-opened"}
+                onClick={() => setPreviewState("eyes-opened")}>開眼</button>
+              <button type="button" aria-pressed={previewState === "eyes-closed"}
+                onClick={() => setPreviewState("eyes-closed")}>閉眼</button>
+            </div>
+            <p className="hint">瞬きの動画書き出しは未実装です。ここでは静止プレビューと設定保存のみ行います。</p>
+          </>}
           <MotionGroupSelector groups={layers.filter((layer) => layer.kind === "group")}
-            selected={mouthGroups} onChange={onMouthGroupsChange} />
+            selected={selectedGroups} onChange={motionKind === "mouth"
+              ? onMouthGroupsChange : onEyeGroupsChange} />
         </>}
         <div className="preset-role-tools">
           <input aria-label="レイヤー検索" value={query} onChange={(e) => setQuery(e.target.value)}
@@ -304,14 +352,17 @@ export default function PresetDetail({
             const choice = psdChoiceKind(layer.name);
             const on = baseByPath.get(layer.path) ?? false;
             const role = roles.get(layer.path) ?? unsetRole;
-            const effective = previewState === "closed" || previewState === "opened"
+            const effective = motionKind === "mouth" &&
+              (previewState === "closed" || previewState === "opened")
               ? preset.openMouth?.[previewState].find((item) => item.path === layer.path)?.visible ?? on
               : role === "base" ? on : role === "show";
             return <div key={layer.path} data-layer-path={layer.path}
-              data-aiueo-role={area === "motion" && roleMode === "aiueo" && !isGroup && !editingBase
-                ? role : undefined}
-              data-open-role={area === "motion" && roleMode === "open" && !isGroup
-                ? openLayerRole(preset, layer.path) : undefined}
+              data-aiueo-role={area === "motion" && motionKind === "mouth" &&
+                roleMode === "aiueo" && !isGroup && !editingBase ? role : undefined}
+              data-open-role={area === "motion" && motionKind === "mouth" &&
+                roleMode === "open" && !isGroup ? openLayerRole(preset, layer.path) : undefined}
+              data-eye-role={area === "motion" && motionKind === "eyes" &&
+                !isGroup && !editingBase ? role : undefined}
               data-selected={selectedPath === layer.path ? "true" : "false"}
               className={"layer preset-layer " + (isGroup ? "group" : "")}
               style={{ paddingLeft: 10 + layerDepth(layer.path) * 13 }}>
@@ -333,7 +384,9 @@ export default function PresetDetail({
                   onChange={(event) => {
                     const selected = event.target.checked;
                     if (editingBase) onToggle(layer.path, selected);
-                    else if (roleMode === "open") {
+                    else if (motionKind === "eyes") {
+                      onEyeShapeChange(eyePose, layer.path, selected);
+                    } else if (roleMode === "open") {
                       onOpenShapeChange(previewState as "closed" | "opened", layer.path,
                         selected);
                     } else {
@@ -341,8 +394,10 @@ export default function PresetDetail({
                     }
                   }}
                   aria-label={layer.name + " [" + layer.path + "] " +
-                    (editingBase ? "基本" : roleMode === "open"
-                      ? previewState === "closed" ? "閉じ口" : "開き口" : AIUEO_LABELS[aiueoKey])} />}
+                    (editingBase ? "基本" : motionKind === "eyes"
+                      ? eyePose === "opened" ? "開眼" : "閉眼"
+                      : roleMode === "open"
+                        ? previewState === "closed" ? "閉じ口" : "開き口" : AIUEO_LABELS[aiueoKey])} />}
                 <button type="button" className="preset-layer-select"
                   aria-pressed={selectedPath === layer.path}
                   aria-label={layer.name + " [" + layer.path + "] を選択"}
@@ -353,7 +408,7 @@ export default function PresetDetail({
               </div>
             </div>;
           })}
-          {area === "motion" && mouthGroups.length === 0 && <p className="hint">
+          {area === "motion" && selectedGroups.length === 0 && <p className="hint">
             対象グループを選択してください。
           </p>}
           {activeFilter && !layers.some((layer) => eligible.has(layer.path)
@@ -362,14 +417,14 @@ export default function PresetDetail({
         </div>
         {area === "motion" && hiddenParents.length > 0 && !editingBase &&
           <p className="hint warning" role="status">
-            口形対象の親グループが非表示です。「基本」または「通常レイヤー」で親グループをONにしてください。
+            {motionKind === "eyes" ? "目の対象" : "口形対象"}の親グループが非表示です。「基本」または「通常レイヤー」で親グループをONにしてください。
           </p>}
         <button type="button" className="secondary preset-delete"
           onClick={onDelete}>このプリセットを削除</button>
       </section>
       <section className="panel preset-preview">
         <h2>プレビュー</h2>
-        {(selectedLayer || roleMode === "open") && <p className="hint preset-selected-summary" aria-live="polite">
+        {(selectedLayer || roleMode === "open" || motionKind === "eyes") && <p className="hint preset-selected-summary" aria-live="polite">
           {selectedLayer
             ? "選択中: " + selectedLayer.name + " [" + selectedLayer.path + "]" +
               (selectedHasBounds ? "" : "（位置情報なし）")
@@ -377,8 +432,10 @@ export default function PresetDetail({
         </p>}
         <PresetImagePreview image={shownPreview} alt={preset.name + " のプレビュー"}
           error={shownError} focus={focus}
+          focusLabel={motionKind === "eyes" && area === "motion" ? "目元へ" : "口元へ"}
           selectedFocus={selectedFocus} />
-        {area === "motion" && unconfiguredOpened && preset.mouthMotionEnabled !== false
+        {area === "motion" && motionKind === "mouth" && unconfiguredOpened &&
+          preset.mouthMotionEnabled !== false
           && !sourceChanged && <p className="hint warning">開き口を指定してください</p>}
         <p className="hint">全体表示と口元の拡大を切り替えられます。拡大時はドラッグで移動できます。</p>
       </section>

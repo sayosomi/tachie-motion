@@ -7,6 +7,7 @@ import {
   appendPreset, availablePresetName, createPreset, duplicatePreset, movePreset,
   removeSessionPreset, renamePreset, reorderPresets,
   setBaseLayerChoice, setAiueoPsdChoice, setOpenPsdChoice, setMouthMotionEnabled,
+  setEyePsdChoice, setBlinkEnabled,
   type AiueoKey,
   type Presets, type UnifiedPreset,
 } from "./presetModel";
@@ -16,7 +17,7 @@ import {
   serializeCharacterProfile, validateCharacterProfileOpenTargets,
 } from "./characterProfile";
 import { saveCharacterProfileFile } from "./characterProfileSave";
-import { effectiveMouthGroups, setMouthGroups } from "./motionGroups";
+import { effectiveMouthGroups, effectiveEyeGroups, setMouthGroups, setEyeGroups } from "./motionGroups";
 import { validatePsdChoices } from "./psdChoice";
 
 type PsdData = {
@@ -496,10 +497,17 @@ export default function PresetWorkspace() {
       onToggle={(path, visible) =>
         updatePresets(setBaseLayerChoice(collection, active.id, psd.layers, path, visible))}
       mouthGroups={effectiveMouthGroups(collection, psd.layers)}
+      eyeGroups={effectiveEyeGroups(collection, psd.layers)}
       onMouthGroupsChange={(groups) =>
         updatePresets(setMouthGroups(collection, psd.layers, groups))}
+      onEyeGroupsChange={(groups) =>
+        updatePresets(setEyeGroups(collection, psd.layers, groups))}
       onMouthMotionChange={(enabled) =>
         updatePresets(setMouthMotionEnabled(collection, active.id, enabled))}
+      onBlinkChange={(enabled) =>
+        updatePresets(setBlinkEnabled(collection, active.id, enabled))}
+      onEyeShapeChange={(pose, path, visible) =>
+        updatePresets(setEyePsdChoice(collection, active.id, psd.layers, pose, path, visible))}
       onOpenShapeChange={(shape, path, visible) =>
         updatePresets(setOpenPsdChoice(collection, active.id, psd.layers, shape, path, visible))}
       onAiueoChoiceChange={(key: AiueoKey, path: string, visible: boolean) =>
