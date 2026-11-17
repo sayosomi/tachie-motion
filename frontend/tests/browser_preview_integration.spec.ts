@@ -108,20 +108,24 @@ test("aiueo Canvas preview renders independent overrides and hidden parents with
   await openDetails(page);
   await expect(page.locator("main.preset-workspace")).toHaveAttribute("data-preview-renderer", "canvas");
   await page.getByRole("button", { name: "aiueo", exact: true }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/0"]')
-    .getByRole("checkbox", { name: "mouth-closed [0/0] あで表示" }).uncheck();
-  await page.locator('.preset-layer-role[data-layer-path="0/1"]')
-    .getByRole("checkbox", { name: "mouth-open [0/1] あで表示" }).check();
+  await page.locator('.preset-layer[data-layer-path="0/0"]')
+    .getByRole("checkbox", { name: "mouth-closed [0/0] あ" }).uncheck();
+  await page.locator('.preset-layer[data-layer-path="0/1"]')
+    .getByRole("checkbox", { name: "mouth-open [0/1] あ" }).check();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
-  await page.getByRole("checkbox", { name: "face [0] 表示" }).uncheck();
+  await page.getByRole("group", { name: "編集する口形" })
+    .getByRole("button", { name: "基本", exact: true }).click();
+  await page.getByRole("checkbox", { name: "face [0] 基本" }).uncheck();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 0, 0]);
-  await page.getByRole("checkbox", { name: "face [0] 表示" }).check();
+  await page.getByRole("checkbox", { name: "face [0] 基本" }).check();
+  await page.getByRole("group", { name: "編集する口形" })
+    .getByRole("button", { name: "あ", exact: true }).click();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
 
-  await page.getByRole("group", { name: "編集するaiueo口形" })
+  await page.getByRole("group", { name: "編集する口形" })
     .getByRole("button", { name: "い", exact: true }).click();
-  await expect(page.getByText("この口形は未設定です。", { exact: false })).toBeVisible();
-  await page.getByRole("group", { name: "編集するaiueo口形" })
+  await expect(page.getByAltText("通常 のプレビュー")).toBeVisible();
+  await page.getByRole("group", { name: "編集する口形" })
     .getByRole("button", { name: "あ", exact: true }).click();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
   expect(pythonRequests).toBe(0);
@@ -144,10 +148,10 @@ test("aiueo Python fallback receives the exact overlay without changing base or 
   await openDetails(page);
   await expect(page.locator("main.preset-workspace")).toHaveAttribute("data-preview-renderer", "python");
   await page.getByRole("button", { name: "aiueo", exact: true }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/0"]')
-    .getByRole("checkbox", { name: "mouth-closed [0/0] あで表示" }).uncheck();
-  await page.locator('.preset-layer-role[data-layer-path="0/1"]')
-    .getByRole("checkbox", { name: "mouth-open [0/1] あで表示" }).check();
+  await page.locator('.preset-layer[data-layer-path="0/0"]')
+    .getByRole("checkbox", { name: "mouth-closed [0/0] あ" }).uncheck();
+  await page.locator('.preset-layer[data-layer-path="0/1"]')
+    .getByRole("checkbox", { name: "mouth-open [0/1] あ" }).check();
   await expect.poll(() => requests.some((states) =>
     states.find((part) => part.path === "0/0")?.visible === false &&
     states.find((part) => part.path === "0/1")?.visible === true &&
