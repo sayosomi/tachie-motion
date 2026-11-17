@@ -1,5 +1,6 @@
 import type { Layer } from "./LayerTree";
 import type { MotionGroups } from "./motionGroups";
+import { applyChoice, choiceChanges, initialChoiceVisibility } from "./psdChoice";
 
 export type Visibility = { path: string; visible: boolean };
 export type Shape = Visibility[];
@@ -26,7 +27,7 @@ export function createPreset(name: string, layers: Layer[]): UnifiedPreset {
   return {
     id: crypto.randomUUID(),
     name,
-    base: layers.map(({ path, visible }) => ({ path, visible })),
+    base: initialChoiceVisibility(layers),
     blinkEnabled: false,
     mouthMotionEnabled: true,
   };
@@ -89,6 +90,14 @@ export function toggleBaseLayer(current: Presets, id: string, path: string): Pre
       base: item.base.map((layer) => layer.path === path ? { ...layer, visible: !layer.visible } : layer),
     } : item),
   };
+}
+
+/** Apply PSDTool's radio / forced-visible conventions to one base state. */
+export function setBaseLayerChoice(
+  current: Presets, id: string, layers: Layer[], path: string, visible: boolean,
+): Presets {
+  return { ...current, items: current.items.map((item) => item.id === id
+    ? { ...item, base: applyChoice(item.base, layers, path, visible) } : item) };
 }
 
 export function reorderPresets(current: Presets, sourceId: string, targetId: string): Presets {
@@ -238,4 +247,31 @@ export function setOpenShapeVisibility(
   const opened = preset.base.filter((layer) => openedMap.has(layer.path))
     .map((layer) => ({ path: layer.path, visible: openedMap.get(layer.path)! }));
   return setOpenMouth(current, id, closed.length ? { closed, opened } : undefined);
+}
+
+/** Set one radio selection in one Open shape, keeping the opposite shape intact. */
+export function setOpenPsdChoice(
+  current: Presets, id: string, layers: Layer[],
+  shape: "closed" | "opened", path: string, visible: boolean,
+): Presets {
+  return choiceChanges(layers, path, visible).reduce(
+    (next, entry) => setOpenShapeVisibility(next, id, shape, entry.path, entry.visible),
+    current,
+  );
+}
+
+/** Sibling radio exclusion is local to the selected aiueo mouth shape. */
+export function setAiueoPsdChoice(
+  current: Presets, id: string, layers: Layer[],
+  key: AiueoKey, path: string, visible: boolean,
+): Presets {
+  const preset = current.items.find((item) => item.id === id);
+  if (!preset) throw new Error("Unknown preset");
+  const base = new Map(preset.base.map((entry) => [entry.path, entry.visible]));
+  return choiceChanges(layers, path, visible).reduce((next, entry) => {
+    const baseline = base.get(entry.path);
+    if (baseline === undefined) throw new Error("Unknown source layer path");
+    return assignAiueoLayerRole(next, id, key, entry.path,
+      entry.visible === baseline ? "base" : entry.visible ? "show" : "hide");
+  }, current);
 }
