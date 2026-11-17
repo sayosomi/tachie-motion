@@ -258,19 +258,10 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .preset-aiueo-choice button { flex:1 1 38px; min-width:38px; min-height:38px; padding:6px;
   font-size:13px; font-weight:700; }
 .preset-aiueo-choice button[aria-pressed="true"] { border-color:#8bd8c5; background:#275063; color:#e6fff7; }
-.preset-editor[data-role-mode="aiueo"] .preset-role-head > span:last-child,
-.preset-editor[data-role-mode="aiueo"] .preset-layer-role,
-.preset-editor[data-role-mode="aiueo"] .preset-role-group-count { flex:0 0 150px; width:150px; }
-.preset-editor[data-role-mode="aiueo"] .preset-layer-role button { font-size:11px; }
-.preset-aiueo-visibility { display:flex; width:100%; align-items:center; justify-content:space-between; gap:5px; }
-.preset-aiueo-toggle { display:flex; flex:0 0 auto; gap:4px; align-items:center; margin:0;
-  font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap; }
-.preset-aiueo-toggle input { margin:0; width:18px; height:18px; accent-color:#86dbbe; cursor:pointer; }
-.preset-aiueo-inherit { color:#9bb8c8; font-size:10px; white-space:nowrap; }
-.preset-editor[data-role-mode="aiueo"] .preset-layer-role .preset-aiueo-reset {
-  flex:0 0 auto; min-height:28px; padding:3px 5px; font-size:10px; white-space:nowrap;
-}
-.preset-active-shape { display:flex; align-items:center; font-weight:700; font-size:13px; }
+/* aiueo uses the same single visibility checkbox for the active shape.
+   Open keeps its separate role controls without changing their layout. */
+.preset-editor[data-role-mode="aiueo"] .preset-visibility-label { width:100%; }
+.preset-editor[data-role-mode="aiueo"] .preset-layer { gap:4px; }
 
 @media(max-width:560px) {
   .preset-role-head > span:last-child,.preset-layer-role,.preset-role-group-count { flex-basis:102px; width:102px; }
