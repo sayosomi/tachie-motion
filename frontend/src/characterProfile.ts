@@ -119,8 +119,11 @@ export function parseCharacterProfile(text: string): CharacterProfile {
   fields(data.collection, ["items", "defaultId"], ["motionGroups"]);
   const collection = data.collection;
   if (Object.hasOwn(collection, "motionGroups")) {
-    fields(collection.motionGroups, ["mouth"]);
+    fields(collection.motionGroups, ["mouth"], ["eyes"]);
     paths(collection.motionGroups.mouth, true);
+    if (Object.hasOwn(collection.motionGroups, "eyes")) {
+      paths(collection.motionGroups.eyes, true);
+    }
   }
   if (!Array.isArray(collection.items) || collection.items.length > MAX_PRESETS) {
     throw new Error("キャラクター設定JSONのプリセット数が不正です");

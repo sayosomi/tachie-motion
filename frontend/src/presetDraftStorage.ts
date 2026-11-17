@@ -37,12 +37,16 @@ export function readPresetDraft(): PresetDraft | null {
   const collection = value.collection as unknown as Presets;
   if (collection.motionGroups !== undefined) {
     const motion: unknown = collection.motionGroups;
-    if (!object(motion) || Object.keys(motion).length !== 1 ||
-        !Array.isArray(motion.mouth) || motion.mouth.length > 50_000 ||
-        new Set(motion.mouth).size !== motion.mouth.length ||
-        !motion.mouth.every((path: unknown) =>
-          typeof path === "string" && /^(0|[1-9][0-9]*)(\/(0|[1-9][0-9]*))*$/.test(path)
-          && path.length <= 256)) {
+    const validGroupPaths = (value: unknown) =>
+      Array.isArray(value) && value.length <= 50_000 &&
+      new Set(value).size === value.length &&
+      value.every((path: unknown) =>
+        typeof path === "string" && /^(0|[1-9][0-9]*)(\/(0|[1-9][0-9]*))*$/.test(path)
+        && path.length <= 256);
+    if (!object(motion) ||
+        Object.keys(motion).some((key) => key !== "mouth" && key !== "eyes") ||
+        !validGroupPaths(motion.mouth) ||
+        (Object.hasOwn(motion, "eyes") && !validGroupPaths(motion.eyes))) {
       throw new Error("保存済み動作対象グループが不正です");
     }
   }

@@ -6,10 +6,20 @@ import { AIUEO_KEYS } from "./presetModel";
  * The source PSD groups, not app-created groups, are the motion assignment
  * units. Open and aiueo share the same mouth motion group selection.
  */
-export type MotionGroups = { mouth: string[] };
+export type MotionGroups = { mouth: string[]; eyes?: string[] };
 
 export function withinGroup(path: string, groupPath: string): boolean {
   return path === groupPath || path.startsWith(groupPath + "/");
+}
+
+export function assignedEyePaths(collection: Presets): Set<string> {
+  const assigned = new Set<string>();
+  for (const preset of collection.items) {
+    for (const shape of [preset.eyes?.opened, preset.eyes?.closed]) {
+      for (const layer of shape ?? []) assigned.add(layer.path);
+    }
+  }
+  return assigned;
 }
 
 export function assignedMouthPaths(collection: Presets): Set<string> {
@@ -48,6 +58,31 @@ export function effectiveMouthGroups(collection: Presets, layers: Layer[]): stri
   return layers.filter((layer) => inferred.has(layer.path)).map((layer) => layer.path);
 }
 
+/** Legacy eye shapes did not have group metadata; infer only from source paths. */
+export function effectiveEyeGroups(collection: Presets, layers: Layer[]): string[] {
+  if (collection.motionGroups?.eyes) return collection.motionGroups.eyes;
+  const groupPaths = new Set(layers.filter((layer) => layer.kind === "group")
+    .map((layer) => layer.path));
+  const inferred = new Set<string>();
+  for (const path of assignedEyePaths(collection)) {
+    const parts = path.split("/");
+    while (parts.length > 1) {
+      parts.pop();
+      const parent = parts.join("/");
+      if (groupPaths.has(parent)) {
+        inferred.add(parent);
+        break;
+      }
+    }
+  }
+  return layers.filter((layer) => inferred.has(layer.path)).map((layer) => layer.path);
+}
+
+function groupsOverlap(a: readonly string[], b: readonly string[]): boolean {
+  return a.some((one) => b.some((two) =>
+    withinGroup(one, two) || withinGroup(two, one)));
+}
+
 export function isMouthLayer(path: string, groupPaths: readonly string[]): boolean {
   return groupPaths.some((group) => withinGroup(path, group));
 }
@@ -67,8 +102,35 @@ export function setMouthGroups(
   if ([...assignedMouthPaths(collection)].some((path) => !isMouthLayer(path, groups))) {
     throw new Error("口形に登録済みのレイヤーがあります。先に口形の割当を解除してください。");
   }
+  if (groupsOverlap(groups, effectiveEyeGroups(collection, layers))) {
+    throw new Error("目の動作対象と重複するPSDグループは口形に割り当てられません。");
+  }
   return { ...collection, motionGroups: {
+    ...collection.motionGroups,
     mouth: layers.filter((layer) => groups.includes(layer.path)).map((layer) => layer.path),
+  } };
+}
+
+/** Eye and mouth motion may never claim the same original PSD group. */
+export function setEyeGroups(
+  collection: Presets, layers: Layer[], groups: string[],
+): Presets {
+  const allowed = new Set(layers.filter((layer) => layer.kind === "group")
+    .map((layer) => layer.path));
+  if (new Set(groups).size !== groups.length || groups.some((path) => !allowed.has(path))) {
+    throw new Error("PSDのレイヤーグループを選んでください");
+  }
+  if ([...assignedEyePaths(collection)].some((path) => !isMouthLayer(path, groups))) {
+    throw new Error("目に登録済みのレイヤーがあります。先に開眼・閉眼の割当を解除してください。");
+  }
+  const mouth = effectiveMouthGroups(collection, layers);
+  if (groupsOverlap(groups, mouth)) {
+    throw new Error("口の動作対象と重複するPSDグループは目に割り当てられません。");
+  }
+  return { ...collection, motionGroups: {
+    ...collection.motionGroups,
+    mouth,
+    eyes: layers.filter((layer) => groups.includes(layer.path)).map((layer) => layer.path),
   } };
 }
 
@@ -77,7 +139,12 @@ export function validMotionGroups(collection: Presets, layers: Layer[]): boolean
   const groups = collection.motionGroups.mouth;
   const known = new Set(layers.filter((layer) => layer.kind === "group")
     .map((layer) => layer.path));
+  const eyes = collection.motionGroups.eyes;
   return new Set(groups).size === groups.length
     && groups.every((path) => known.has(path))
-    && [...assignedMouthPaths(collection)].every((path) => isMouthLayer(path, groups));
+    && [...assignedMouthPaths(collection)].every((path) => isMouthLayer(path, groups))
+    && (eyes === undefined || (new Set(eyes).size === eyes.length
+      && eyes.every((path) => known.has(path))
+      && !groupsOverlap(groups, eyes)
+      && [...assignedEyePaths(collection)].every((path) => isMouthLayer(path, eyes))));
 }

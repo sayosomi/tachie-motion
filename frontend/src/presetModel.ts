@@ -275,3 +275,41 @@ export function setAiueoPsdChoice(
       entry.visible === baseline ? "base" : entry.visible ? "show" : "hide");
   }, current);
 }
+
+
+/** Eye poses can override different PSD leaves without changing the mouth. */
+export function setEyeShapeVisibility(
+  current: Presets, id: string, pose: "opened" | "closed",
+  path: string, visible: boolean,
+): Presets {
+  const preset = current.items.find((item) => item.id === id);
+  const base = preset?.base.find((layer) => layer.path === path);
+  if (!preset || !base) throw new Error("Unknown preset or eye layer");
+  const eyes = preset.eyes;
+  const poses: ("opened" | "closed")[] = ["opened", "closed"];
+  const next = { opened: [...(eyes?.opened ?? [])],
+    closed: [...(eyes?.closed ?? [])] };
+  const overrides = new Map(next[pose].map((item) => [item.path, item.visible]));
+  if (visible === base.visible) overrides.delete(path);
+  else overrides.set(path, visible);
+  next[pose] = preset.base.filter((item) => overrides.has(item.path))
+    .map((item) => ({ path: item.path, visible: overrides.get(item.path)! }));
+  const result = poses.some((name) => next[name].length) ? next : undefined;
+  return { ...current, items: current.items.map((item) =>
+    item.id === id ? { ...item, eyes: result } : item) };
+}
+
+export function setEyePsdChoice(
+  current: Presets, id: string, layers: Layer[],
+  pose: "opened" | "closed", path: string, visible: boolean,
+): Presets {
+  return choiceChanges(layers, path, visible).reduce(
+    (next, entry) => setEyeShapeVisibility(next, id, pose, entry.path, entry.visible),
+    current,
+  );
+}
+
+export function setBlinkEnabled(current: Presets, id: string, enabled: boolean): Presets {
+  return { ...current, items: current.items.map((item) =>
+    item.id === id ? { ...item, blinkEnabled: enabled } : item) };
+}
