@@ -37,7 +37,7 @@ async function openEditor(page: Page, requests: State[][] = []) {
 async function chooseMouthGroups(page: Page) {
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "動かすパーツ" }).click();
-  await page.getByRole("button", { name: "変更" }).click();
+  await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口１ [0/0]" }).check();
   await page.getByRole("group", { name: "PSDグループ" })
@@ -138,7 +138,7 @@ test("configured group cannot be detached until its leaf targets are cleared", a
   await chooseMouthGroups(page);
   await shape(page, "開き口").click();
   await checkbox(page, "0/1/0").check();
-  await page.getByRole("button", { name: "変更" }).click();
+  await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口２ [0/1]" }).uncheck();
   await expect(page.getByRole("alert"))
@@ -149,7 +149,7 @@ test("configured group cannot be detached until its leaf targets are cleared", a
 
   // Restore the Open shape to the base value in both states and detach.
   await checkbox(page, "0/1/0").uncheck();
-  await page.getByRole("button", { name: "変更" }).click();
+  await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口２ [0/1]" }).uncheck();
   await expect(layer(page, "0/1/0")).toHaveCount(0);
