@@ -1181,7 +1181,7 @@ test("aiueo requires valid LAB and all six preset shapes before export", async (
   await expect(page.locator('[data-lab-status="valid"]')).toBeVisible();
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("aiueo");
   await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toHaveValue("aiueo");
-  await expect(page.getByText("6口形をすべて設定してください。")).toBeVisible();
+  await expect(page.getByText("「ん」は基本表示を利用できます。", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
   await addWav(page, "/tmp/missing.wav");
   await expect(page.locator('[data-selected="true"] [data-lab-status="missing"]')).toBeVisible();
