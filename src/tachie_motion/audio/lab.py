@@ -121,11 +121,20 @@ def inspect_adjacent_lab(
         flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(wav_path, flags)
-        with os.fdopen(descriptor, "rb") as stream:
-            source = os.fstat(stream.fileno())
-            before = _identity(source)
-            if not stat.S_ISREG(source.st_mode) or _identity(os.lstat(wav_path)) != before:
+        try:
+            # Reject directories/FIFOs before fdopen, which itself may reject
+            # a directory descriptor without taking ownership of the fd.
+            source = os.fstat(descriptor)
+            if not stat.S_ISREG(source.st_mode):
                 raise ValueError("WAV must be a stable regular file")
+            stream = os.fdopen(descriptor, "rb")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        with stream:
+            before = _identity(source)
+            if _identity(os.lstat(wav_path)) != before:
+                raise ValueError("WAV changed during open")
             if expected_wav_identity is not None and before != expected_wav_identity:
                 raise ValueError("WAV changed since registration")
             # wave and the RIFF integrity scanner must read the same opened
