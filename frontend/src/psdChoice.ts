@@ -74,7 +74,12 @@ export function initialChoiceVisibility(layers: Layer[]): Visibility[] {
  * Inactive PSD parents may hide children effectively, but each saved direct
  * child's own visibility must still obey '!' and '*' conventions.
  */
-export function validatePsdChoices(collection: Presets, layers: Layer[]): void {
+export function validatePsdChoices(
+  collection: Presets, layers: Layer[], context: "restore" | "edit" = "restore",
+): void {
+  const failureNote = context === "edit"
+    ? "変更は適用・保存していません。先に該当する口形の選択を調整してください。"
+    : "保存データを変更せず読み込みを中止しました。";
   const mandatory = layers.filter((layer) => psdChoiceKind(layer.name) === "fixed");
   const siblingGroups = new Map<string, string[]>();
   for (const layer of layers) {
@@ -93,12 +98,12 @@ export function validatePsdChoices(collection: Presets, layers: Layer[]): void {
       const visible = (path: string) => changes.get(path) ?? base.get(path);
       for (const layer of mandatory) {
         if (visible(layer.path) !== true) {
-          throw new Error(`プリセット「${preset.name}」の${label}: !強制表示レイヤー「${layer.name}」がOFFです。保存データを変更せず読み込みを中止しました。`);
+          throw new Error(`プリセット「${preset.name}」の${label}: !強制表示レイヤー「${layer.name}」がOFFです。${failureNote}`);
         }
       }
       for (const [parent, paths] of siblingGroups) {
         if (paths.filter((path) => visible(path) === true).length > 1) {
-          throw new Error(`プリセット「${preset.name}」の${label}: グループ「${parent || "最上位"}」内で*排他レイヤーが複数ONです。保存データを変更せず読み込みを中止しました。`);
+          throw new Error(`プリセット「${preset.name}」の${label}: グループ「${parent || "最上位"}」内で*排他レイヤーが複数ONです。${failureNote}`);
         }
       }
     };
