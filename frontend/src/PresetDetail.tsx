@@ -145,8 +145,7 @@ export default function PresetDetail({
   const shapeKey = JSON.stringify([sourcePath, fingerprint, sourceIdentity,
     preset.base, shape, previewState, preset.mouthMotionEnabled, preset.blinkEnabled]);
   useEffect(() => {
-    if (previewState === "base" || inheritedClosed || unconfiguredOpened ||
-        (motionKind === "mouth" && preset.mouthMotionEnabled === false)
+    if (previewState === "base" || inheritedClosed || unconfiguredOpened
         || sourceChanged || previewLoading) return;
     if (!shape?.length) return; // The unconfigured phoneme inherits the base preview.
     const abort = new AbortController();
@@ -194,9 +193,9 @@ export default function PresetDetail({
 
   const unconfiguredAiueo = previewState.startsWith("aiueo-") && !shape?.length;
   const unconfiguredEyes = previewState.startsWith("eyes-") && !shape?.length;
+  // OFF affects export, not the ability to edit and preview a stored shape.
   const usingBasePreview = previewState === "base" || inheritedClosed
-    || unconfiguredOpened || unconfiguredAiueo || unconfiguredEyes
-    || (motionKind === "mouth" && preset.mouthMotionEnabled === false);
+    || unconfiguredOpened || unconfiguredAiueo || unconfiguredEyes;
   const shownPreview = sourceChanged ? undefined :
     usingBasePreview ? preview : shapePreview?.key === shapeKey ? shapePreview.image : undefined;
   const shownError = sourceChanged ? "PSDが変更されました。再読み込みしてください。" :
@@ -250,6 +249,15 @@ export default function PresetDetail({
     && layer.path.split("/").slice(0, -1).some((_, i, parts) =>
       baseByPath.get(parts.slice(0, i + 1).join("/")) === false));
 
+  function selectMotion(kind: "mouth" | "eyes") {
+    setMotionKind(kind);
+    setPreviewState(kind === "eyes" ? "eyes-closed"
+      : roleMode === "open" ? "opened" : `aiueo-${aiueoKey}`);
+    setShowAdvancedPose(false);
+    setSelectedPath(null);
+    setQuery("");
+  }
+
   return <div className="preset-detail-page">
     <div className="preset-detail-head">
       <button type="button" className="secondary" onClick={onBack}>← 一覧へ</button>
@@ -279,25 +287,21 @@ export default function PresetDetail({
         </div>
         {area === "motion" && <>
           <div className="preset-motion-switches" role="group" aria-label="このプリセットの動作">
-            <label className="motion-enabled-toggle">
-              <input type="checkbox" checked={preset.mouthMotionEnabled !== false}
+            <div className="preset-motion-switch" data-motion-kind="mouth"
+              data-selected={motionKind === "mouth"}>
+              <input type="checkbox" aria-label="口パク"
+                checked={preset.mouthMotionEnabled !== false}
                 onChange={(event) => onMouthMotionChange(event.target.checked)} />
-              口パク
-            </label>
-            <label className="motion-enabled-toggle">
-              <input type="checkbox" checked={preset.blinkEnabled}
+              <button type="button" aria-pressed={motionKind === "mouth"}
+                onClick={() => selectMotion("mouth")}>口パク</button>
+            </div>
+            <div className="preset-motion-switch" data-motion-kind="eyes"
+              data-selected={motionKind === "eyes"}>
+              <input type="checkbox" aria-label="瞬き" checked={preset.blinkEnabled}
                 onChange={(event) => onBlinkChange(event.target.checked)} />
-              瞬き
-            </label>
-          </div>
-          <p className="hint">通常時の口と目は「通常レイヤー」で設定します。ここでは動いたときの形を設定します。</p>
-          <div className="preset-role-tabs" role="group" aria-label="動作の種類">
-            <button type="button" aria-pressed={motionKind === "mouth"}
-              onClick={() => { setMotionKind("mouth"); setPreviewState(roleMode === "open"
-                ? "opened" : `aiueo-${aiueoKey}`); setShowAdvancedPose(false); }}>口パク</button>
-            <button type="button" aria-pressed={motionKind === "eyes"}
-              onClick={() => { setMotionKind("eyes"); setPreviewState("eyes-closed");
-                setShowAdvancedPose(false); }}>瞬き</button>
+              <button type="button" aria-pressed={motionKind === "eyes"}
+                onClick={() => selectMotion("eyes")}>瞬き</button>
+            </div>
           </div>
           {motionKind === "mouth" ? <>
           <div className="preset-role-tabs" role="group" aria-label="口パク方式">

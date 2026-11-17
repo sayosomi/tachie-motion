@@ -33,7 +33,7 @@ async function openEditor(page: Page, requests: Array<{ path: string; visible: b
 }
 
 async function setEyeGroup(page: Page) {
-  await page.getByRole("group", { name: "動作の種類" })
+  await page.getByRole("group", { name: "このプリセットの動作" })
     .getByRole("button", { name: "瞬き" }).click();
   await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
@@ -90,7 +90,7 @@ test("eyes are edited independently of mouth with static preview and recoverable
   await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "動かすパーツ" }).click();
-  await page.getByRole("group", { name: "動作の種類" })
+  await page.getByRole("group", { name: "このプリセットの動作" })
     .getByRole("button", { name: "瞬き" }).click();
   await tabs(page).getByRole("button", { name: "閉眼" }).click();
   await expect(entry(page, "0/1/1").getByRole("radio")).toBeChecked();
@@ -127,7 +127,7 @@ test("mouth and eyes groups cannot overlap or detach assigned eye leaves", async
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口 [0/0]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
-  await page.getByRole("group", { name: "動作の種類" })
+  await page.getByRole("group", { name: "このプリセットの動作" })
     .getByRole("button", { name: "瞬き" }).click();
   await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
@@ -148,6 +148,58 @@ test("mouth and eyes groups cannot overlap or detach assigned eye leaves", async
     .getByRole("checkbox", { name: "目 [0/1]" })).toBeChecked();
 });
 
+
+test("motion row selects mouth or eyes independently from their enabled flags", async ({ page }) => {
+  const requests: Array<{ path: string; visible: boolean }[]> = [];
+  await openEditor(page, requests);
+  const controls = page.getByRole("group", { name: "このプリセットの動作" });
+  const mouth = controls.getByRole("checkbox", { name: "口パク" });
+  const blink = controls.getByRole("checkbox", { name: "瞬き" });
+  const mouthName = controls.getByRole("button", { name: "口パク" });
+  const blinkName = controls.getByRole("button", { name: "瞬き" });
+  await expect(page.getByRole("group", { name: "動作の種類" })).toHaveCount(0);
+  await expect(mouthName).toHaveAttribute("aria-pressed", "true");
+  await expect(mouth).toBeChecked();
+  await expect(blink).not.toBeChecked();
+
+  // Naming the motion switches the editor without enabling the animation.
+  await blinkName.click();
+  await expect(blinkName).toHaveAttribute("aria-pressed", "true");
+  await expect(mouthName).toHaveAttribute("aria-pressed", "false");
+  await expect(blink).not.toBeChecked();
+  await expect(tabs(page).getByRole("button", { name: "閉眼" })).toBeVisible();
+
+  // The checkbox only toggles enablement and leaves the selected editor alone.
+  await mouth.uncheck();
+  await expect(blinkName).toHaveAttribute("aria-pressed", "true");
+  await expect(mouthName).toHaveAttribute("aria-pressed", "false");
+  await mouthName.click();
+  await expect(mouthName).toHaveAttribute("aria-pressed", "true");
+  await expect(mouth).not.toBeChecked();
+  await expect(page.getByRole("group", { name: "編集する口形" })
+    .getByRole("button", { name: "開き口" })).toBeVisible();
+
+  // OFF must not prevent editing or previewing the preserved pose.
+  await page.getByRole("button", { name: "変更", exact: true }).click();
+  await page.getByRole("group", { name: "PSDグループ" })
+    .getByRole("checkbox", { name: "口 [0/0]" }).check();
+  await page.getByRole("button", { name: "閉じる", exact: true }).click();
+  await entry(page, "0/0/0").getByRole("checkbox").uncheck();
+  await expect.poll(() => requests.at(-1)?.find((x) => x.path === "0/0/0")?.visible)
+    .toBe(false);
+  const before = requests.length;
+  await mouth.check();
+  await expect.poll(() => requests.length).toBeGreaterThan(before);
+  await expect(entry(page, "0/0/0").getByRole("checkbox")).not.toBeChecked();
+
+  await blinkName.click();
+  await blink.check();
+  await expect(blinkName).toHaveAttribute("aria-pressed", "true");
+  await expect(blink).toBeChecked();
+  await blink.uncheck();
+  await expect(blinkName).toHaveAttribute("aria-pressed", "true");
+  await expect(mouth).toBeChecked();
+});
 
 test("mouth and blink switches are visible together, and advanced eye pose preserves saved overrides", async ({ page }) => {
   await openEditor(page);
