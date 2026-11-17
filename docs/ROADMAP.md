@@ -69,7 +69,7 @@ PR #10は2026-11-06にマージ済み。1 WAV・1キャラクターのPCM入りM
 ### レイヤー選択UIの改善（Issue #53、作業中）
 
 - [x] **Open役割をワンクリックの「なし／閉／開」ボタン化** — PR #57（旧Private開発履歴） でmain統合済み。Web UI・Python CI、独立ブロッキング監査、Mac実PSDでの操作性Human評価PASS（2026-11-05）。基本ON/OFF・特殊割当を保持。
-- [x] **レイヤー名の選択とプレビューの範囲強調** — PR #58（旧Private開発履歴） で実装。チェックによる基本表示とレイヤー名による選択を分離し、index-pathとPSD上のbboxで即時フィードバック。Web UI・Python CI、独立ブロッキングレビュー、Mac実PSD Human UXをそれぞれPASS（2026-11-05〜06）。
+- [x] **レイヤー名の選択とプレビューの範囲強調** — PR #58（旧Private開発履歴） で実装。チェックによる基本表示とレイヤー名による選択を分離し、index-pathとPSD上のbboxで即時フィードバック。Web UI・Python CI、独立ブロッキングレビュー、Mac実PSD Human UXをそれぞれPASS（2026-11-05〜06）。 後続のPublic Issue #25 / Draft PR #26では、水色の選択枠線を廃止し、レイヤー選択と「選択位置へ」の拡大機能は維持する。
 - [ ] さらに必要な行選択操作・排他グループ等はHuman UX結果に基づき判断。PSDレイヤー名から関係を推測する機能は無断導入しない。
 
 ## Phase 3 — workflow integration：複数WAVの項目別編集から着手
