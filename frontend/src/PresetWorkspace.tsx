@@ -6,7 +6,8 @@ import { PreviewSourceChangedError, useBrowserPreview } from "./useBrowserPrevie
 import {
   appendPreset, availablePresetName, createPreset, duplicatePreset, movePreset,
   removeSessionPreset, renamePreset, reorderPresets, toggleBaseLayer,
-  assignOpenLayerRole, type Presets, type UnifiedPreset,
+  assignOpenLayerRole, assignAiueoLayerRole, type AiueoKey, type AiueoLayerRole,
+  type Presets, type UnifiedPreset,
 } from "./presetModel";
 import { matchesSource, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
@@ -472,6 +473,8 @@ export default function PresetWorkspace() {
       } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }}
       onToggle={(path) => updatePresets(toggleBaseLayer(collection, active.id, path))}
       onOpenRoleChange={(path, role) => updatePresets(assignOpenLayerRole(collection, active.id, path, role))}
+      onAiueoRoleChange={(key: AiueoKey, path: string, role: AiueoLayerRole) =>
+        updatePresets(assignAiueoLayerRole(collection, active.id, key, path, role))}
       onDelete={() => remove(active.id)}
     /> : psd && <section className="panel preset-list-section">
       <div className="preset-list-header">
