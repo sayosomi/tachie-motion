@@ -2,6 +2,7 @@ import type { Layer } from "./LayerTree";
 import type { Presets, UnifiedPreset, Visibility } from "./presetModel";
 import { AIUEO_KEYS } from "./presetModel";
 import { validMotionGroups } from "./motionGroups";
+import { validatePsdChoices } from "./psdChoice";
 
 // Portable, explicit character settings. Never a project snapshot or reload draft.
 export const CHARACTER_PROFILE_FORMAT = "tachie-motion-character-profile";
@@ -182,6 +183,9 @@ export function validateCharacterProfileOpenTargets(profile: CharacterProfile, l
       }
     }
   }
+  // Checked only after /api/psd supplies the source layer names and kinds.
+  // Invalid legacy overrides must not become active UI/export state.
+  validatePsdChoices(profile.collection, layers);
 }
 
 export function matchesCharacterProfileSource(
