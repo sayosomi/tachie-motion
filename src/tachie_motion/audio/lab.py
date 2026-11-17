@@ -87,10 +87,17 @@ def _read_regular_lab(path: Path) -> str:
     flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(path, flags)
-    with os.fdopen(descriptor, "rb") as stream:
-        initial = os.fstat(stream.fileno())
-        if not stat.S_ISREG(initial.st_mode) or _identity(os.lstat(path)) != _identity(initial):
+    try:
+        initial = os.fstat(descriptor)
+        if not stat.S_ISREG(initial.st_mode):
             raise ValueError("LAB must be a stable regular file")
+        stream = os.fdopen(descriptor, "rb")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    with stream:
+        if _identity(os.lstat(path)) != _identity(initial):
+            raise ValueError("LAB changed during open")
         raw = stream.read(MAX_LAB_BYTES + 1)
         if len(raw) > MAX_LAB_BYTES:
             raise ValueError("LAB exceeds size limit")
