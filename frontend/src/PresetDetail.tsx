@@ -194,7 +194,7 @@ export default function PresetDetail({
       <button type="button" className="secondary" onClick={onBack}>← 一覧へ</button>
     </div>
     <div className="preset-layout">
-      <section className="panel preset-editor">
+      <section className="panel preset-editor" data-role-mode={roleMode}>
         <h2>編集</h2>
         <label htmlFor="preset-name">名前</label>
         <div className="input-row">
