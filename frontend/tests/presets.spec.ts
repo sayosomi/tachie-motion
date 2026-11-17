@@ -428,6 +428,7 @@ test("Open shapes preserve base visibility and group-scoped search with large PS
   await page.getByRole("button", { name: "すべて開く" }).click();
   await expect(closed).toBeVisible();
 
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
   await page.reload();
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await openMotion(page);
