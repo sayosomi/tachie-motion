@@ -6,7 +6,8 @@ import { PreviewSourceChangedError, useBrowserPreview } from "./useBrowserPrevie
 import {
   appendPreset, availablePresetName, createPreset, duplicatePreset, movePreset,
   removeSessionPreset, renamePreset, reorderPresets, toggleBaseLayer,
-  assignOpenLayerRole, assignAiueoLayerRole, type AiueoKey, type AiueoLayerRole,
+  assignAiueoLayerRole, setOpenShapeVisibility, setMouthMotionEnabled,
+  type AiueoKey, type AiueoLayerRole,
   type Presets, type UnifiedPreset,
 } from "./presetModel";
 import { matchesSource, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
@@ -15,6 +16,7 @@ import {
   serializeCharacterProfile, validateCharacterProfileOpenTargets,
 } from "./characterProfile";
 import { saveCharacterProfileFile } from "./characterProfileSave";
+import { effectiveMouthGroups, setMouthGroups } from "./motionGroups";
 
 type PsdData = {
   width: number; height: number; fingerprint: string; source_identity?: string;
@@ -472,7 +474,13 @@ export default function PresetWorkspace() {
         setError("");
       } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }}
       onToggle={(path) => updatePresets(toggleBaseLayer(collection, active.id, path))}
-      onOpenRoleChange={(path, role) => updatePresets(assignOpenLayerRole(collection, active.id, path, role))}
+      mouthGroups={effectiveMouthGroups(collection, psd.layers)}
+      onMouthGroupsChange={(groups) =>
+        updatePresets(setMouthGroups(collection, psd.layers, groups))}
+      onMouthMotionChange={(enabled) =>
+        updatePresets(setMouthMotionEnabled(collection, active.id, enabled))}
+      onOpenShapeChange={(shape, path, visible) =>
+        updatePresets(setOpenShapeVisibility(collection, active.id, shape, path, visible))}
       onAiueoRoleChange={(key: AiueoKey, path: string, role: AiueoLayerRole) =>
         updatePresets(assignAiueoLayerRole(collection, active.id, key, path, role))}
       onDelete={() => remove(active.id)}
