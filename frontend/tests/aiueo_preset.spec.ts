@@ -169,3 +169,115 @@ test("nested groups stay independent and searching never leaks other PSD groups"
   await page.getByRole("button", { name: "口１ [0/0] を開く" }).click();
   await expect(layer(page, "0/0/0")).toBeVisible();
 });
+
+test("PSDTool * radios are exclusive only among immediate siblings, ! is not editable", async ({ page }) => {
+  const sourceLayers = [
+    { path: "0", name: "!顔", kind: "group", visible: true, effective_visible: true, bbox: [0,0,64,64] },
+    { path: "0/0", name: "!くち", kind: "group", visible: true, effective_visible: true, bbox: [0,0,64,64] },
+    { path: "0/0/0", name: "*普通", kind: "pixel", visible: true, effective_visible: true, bbox: [0,0,8,8] },
+    { path: "0/0/1", name: "*笑顔", kind: "pixel", visible: true, effective_visible: true, bbox: [0,0,8,8] },
+    { path: "0/0/2", name: "!共通線", kind: "pixel", visible: false, effective_visible: false, bbox: [0,0,8,8] },
+    { path: "0/0/3", name: "影", kind: "pixel", visible: false, effective_visible: false, bbox: [0,0,8,8] },
+    { path: "0/1", name: "目", kind: "group", visible: true, effective_visible: true, bbox: [0,0,64,64] },
+    { path: "0/1/0", name: "*通常", kind: "pixel", visible: true, effective_visible: true, bbox: [0,0,8,8] },
+    { path: "0/1/1", name: "*細目", kind: "pixel", visible: false, effective_visible: false, bbox: [0,0,8,8] },
+  ];
+  const rendered: State[][] = [];
+  await page.route("**/api/psd", route => route.fulfill({ json: {
+    width: 64, height: 64, fingerprint: "1000:2000",
+    preview: png, layers: sourceLayers,
+  } }));
+  await page.route("**/api/preset-preview", route => {
+    rendered.push(route.request().postDataJSON().layers);
+    return route.fulfill({ json: { preview: png } });
+  });
+  await page.goto("/");
+  await page.locator("#preset-psd-path-advanced").evaluate(el =>
+    { (el as HTMLDetailsElement).open = true; });
+  await page.locator("#preset-psd-path").fill(source);
+  await page.getByRole("button", { name: "読み込む", exact: true }).click();
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+
+  const ordinary = layer(page, "0/0/0").getByRole("radio");
+  const smile = layer(page, "0/0/1").getByRole("radio");
+  const eye = layer(page, "0/1/0").getByRole("radio");
+  await expect(ordinary).toBeChecked();
+  await expect(smile).not.toBeChecked();
+  await expect(eye).toBeChecked();
+  await expect(checkbox(page, "0/0/2")).toHaveCount(0);
+  await expect(checkbox(page, "0/0/3")).not.toBeChecked();
+
+  await smile.check();
+  await expect(ordinary).not.toBeChecked();
+  await expect(eye).toBeChecked(); // cousin group is independent
+  await expect(checkbox(page, "0/0/3")).not.toBeChecked();
+  await expect.poll(() => rendered.at(-1)?.find(x => x.path === "0/0/2")?.visible)
+    .toBe(true); // exclamation item was hidden in the source PSD
+  const saved = JSON.parse((await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+  expect(saved.collection.items[0].base.find((x: State) => x.path === "0/0/0").visible).toBe(false);
+  expect(saved.collection.items[0].base.find((x: State) => x.path === "0/0/1").visible).toBe(true);
+  expect(saved.collection.items[0].base.find((x: State) => x.path === "0/0/2").visible).toBe(true);
+});
+
+test("Open and aiueo have separate PSDTool sibling radio selections and a shared mandatory leaf", async ({ page }) => {
+  const psdLayers = [
+    { path: "0", name: "!口", kind: "group", visible: true, effective_visible: true, bbox: [0,0,64,64] },
+    { path: "0/0", name: "*あ", kind: "pixel", visible: true, effective_visible: true, bbox: [0,0,8,8] },
+    { path: "0/1", name: "*い", kind: "pixel", visible: false, effective_visible: false, bbox: [0,0,8,8] },
+    { path: "0/2", name: "!輪郭", kind: "pixel", visible: false, effective_visible: false, bbox: [0,0,8,8] },
+    { path: "0/3", name: "陰影", kind: "pixel", visible: true, effective_visible: true, bbox: [0,0,8,8] },
+  ];
+  await page.route("**/api/psd", route => route.fulfill({ json: {
+    width: 64, height: 64, fingerprint: "1000:2000",
+    preview: png, layers: psdLayers,
+  } }));
+  await page.route("**/api/preset-preview", route =>
+    route.fulfill({ json: { preview: png } }));
+  await page.goto("/");
+  await page.locator("#preset-psd-path-advanced").evaluate(el =>
+    { (el as HTMLDetailsElement).open = true; });
+  await page.locator("#preset-psd-path").fill(source);
+  await page.getByRole("button", { name: "読み込む", exact: true }).click();
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "動かすパーツ" }).click();
+  await page.getByRole("button", { name: "変更", exact: true }).click();
+  await page.getByRole("group", { name: "PSDグループ" })
+    .getByRole("checkbox", { name: "!口 [0]" }).check();
+  await page.getByRole("button", { name: "閉じる", exact: true }).click();
+
+  await shape(page, "開き口").click();
+  await layer(page, "0/1").getByRole("radio").check();
+  await expect(layer(page, "0/0").getByRole("radio")).not.toBeChecked();
+  await expect(layer(page, "0/1").getByRole("radio")).toBeChecked();
+  await expect(layer(page, "0/2").locator('input')).toHaveCount(0);
+  await shape(page, "閉じ口").click();
+  await expect(layer(page, "0/0").getByRole("radio")).toBeChecked();
+  await expect(layer(page, "0/1").getByRole("radio")).not.toBeChecked();
+
+  await page.getByRole("group", { name: "口パク方式" })
+    .getByRole("button", { name: "aiueo" }).click();
+  await shape(page, "あ").click();
+  await layer(page, "0/1").getByRole("radio").check();
+  await shape(page, "い").click();
+  await expect(layer(page, "0/0").getByRole("radio")).toBeChecked();
+  await shape(page, "あ").click();
+  await expect(layer(page, "0/1").getByRole("radio")).toBeChecked();
+  await expect(layer(page, "0/3").getByRole("checkbox")).toBeChecked();
+
+  const saved = JSON.parse((await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+  const preset = saved.collection.items[0];
+  expect(preset.base.find((x: State) => x.path === "0/0")?.visible).toBe(true);
+  expect(preset.openMouth.opened).toEqual([
+    { path: "0/0", visible: false }, { path: "0/1", visible: true },
+  ]);
+  expect(preset.openMouth.closed).toEqual([
+    { path: "0/0", visible: true }, { path: "0/1", visible: false },
+  ]);
+  expect(preset.aiueoMouth.a).toEqual([
+    { path: "0/0", visible: false }, { path: "0/1", visible: true },
+  ]);
+  expect(preset.aiueoMouth.i).toEqual([]);
+});
