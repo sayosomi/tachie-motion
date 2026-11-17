@@ -43,6 +43,8 @@ async function chooseMouthGroups(page: Page) {
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口２ [0/1]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
+  await page.getByRole("button", { name: "閉じ口の詳細設定を表示" }).click();
+  await shape(page, "閉じ口").click();
 }
 
 test("Open closed mouth inherits the base preview without needing a duplicate mouth assignment", async ({ page }) => {
@@ -85,7 +87,8 @@ test("Open closed mouth inherits the base preview without needing a duplicate mo
   expect(saved.collection.items[0].openMouth.opened).toEqual([
     { path: "0/0/0", visible: false }, { path: "0/1/0", visible: true },
   ]);
-  await shape(page, "基本").click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "通常レイヤー" }).click();
   await expect(checkbox(page, "0/0/0")).toBeChecked();
   await expect(checkbox(page, "0/1/0")).not.toBeChecked();
 });
