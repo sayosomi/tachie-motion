@@ -98,8 +98,9 @@ test("mouth motion scopes original PSD groups and Open/aiueo each have independe
     ]);
   }
 
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
   await page.reload();
-  await expect(page.getByRole("status")).toContainText("前回の編集を復元しました");
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "動かすパーツ" }).click();
@@ -140,7 +141,7 @@ test("configured group cannot be detached until its leaf targets are cleared", a
   await checkbox(page, "0/1/0").check();
   await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
-    .getByRole("checkbox", { name: "口２ [0/1]" }).uncheck();
+    .getByRole("checkbox", { name: "口２ [0/1]" }).click();
   await expect(page.getByRole("alert"))
     .toContainText("先に口形の割当を解除");
   await expect(page.getByRole("group", { name: "PSDグループ" })
