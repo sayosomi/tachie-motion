@@ -150,22 +150,25 @@ class LabTests(unittest.TestCase):
             make_wav(wav)
             lab.write_text("0 10000000 a\n", encoding="utf-8")
             from tachie_motion.audio import lab as module
-            orig_lstat = os.lstat
-            count = 0
+            original_fstat = os.fstat
+            lab_checks = 0
 
-            def changed_lab_stat(path):
-                nonlocal count
-                value = orig_lstat(path)
-                count += 1
-                if count == 5:
-                    # The final pathname check detects a replaced LAB.
-                    values = list(value)
+            def changed_lab_stat(descriptor):
+                nonlocal lab_checks
+                info = original_fstat(descriptor)
+                lab_checks += 1
+                if lab_checks == 2:
+                    # Force a change at the second fd-based LAB identity check.
+                    values = list(info)
                     values[1] += 1
                     return os.stat_result(values)
-                return value
+                return info
 
-            with patch.object(module.os, "lstat", side_effect=changed_lab_stat):
-                self.assertIn("LAB changed", inspect_adjacent_lab(wav).reason)
+            with patch.object(module.os, "fstat", side_effect=changed_lab_stat):
+                result = inspect_adjacent_lab(wav)
+                self.assertEqual(result.status, "invalid")
+                self.assertIn("LAB changed", result.reason)
+            self.assertEqual(lab_checks, 2)
 
             orig_read = module._read_regular_lab
 
