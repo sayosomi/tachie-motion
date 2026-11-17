@@ -17,7 +17,8 @@ import {
   serializeCharacterProfile, validateCharacterProfileOpenTargets,
 } from "./characterProfile";
 import { saveCharacterProfileFile } from "./characterProfileSave";
-import { effectiveMouthGroups, effectiveEyeGroups, setMouthGroups, setEyeGroups } from "./motionGroups";
+import { effectiveMouthGroups, effectiveEyeGroups, setMouthGroups, setEyeGroups,
+  validMotionGroups } from "./motionGroups";
 import { validatePsdChoices } from "./psdChoice";
 
 type PsdData = {
@@ -98,7 +99,9 @@ export default function PresetWorkspace() {
         if (!matchesSource(recovery, data.fingerprint, data.layers)) {
           setRestoreMessage(data.fingerprint !== recovery.fingerprint
             ? "PSDが変更されています。保存済みの編集内容は保持していますが、復元はしていません。"
-            : "PSDのレイヤー構造、口形参照、または*・!の保存状態に不整合があります。保存データは変更せず、復元を中止しました。");
+            : !validMotionGroups(recovery.collection, data.layers)
+              ? "保存済みの口・目の動作対象グループが競合、または不正です。保存データは変更せず、復元を中止しました。"
+              : "PSDのレイヤー構造、口形参照、または*・!の保存状態に不整合があります。保存データは変更せず、復元を中止しました。");
           return;
         }
         setPsd(data);
@@ -177,7 +180,9 @@ export default function PresetWorkspace() {
         if (!matchesSource(recovery, data.fingerprint, data.layers)) {
           throw new Error(data.fingerprint !== recovery.fingerprint
             ? "元PSDが変更されているため復元できません。保存済みデータは保持しています。"
-            : "PSDのレイヤー構造、口形参照、または*・!の保存状態が一致しません。保存データは保持しています。");
+            : !validMotionGroups(recovery.collection, data.layers)
+              ? "保存済みの口・目の動作対象グループが競合、または不正です。保存データは保持しています。"
+              : "PSDのレイヤー構造、口形参照、または*・!の保存状態が一致しません。保存データは保持しています。");
         }
         setPsd(data);
         setLoadedPath(requested);

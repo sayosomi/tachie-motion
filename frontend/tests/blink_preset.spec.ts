@@ -14,12 +14,14 @@ const layers = [
 const entry = (page: Page, path: string) => page.locator(`.preset-layer[data-layer-path="${path}"]`);
 const tabs = (page: Page) => page.getByRole("group", { name: "編集する目の形" });
 
-async function openEditor(page: Page) {
+async function openEditor(page: Page, requests: Array<{ path: string; visible: boolean }[]> = []) {
   await page.route("**/api/psd", (route) => route.fulfill({ json: {
     width: 64, height: 64, fingerprint: "1000:2000", preview: png, layers,
   } }));
-  await page.route("**/api/preset-preview", (route) =>
-    route.fulfill({ json: { preview: png } }));
+  await page.route("**/api/preset-preview", (route) => {
+    requests.push(route.request().postDataJSON().layers);
+    return route.fulfill({ json: { preview: png } });
+  });
   await page.goto("/");
   await page.locator("#preset-psd-path-advanced").evaluate((node) =>
     { (node as HTMLDetailsElement).open = true; });
@@ -40,7 +42,8 @@ async function setEyeGroup(page: Page) {
 }
 
 test("eyes are edited independently of mouth with static preview and recoverable JSON", async ({ page }) => {
-  await openEditor(page);
+  const requests: Array<{ path: string; visible: boolean }[]> = [];
+  await openEditor(page, requests);
   await setEyeGroup(page);
   await expect(entry(page, "0/1/0")).toBeVisible();
   await expect(entry(page, "0/0/0")).toHaveCount(0);
@@ -53,6 +56,16 @@ test("eyes are edited independently of mouth with static preview and recoverable
   await expect(entry(page, "0/1/0").getByRole("radio")).not.toBeChecked();
   await expect(entry(page, "0/1/1")).toHaveAttribute("data-eye-role", "show");
   await expect(page.locator(".preset-image-viewport img")).toBeVisible();
+  // The Python fallback must receive the composed closed-eye state, not
+  // merely show the identical mocked PNG for every request.
+  await expect.poll(() => {
+    const last = requests.at(-1);
+    return last && [
+      last.find((state) => state.path === "0/1/0")?.visible,
+      last.find((state) => state.path === "0/1/1")?.visible,
+      last.find((state) => state.path === "0/1/2")?.visible,
+    ];
+  }).toEqual([false, true, true]);
 
   const saved = JSON.parse((await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v1")))!);
