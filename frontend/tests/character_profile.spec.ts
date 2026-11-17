@@ -280,6 +280,7 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     await fresh.getByRole("button", { name: "← 一覧へ" }).click();
     await fresh.reload();
     await fresh.getByRole("button", { name: "詳細を編集" }).click();
+    await openMotion(fresh);
     await fresh.getByRole("group", { name: "口パク方式" })
       .getByRole("button", { name: "aiueo" }).click();
     await expect(fresh.locator('.preset-layer[data-layer-path="0/1"]'))
