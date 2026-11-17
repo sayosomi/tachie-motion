@@ -117,9 +117,11 @@ export default function PresetDetail({
     previewState === "closed" || previewState === "opened"
       ? preset.openMouth?.[previewState]
       : preset.aiueoMouth?.[previewState.slice(6) as AiueoKey];
-  const shapeKey = JSON.stringify([sourcePath, fingerprint, sourceIdentity, preset.base, shape, previewState]);
+  const shapeKey = JSON.stringify([sourcePath, fingerprint, sourceIdentity,
+    preset.base, shape, previewState, preset.mouthMotionEnabled]);
   useEffect(() => {
-    if (previewState === "base" || sourceChanged || previewLoading) return;
+    if (previewState === "base" || preset.mouthMotionEnabled === false ||
+        sourceChanged || previewLoading) return;
     if (!shape?.length) {
       // An unconfigured aiueo shape starts from the full base portrait,
       // not a blank checkerboard. Unconfigured Open keeps its existing guard.
@@ -167,14 +169,15 @@ export default function PresetDetail({
       legacy();
     }
     return () => abort.abort();
-  }, [shapeKey, browserRenderer, sourceChanged, previewLoading, verifySource]);
+  }, [shapeKey, browserRenderer, sourceChanged, previewLoading, verifySource,
+    preset.mouthMotionEnabled]);
 
   const unconfiguredAiueo = previewState.startsWith("aiueo-") && !shape?.length;
   const shownPreview = sourceChanged ? undefined :
-    previewState === "base" || unconfiguredAiueo ? preview :
+    previewState === "base" || unconfiguredAiueo || preset.mouthMotionEnabled === false ? preview :
     shapePreview?.key === shapeKey ? shapePreview.image : undefined;
   const shownError = sourceChanged ? "PSDが変更されました。再読み込みしてください。" :
-    previewState === "base" || unconfiguredAiueo ? previewError :
+    previewState === "base" || unconfiguredAiueo || preset.mouthMotionEnabled === false ? previewError :
     shapePreview?.key === shapeKey ? shapePreview.error : undefined;
   const focusPaths = new Set((roleMode === "open" ? [
     ...(preset.openMouth?.closed ?? []), ...(preset.openMouth?.opened ?? []),
@@ -342,7 +345,7 @@ export default function PresetDetail({
         </div>
         {area === "motion" && hiddenParents.length > 0 && !editingBase &&
           <p className="hint warning" role="status">
-            口形対象の親グループが非表示です。「通常レイヤー」で親グループをONにしてください。
+            口形対象の親グループが非表示です。「基本」または「通常レイヤー」で親グループをONにしてください。
           </p>}
         <button type="button" className="secondary preset-delete"
           onClick={onDelete}>このプリセットを削除</button>
