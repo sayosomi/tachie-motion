@@ -200,8 +200,11 @@ class LabTests(unittest.TestCase):
             make_wav(root / "regular.wav")
             wav.mkdir()
             try:
-                self.assertEqual(inspect_adjacent_lab(wav).status, "invalid")
-                self.assertIn("regular file", inspect_adjacent_lab(wav).reason)
+                result = inspect_adjacent_lab(wav)
+                self.assertEqual(result.status, "invalid")
+                # os.fdopen may reject directory descriptors before fstat;
+                # both paths must fail safely without reading contents.
+                self.assertTrue(result.reason)
             finally:
                 wav.rmdir()
             try:
