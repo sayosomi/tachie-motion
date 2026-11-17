@@ -180,8 +180,10 @@ test("mouth motion scopes original PSD groups and Open/aiueo each have independe
     .getByRole("button", { name: "通常レイヤー" }).click();
   await expect(layer(page, "0")).toBeVisible();
   await expect(layer(page, "0/2/0")).toBeVisible();
-  await expect(layer(page, "0/0")).toHaveCount(0);
-  await expect(layer(page, "0/1/0")).toHaveCount(0);
+  // Normal/base visibility includes motion-target layers as well: the user
+  // must be able to configure the resting mouth after assigning a group.
+  await expect(layer(page, "0/0")).toBeVisible();
+  await expect(layer(page, "0/1/0")).toBeVisible();
 
   const saved = JSON.parse((await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v1")))!);

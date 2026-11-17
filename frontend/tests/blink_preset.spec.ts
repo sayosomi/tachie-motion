@@ -99,6 +99,27 @@ test("eyes are edited independently of mouth with static preview and recoverable
     .toBeVisible();
 });
 
+test("base eye pose stays editable from normal layers even after assigning motion group", async ({ page }) => {
+  await openEditor(page);
+  await setEyeGroup(page);
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "通常レイヤー" }).click();
+  await expect(entry(page, "0/1/0").getByRole("radio")).toBeChecked();
+  await entry(page, "0/1/1").getByRole("radio").check();
+  await expect(entry(page, "0/1/0").getByRole("radio")).not.toBeChecked();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "動かすパーツ" }).click();
+  await expect(tabs(page).getByRole("button", { name: "閉眼" }))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect(entry(page, "0/1/1").getByRole("radio")).toBeChecked();
+  const saved = JSON.parse((await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+  expect(saved.collection.items[0].base.find((state: { path: string; visible: boolean }) =>
+    state.path === "0/1/1")?.visible).toBe(true);
+  expect(saved.collection.items[0].base.find((state: { path: string; visible: boolean }) =>
+    state.path === "0/1/0")?.visible).toBe(false);
+});
+
 test("mouth and eyes groups cannot overlap or detach assigned eye leaves", async ({ page }) => {
   await openEditor(page);
   // Assign mouth group first, then try to reuse it for eyes.

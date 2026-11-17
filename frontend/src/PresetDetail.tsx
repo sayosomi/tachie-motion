@@ -81,9 +81,10 @@ export default function PresetDetail({
         ? openLayerRole(preset, layer.path) : aiueoLayerRole(preset, aiueoKey, layer.path)];
     }));
   const unsetRole = motionKind === "mouth" && roleMode === "open" ? "none" : "base";
+  // Base visibility must be editable for every PSD layer, including motion
+  // targets. The motion tab is still scoped to explicitly assigned groups.
   const eligible = new Set(layers.filter((layer) =>
-    area === "motion" ? isMouthLayer(layer.path, selectedGroups)
-      : !isMouthLayer(layer.path, mouthGroups) && !isMouthLayer(layer.path, eyeGroups)
+    area === "motion" ? isMouthLayer(layer.path, selectedGroups) : true
   ).map((layer) => layer.path));
   const queryText = query.trim().toLocaleLowerCase();
   const activeFilter = Boolean(queryText);
