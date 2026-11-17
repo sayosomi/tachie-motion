@@ -134,17 +134,27 @@ export function setEyeGroups(
   } };
 }
 
+/**
+ * Validate restored motion bindings against the *actual* PSD group tree.
+ * Legacy profiles may omit motionGroups or just motionGroups.eyes. The
+ * omitted bindings are inferred for collision checks, never written back.
+ */
 export function validMotionGroups(collection: Presets, layers: Layer[]): boolean {
-  if (!collection.motionGroups) return true;
-  const groups = collection.motionGroups.mouth;
   const known = new Set(layers.filter((layer) => layer.kind === "group")
     .map((layer) => layer.path));
-  const eyes = collection.motionGroups.eyes;
-  return new Set(groups).size === groups.length
-    && groups.every((path) => known.has(path))
-    && [...assignedMouthPaths(collection)].every((path) => isMouthLayer(path, groups))
-    && (eyes === undefined || (new Set(eyes).size === eyes.length
-      && eyes.every((path) => known.has(path))
-      && !groupsOverlap(groups, eyes)
-      && [...assignedEyePaths(collection)].every((path) => isMouthLayer(path, eyes))));
+  const mouth = effectiveMouthGroups(collection, layers);
+  const eyes = effectiveEyeGroups(collection, layers);
+  const validGroups = (groups: readonly string[]) =>
+    new Set(groups).size === groups.length && groups.every((path) => known.has(path));
+
+  // Explicit bindings must contain every assigned leaf. Older profiles
+  // without bindings retain their previous source-compatible semantics.
+  const explicitMouth = collection.motionGroups !== undefined;
+  const explicitEyes = collection.motionGroups?.eyes !== undefined;
+  return validGroups(mouth) && validGroups(eyes)
+    && (!explicitMouth || [...assignedMouthPaths(collection)]
+      .every((path) => isMouthLayer(path, mouth)))
+    && (!explicitEyes || [...assignedEyePaths(collection)]
+      .every((path) => isMouthLayer(path, eyes)))
+    && !groupsOverlap(mouth, eyes);
 }
