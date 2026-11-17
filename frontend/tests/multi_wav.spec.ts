@@ -1363,7 +1363,8 @@ test("a foreign OTIO appearing after preview is rechecked before batch start", a
   await expect(page.getByText("書き出し予定を確認済み", { exact: false })).toBeVisible();
   foreign = true;
   await page.getByRole("button", { name: "全件を書き出す" }).click();
-  await expect(page.getByText("別のOTIOが同じフォルダにあります", { exact: false }))
-    .toBeVisible();
+  await expect(page.getByRole("status")
+    .filter({ hasText: "一括書き出しを完了できませんでした" }))
+    .toContainText("別のOTIOが同じフォルダにあります");
   expect(starts).toBe(0);
 });
