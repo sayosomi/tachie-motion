@@ -90,6 +90,58 @@ test("Open closed mouth inherits the base preview without needing a duplicate mo
   await expect(checkbox(page, "0/1/0")).not.toBeChecked();
 });
 
+test("unconfigured Open and aiueo poses keep base preview and enable zoom before selection", async ({ page }) => {
+  const requests: State[][] = [];
+  await openEditor(page, requests);
+  await expect(page.getByRole("button", { name: "口元へ" })).toBeDisabled();
+
+  await chooseMouthGroups(page);
+  const image = page.locator(".preset-image-viewport img");
+  const mouthZoom = page.getByRole("button", { name: "口元へ" });
+  const selectedZoom = page.getByRole("button", { name: "選択位置へ" });
+  await shape(page, "開き口").click();
+  await expect(image).toHaveAttribute("src", png);
+  await expect(page.getByText("開き口を指定してください")).toBeVisible();
+  await expect(mouthZoom).toBeEnabled(); // group locations work before any Open targets
+  await expect(selectedZoom).toBeDisabled(); // still needs a selected source layer
+  const unconfiguredDraft = await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1"));
+  await mouthZoom.click();
+  await expect(page.locator('output[aria-label="プレビュー倍率"]')).toHaveText("8×");
+
+  await page.getByRole("button", { name: "全体表示" }).click();
+  await layer(page, "0/1/0").getByRole("button", { name: /を選択/ }).click();
+  await expect(selectedZoom).toBeEnabled();
+  await selectedZoom.click();
+  await expect(image).toHaveAttribute("style", /scale\\(8\\)/);
+
+  await page.getByRole("group", { name: "口パク方式" })
+    .getByRole("button", { name: "aiueo" }).click();
+  await expect(shape(page, "あ")).toHaveAttribute("aria-pressed", "true");
+  await expect(image).toHaveAttribute("src", png);
+  await expect(mouthZoom).toBeEnabled();
+  await expect(selectedZoom).toBeEnabled();
+  await page.getByRole("button", { name: "全体表示" }).click();
+  await mouthZoom.click();
+  await expect(image).toHaveAttribute("style", /scale\\(8\\)/);
+  await shape(page, "え").click();
+  await expect(image).toHaveAttribute("src", png);
+  await expect(selectedZoom).toBeEnabled();
+  expect(requests).toHaveLength(0); // no new PSD renders for unconfigured poses
+  expect(await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(unconfiguredDraft);
+});
+
+test("mouth focus falls back to source PSD groups if no shape is assigned or selected", async ({ page }) => {
+  await openEditor(page);
+  await chooseMouthGroups(page);
+  await shape(page, "開き口").click();
+  await expect(page.locator(".preset-image-viewport img")).toBeVisible();
+  await expect(page.getByRole("button", { name: "口元へ" })).toBeEnabled();
+  await page.getByRole("button", { name: "口元へ" }).click();
+  await expect(page.locator('output[aria-label="プレビュー倍率"]')).toHaveText("8×");
+});
+
 test("mouth motion scopes original PSD groups and Open/aiueo each have independent leaf checkboxes", async ({ page }) => {
   const requests: State[][] = [];
   await openEditor(page, requests);
