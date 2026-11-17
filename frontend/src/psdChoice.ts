@@ -112,5 +112,9 @@ export function validatePsdChoices(collection: Presets, layers: Layer[]): void {
         check(`aiueo ${key}`, preset.aiueoMouth[key]);
       }
     }
+    if (preset.eyes) {
+      check("瞬き開いた目", preset.eyes.opened);
+      check("瞬き閉じた目", preset.eyes.closed);
+    }
   }
 }
