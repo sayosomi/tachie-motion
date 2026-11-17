@@ -402,12 +402,14 @@ test("Open shapes preserve base visibility and group-scoped search with large PS
   await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/1")?.visible)
     .toBe(true);
   const shapeTabs = page.getByRole("group", { name: "編集する口形" });
+  await page.getByRole("button", { name: "閉じ口の詳細設定を表示" }).click();
   await shapeTabs.getByRole("button", { name: "閉じ口" }).click();
   await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/0")?.visible)
     .toBe(true);
   await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/1")?.visible)
     .toBe(false);
-  await shapeTabs.getByRole("button", { name: "基本" }).click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "通常レイヤー" }).click();
   await expect(closed.getByRole("checkbox")).toBeChecked();
   await expect(opened.getByRole("checkbox")).not.toBeChecked();
 
