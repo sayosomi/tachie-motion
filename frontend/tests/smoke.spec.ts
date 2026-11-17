@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { assignOpenPair } from "./motion_helpers";
 
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tmdoAAAAASUVORK5CYII=";
 const layers = [
@@ -45,12 +46,11 @@ test("new preset-backed none/open utterance workflow sends exact preset snapshot
   await page.locator("#preset-psd-path").fill("/tmp/character.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  const closedRole = page.locator('.preset-layer-role[data-layer-path="0/0"]');
-  const openRole = page.locator('.preset-layer-role[data-layer-path="0/1"]');
-  await closedRole.getByRole("button", { name: "Open: 閉じ口" }).click();
-  await openRole.getByRole("button", { name: "Open: 開き口" }).click();
-  await expect(closedRole).toHaveAttribute("data-open-role", "closed");
-  await expect(openRole).toHaveAttribute("data-open-role", "opened");
+  await assignOpenPair(page);
+  await expect(page.locator('.preset-layer[data-layer-path="0/0"]'))
+    .toHaveAttribute("data-open-role", "closed");
+  await expect(page.locator('.preset-layer[data-layer-path="0/1"]'))
+    .toHaveAttribute("data-open-role", "opened");
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await page.getByRole("button", { name: "セリフ", exact: true }).click();
   await expect(page.getByRole("heading", { name: "セリフ" })).toBeVisible();
@@ -222,10 +222,7 @@ test("one WAV sends identical open-mouth render settings through single and all 
   await page.locator("#preset-psd-path").fill("/tmp/character.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/0"]')
-    .getByRole("button", { name: "Open: 閉じ口" }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/1"]')
-    .getByRole("button", { name: "Open: 開き口" }).click();
+  await assignOpenPair(page);
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await page.getByRole("button", { name: "セリフ", exact: true }).click();
 
