@@ -248,6 +248,12 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .preset-role-custom { flex:1 0 100%; font-size:10px; text-align:center; color:#d6c5a2; }
 .preset-role-group-count { flex:0 0 120px; font-size:11px; color:#9bb8c8; text-align:center; }
 .preset-visibility-label:focus-within { border-radius:5px; }
+.preset-group-focus { flex:0 0 auto; padding:4px 8px; min-height:30px;
+  font-size:11px; white-space:nowrap; }
+.preset-group-scope { display:flex; align-items:center; gap:10px; margin:10px 0 4px;
+  padding:5px 8px; border:1px solid #334b5e; border-radius:6px; }
+.preset-group-scope-name { flex:1; min-width:0; font-weight:700; overflow-wrap:anywhere; }
+.preset-group-scope button { flex:0 0 auto; min-height:32px; padding:5px 10px; font-size:12px; }
 .preset-selected-summary { overflow-wrap:anywhere; margin:0 0 9px; min-height:20px; }
 .preset-image-selection { position:absolute; inset:0; display:block; width:100%; height:100%;
   pointer-events:none; transform-origin:center center; }
