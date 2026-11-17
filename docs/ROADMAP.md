@@ -1,6 +1,6 @@
 # Roadmap
 
-**現在の状態：Phase 0とPhase 1のCLI、およびmainの統合プリセット編集・Mac Finder選択・単一WAVのnone/open書き出しは実装済み。新規・上書き・別名保存とDaVinci Resolveの透過・口パク・音声同期は2026年11月1日にMac Human PASS。aiueoの6口形レイヤー編集・静止プレビューは対応したが、LAB駆動MOV出力・瞬き・変更点タイムライン・複数キャラクターは未実装。制作プロジェクトJSON保存・復元、単一キャラ全体OTIOはPR #17・#19で実装済み。キャラクター設定JSONの独立保存・読み込みはIssue #44 / PR #45で実装済み。JSON往復の自動テストとMac Chrome保存UIのHuman UXはPASS。**
+**現在の状態：Phase 0とPhase 1のCLI、およびmainの統合プリセット編集・Mac Finder選択・単一WAVのnone/open書き出しは実装済み。新規・上書き・別名保存とDaVinci Resolveの透過・口パク・音声同期は2026年11月1日にMac Human PASS。aiueoの6口形レイヤー編集・静止プレビューはmainで対応済み。LAB駆動MOV・個別／一括OTIOはIssue #27 / Draft PR #28で実装・検証中（main未統合）。瞬き・変更点タイムライン・複数キャラクターは未実装。制作プロジェクトJSON保存・復元、単一キャラ全体OTIOはPR #17・#19で実装済み。キャラクター設定JSONの独立保存・読み込みはIssue #44 / PR #45で実装済み。JSON往復の自動テストとMac Chrome保存UIのHuman UXはPASS。**
 
 この文書は実装の進捗と今後の作業範囲を示します。確定した製品要件は [PRODUCT_SPEC.md](PRODUCT_SPEC.md)、実際に使えるコマンドは [README.md](../README.md) を参照してください。PoCで確認したことと、完成したアプリでできることは区別します。
 
@@ -59,6 +59,7 @@ PR #10は2026-11-06にマージ済み。1 WAV・1キャラクターのPCM入りM
 - [x] **aiueoの6口形レイヤー編集と静止プレビュー** — Public Issue #23 / PR #24。Openと独立した6口形の保存・静止プレビューを実装。旧「ここだけ」UIはHuman UX未PASSのため、後続Issue #25 / PR #26のPSDグループ割当UIに置き換えた。LAB駆動aiueo MOV/OTIOと目・瞬きのアニメーションは未実装。
 - [x] **PSDレイヤーグループによる動作対象管理と通常レイヤーの分離** — Public Issue #25 / PR #26。元PSDグループの複数割当、通常レイヤーと口形編集の分離、Open/aiueo独立、プリセット単位の口パクOFF、`*` 同親グループ排他ラジオと `!` 強制表示、未設定プレビューと拡大に対応。旧JSON・ブラウザ復元・制作プロジェクトの参照とレイヤー制約を検証し、不正データは保持して復元を拒否。2026-11-17 Mac Human UX PASS、独立ブロッキング監査 PASS（HIGH 0 / MEDIUM 0 / LOW 0、監査対象コードHEAD `423129e`）。瞬きUI・レンダリングとaiueo動画生成は後続Issueの対象。
 - [x] **LAB検出・形式／時刻検証のPython基盤（Public Issue #21）** — WAVと同名隣接のLABを元のUnicode名のまま読み取り、VOICEVOX/OpenJTalkの既知音素と整数100ns時刻をWAVサンプル尺に照らして検証。不在・不正を区別し、未知音素・重複／逆転時刻・WAV/LAB変更や危険なファイルを拒否。これは内部パーサと合成素材テストだけであり、aiueo選択UI・口形フレーム生成・MOV書き出しは上の未実装項目に残る。
+- [ ] **LAB連動aiueoのセリフMOV・OTIO（Issue #27 / Draft PR #28、main未統合）** — WAVと同名LABの検出結果を一覧に表示し、承認済みフレーム中央・次母音先取り・無声化母音規則（D27）で6口形を切替。PCM内包ProRes MOV・個別OTIO・全体OTIO・制作JSON v2へ接続する変更をDraftへ実装。LABとWAVの登録時識別子、全件公開直前のLAB再検査、PSDTool強制表示と同親排他、元ソースの非改変を検証対象とする。CIの成功・独立コード監査・Mac Human UX・Resolve実機確認はそれぞれ別ゲートとして記録し、未検証分をPASSとしない。完了・マージの前にREADMEと本ROADMAPの状態を再更新する。
 - [ ] 安定したプリセットIDを参照する変更点タイムライン。
 - [ ] 瞬き間隔、プリセットごとの無効化、再書き出しでも再現可能な揺らぎ。
 - [ ] 波形表示、再生、シーク、変更点の移動・削除・差し替え。

@@ -77,8 +77,16 @@ class AiueoCoreTests(unittest.TestCase):
             shapes = six_shapes(closed, opened)
             with self.assertRaisesRegex(ValueError, "configured"):
                 validate_aiueo_mouth(psd, visibility, {**shapes, "n": []})
-            with self.assertRaisesRegex(ValueError, "outside"):
+            with self.assertRaisesRegex(ValueError, "assigned"):
                 validate_aiueo_mouth(psd, visibility, shapes, [])
+            # An assigned mouth group must not admit an unrelated root leaf.
+            other_leaf = next(item for item in visibility
+                              if item not in (parse_index_path(closed), parse_index_path(opened))
+                              and len(item) == 1 and item != parse_index_path(closed.rsplit("/", 1)[0]))
+            with self.assertRaisesRegex(ValueError, "outside"):
+                validate_aiueo_mouth(psd, visibility, {
+                    **shapes, "a": [{"path": "/".join(map(str, other_leaf)), "visible": True}],
+                }, [closed.rsplit("/", 1)[0]])
             with self.assertRaisesRegex(ValueError, "Duplicate"):
                 validate_aiueo_mouth(psd, visibility, {
                     **shapes, "a": [shapes["a"][0], shapes["a"][0]],

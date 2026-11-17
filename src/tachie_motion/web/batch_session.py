@@ -11,6 +11,7 @@ import time
 import unicodedata
 
 from tachie_motion.web.preview_frame import file_identity
+from tachie_motion.web.aiueo_renderer import inspect_export_lab
 from tachie_motion.web.batch_publish import (
     create_stage, discard_stage, publish_batch, require_batch_recovery_clear,
 )
@@ -53,6 +54,7 @@ class Planned:
     sample_rate: int
     conflict_policy: str
     original: tuple | None
+    lab_source_identity: str | None = None
 
 
 @dataclass
@@ -115,8 +117,19 @@ class BatchCoordinator:
                 raise ValueError("WAV timing changed since registration")
             prior = initial_single_identity(
                 folder / (raw["basename"] + ".mov"), raw["conflict_policy"])
+            lab_token = raw.get("lab_source_identity")
+            if lab_token is not None:
+                if (type(lab_token) is not str or len(lab_token) > 128 or
+                        not all(part.isdecimal() and part.isascii()
+                                for part in lab_token.split(":")) or
+                        len(lab_token.split(":")) != 5):
+                    raise ValueError("Invalid registered LAB identity")
+                _, lab_identity = inspect_export_lab(wav, identity)
+                if lab_token != ":".join(map(str, lab_identity)):
+                    raise ValueError("LAB changed since selection; batch not started")
             planned.append(Planned(raw["basename"], wav, identity, fps, samples,
-                                   sample_rate, raw["conflict_policy"], prior))
+                                   sample_rate, raw["conflict_policy"], prior,
+                                   lab_source_identity=lab_token))
         timeline_prior = initial_single_identity(
             folder / (timeline_name + ".otio"), timeline_policy)
         # A different OTIO in this directory could also reference a MOV we
@@ -161,17 +174,20 @@ class BatchCoordinator:
         return session
 
     def before(self, token: str, index: int, folder: Path, basename: str, wav: Path,
-               source_identity: str, fps: int, policy: str) -> None:
+               source_identity: str, fps: int, policy: str,
+               lab_source_identity: str | None = None) -> None:
         session = self._session(token)
         if index != session.next_index or index < 0 or index >= len(session.entries):
             raise ValueError("Batch MOV order has changed")
         original = session.entries[index]
         if (folder != session.folder or original.basename != basename or
             original.wav != wav or original.source_identity != source_identity or
-            original.fps != fps or original.conflict_policy != policy):
+            original.fps != fps or original.conflict_policy != policy or
+            original.lab_source_identity != lab_source_identity):
             raise ValueError("Batch MOV does not match the approved manifest")
         if source_token(wav) != source_identity:
             raise ValueError("WAV changed since registration")
+        self._verify_lab(original)
         present = initial_single_identity(folder / (basename + ".mov"), policy)
         if present != original.original:
             raise ValueError("MOV destination changed after batch approval")
@@ -203,6 +219,14 @@ class BatchCoordinator:
             session.results.append(None)
             session.next_index += 1
 
+    @staticmethod
+    def _verify_lab(planned: Planned) -> None:
+        if planned.lab_source_identity is None:
+            return
+        _, identity = inspect_export_lab(planned.wav, planned.source_identity)
+        if ":".join(map(str, identity)) != planned.lab_source_identity:
+            raise ValueError("LAB changed since selection; batch not published")
+
     def before_timeline(self, token: str, folder: Path, timeline_name: str,
                         policy: str, entries: list[dict]) -> dict[str, tuple]:
         session = self._session(token)
@@ -222,6 +246,7 @@ class BatchCoordinator:
             # Recheck all WAVs after MOV staging, before publishing the timeline.
             if source_token(planned.wav) != planned.source_identity:
                 raise ValueError("WAV changed since registration; batch not published")
+            self._verify_lab(planned)
             dest = folder / (planned.basename + ".mov")
             if initial_single_identity(dest, planned.conflict_policy) != planned.original:
                 raise ValueError("Public destination changed during batch: " + dest.name)
@@ -247,6 +272,7 @@ class BatchCoordinator:
         for planned in session.entries:
             if source_token(planned.wav) != planned.source_identity:
                 raise ValueError("WAV changed since registration; batch not published")
+            self._verify_lab(planned)
         # This is the only operation that mutates public batch destinations.
         return publish_batch(
             folder=session.folder, stage=session.stage,

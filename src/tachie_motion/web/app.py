@@ -100,6 +100,7 @@ class BatchPlannedMedia(BaseModel):
     basename: str
     wav: str
     source_identity: str
+    lab_source_identity: str | None = None
     fps: int
     samples: int
     sample_rate: int
@@ -407,7 +408,8 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
                 raise ValueError("Registered WAV identity is required for batch")
             app.state.batch.before(
                 payload.batch_id, payload.batch_index, canonical, payload.basename,
-                wav, payload.source_identity, payload.fps, payload.conflict_policy)
+                wav, payload.source_identity, payload.fps, payload.conflict_policy,
+                payload.lab_source_identity)
             try:
                 stage = app.state.batch.staged_folder(payload.batch_id)
                 result = await asyncio.to_thread(
