@@ -202,11 +202,10 @@ export default function PresetDetail({
   const y1 = Math.max(0, Math.min(canvasHeight, selectedBounds[1] ?? 0));
   const x2 = Math.max(0, Math.min(canvasWidth, selectedBounds[2] ?? 0));
   const y2 = Math.max(0, Math.min(canvasHeight, selectedBounds[3] ?? 0));
-  const selectedBox = canvasWidth > 0 && canvasHeight > 0 && selectedBounds.length === 4
-    && selectedBounds.every(Number.isFinite) && x2 > x1 && y2 > y1
-    ? { x: x1, y: y1, width: x2 - x1, height: y2 - y1,
-      sourceWidth: canvasWidth, sourceHeight: canvasHeight } : undefined;
-  const selectedFocus = selectedBox
+  const selectedHasBounds = canvasWidth > 0 && canvasHeight > 0
+    && selectedBounds.length === 4 && selectedBounds.every(Number.isFinite)
+    && x2 > x1 && y2 > y1;
+  const selectedFocus = selectedHasBounds
     ? { x: (x1 + x2) / (2 * canvasWidth), y: (y1 + y2) / (2 * canvasHeight) }
     : undefined;
   const hiddenParents = layers.filter((layer) => layer.kind !== "group"
@@ -360,11 +359,11 @@ export default function PresetDetail({
         {(selectedLayer || roleMode === "open") && <p className="hint preset-selected-summary" aria-live="polite">
           {selectedLayer
             ? "選択中: " + selectedLayer.name + " [" + selectedLayer.path + "]" +
-              (selectedBox ? "" : "（位置情報なし）")
-            : "レイヤー名をクリックすると、その範囲をプレビューに表示します。"}
+              (selectedHasBounds ? "" : "（位置情報なし）")
+            : "レイヤー名で選択し、「選択位置へ」で拡大できます。"}
         </p>}
         <PresetImagePreview image={shownPreview} alt={preset.name + " のプレビュー"}
-          error={shownError} focus={focus} selectedBox={selectedBox}
+          error={shownError} focus={focus}
           selectedFocus={selectedFocus} />
         <p className="hint">全体表示と口元の拡大を切り替えられます。拡大時はドラッグで移動できます。</p>
       </section>
