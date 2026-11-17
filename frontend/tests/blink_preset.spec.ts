@@ -71,7 +71,9 @@ test("eyes are edited independently of mouth with static preview and recoverable
   expect(updated.collection.items[0].blinkEnabled).toBe(true);
   await page.reload();
   await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
-  await page.getByRole("button", { name: "詳細を編集" }).click();
+  // The editor's ?preset= ID survives a reload, so the detail view is
+  // already active; there is no "詳細を編集" button until navigating back.
+  await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "動かすパーツ" }).click();
   await page.getByRole("group", { name: "動作の種類" })
