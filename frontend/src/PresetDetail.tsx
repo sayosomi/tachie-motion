@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { Layer } from "./LayerTree";
-import type { UnifiedPreset, AiueoKey, AiueoLayerRole } from "./presetModel";
+import type { UnifiedPreset, AiueoKey } from "./presetModel";
 import { AIUEO_KEYS, AIUEO_LABELS, aiueoLayerRole, openLayerRole } from "./presetModel";
 import PresetImagePreview from "./PresetImagePreview";
 import MotionGroupSelector from "./MotionGroupSelector";
 import { isMouthLayer } from "./motionGroups";
+import { psdChoiceKind, psdParentPath } from "./psdChoice";
 import { PreviewSourceChangedError, type BrowserPreviewRenderer } from "./useBrowserPreview";
 
 type Props = {
@@ -25,12 +26,12 @@ type Props = {
   onNameDraftChange: (name: string) => void;
   onBack: () => void;
   onRename: (name: string) => void;
-  onToggle: (path: string) => void;
+  onToggle: (path: string, visible: boolean) => void;
   mouthGroups: string[];
   onMouthGroupsChange: (groups: string[]) => void;
   onMouthMotionChange: (enabled: boolean) => void;
   onOpenShapeChange: (shape: "closed" | "opened", path: string, visible: boolean) => void;
-  onAiueoRoleChange: (key: AiueoKey, path: string, role: AiueoLayerRole) => void;
+  onAiueoChoiceChange: (key: AiueoKey, path: string, visible: boolean) => void;
   onDelete: () => void;
 };
 
@@ -43,7 +44,7 @@ export default function PresetDetail({
   sourcePath, fingerprint, canvasWidth, canvasHeight, nameDraft,
   onNameDraftChange, onBack, onRename, onToggle, mouthGroups,
   onMouthGroupsChange, onMouthMotionChange, onOpenShapeChange,
-  onAiueoRoleChange, onDelete,
+  onAiueoChoiceChange, onDelete,
 }: Props) {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -288,6 +289,7 @@ export default function PresetDetail({
             && (!activeFilter || matches.has(layer.path))
             && visibleInTree(layer.path)).map((layer) => {
             const isGroup = layer.kind === "group";
+            const choice = psdChoiceKind(layer.name);
             const on = baseByPath.get(layer.path) ?? false;
             const role = roles.get(layer.path) ?? unsetRole;
             const effective = previewState === "closed" || previewState === "opened"
@@ -310,17 +312,20 @@ export default function PresetDetail({
                 {expanded.includes(layer.path) ? "▾" : "▸"}
               </button>}
               <div className="preset-visibility-label">
-                {(editingBase || !isGroup) && <input type="checkbox"
+                {(editingBase || !isGroup) && choice !== "fixed" && <input
+                  type={choice === "radio" ? "radio" : "checkbox"}
+                  name={choice === "radio"
+                    ? "psd-choice-" + preset.id + "-" + (editingBase ? "base" : previewState)
+                      + "-" + psdParentPath(layer.path) : undefined}
                   checked={editingBase ? on : effective}
                   onChange={(event) => {
-                    if (editingBase) onToggle(layer.path);
+                    const selected = event.target.checked;
+                    if (editingBase) onToggle(layer.path, selected);
                     else if (roleMode === "open") {
                       onOpenShapeChange(previewState as "closed" | "opened", layer.path,
-                        event.target.checked);
+                        selected);
                     } else {
-                      const next = event.target.checked;
-                      onAiueoRoleChange(aiueoKey, layer.path,
-                        next === on ? "base" : next ? "show" : "hide");
+                      onAiueoChoiceChange(aiueoKey, layer.path, selected);
                     }
                   }}
                   aria-label={layer.name + " [" + layer.path + "] " +
