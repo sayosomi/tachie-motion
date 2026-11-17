@@ -66,7 +66,8 @@ export function readPresetDraft(): PresetDraft | null {
     ids.add(item.id);
     names.add(name);
     for (const layer of item.base) {
-      if (!object(layer) || typeof layer.path !== "string" || typeof layer.visible !== "boolean") {
+      if (!object(layer) || Object.keys(layer).length !== 2 ||
+          typeof layer.path !== "string" || typeof layer.visible !== "boolean") {
         throw new Error("保存済みレイヤー設定が不正です");
       }
     }
@@ -82,8 +83,8 @@ export function readPresetDraft(): PresetDraft | null {
       }
       const paths = new Set<string>();
       for (const layer of value) {
-        if (!object(layer) || typeof layer.path !== "string" ||
-            typeof layer.visible !== "boolean" ||
+        if (!object(layer) || Object.keys(layer).length !== 2 ||
+            typeof layer.path !== "string" || typeof layer.visible !== "boolean" ||
             !basePaths.has(layer.path) || paths.has(layer.path)) {
           throw new Error("保存済み口形レイヤーが不正です");
         }
