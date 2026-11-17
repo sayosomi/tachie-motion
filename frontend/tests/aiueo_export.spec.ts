@@ -32,7 +32,12 @@ test("aiueo is gated by six shapes and actual LAB status; Open and none stay val
   expect(exportReady(preset, aiueo, { status: "invalid", reason: "bad" })).toBe(false);
   expect(exportReady(preset, aiueo, { status: "checking", reason: null })).toBe(false);
   expect(exportReady(preset, aiueo, { status: "valid", reason: null, source_identity: "1:2:3:4:5" })).toBe(true);
+  // A rest mouth with no override is deliberately identical to the preset base.
+  expect(aiueoMouthReady({ ...preset, aiueoMouth: { ...shapes, n: [] } })).toBe(true);
   expect(exportReady({ ...preset, aiueoMouth: { ...shapes, n: [] } },
+    aiueo, { status: "valid", reason: null, source_identity: "1:2:3:4:5" })).toBe(true);
+  expect(aiueoMouthReady({ ...preset, aiueoMouth: { ...shapes, a: [] } })).toBe(false);
+  expect(exportReady({ ...preset, aiueoMouth: { ...shapes, a: [] } },
     aiueo, { status: "valid", reason: null, source_identity: "1:2:3:4:5" })).toBe(false);
   expect(exportReady(preset, item)).toBe(true);
   const fixed = { ...preset, mouthMotionEnabled: false };

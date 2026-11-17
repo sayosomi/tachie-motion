@@ -7,9 +7,10 @@ import type { UtteranceItem } from "./utteranceItems";
 export type ConflictPolicy = "error" | "overwrite";
 
 /** Both single and all-item exports must share the exact same render inputs. */
+/** Rest ('n') may inherit the preset base image without an explicit override. */
 export function aiueoMouthReady(preset?: UnifiedPreset): boolean {
   return Boolean(preset?.aiueoMouth &&
-    AIUEO_KEYS.every((key) => preset.aiueoMouth![key].length > 0));
+    AIUEO_KEYS.every((key) => key === "n" || preset.aiueoMouth![key].length > 0));
 }
 
 export function exportReady(

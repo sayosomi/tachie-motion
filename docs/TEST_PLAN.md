@@ -303,3 +303,5 @@ Use self-authored / permission-cleared synthetic test PSD and WAV in CI. Do not 
 - 個別はMOV+個別OTIO、一括は全MOV+全体OTIOのみ。MOVの透過ProRes 4444・元WAVの非圧縮PCM・正確な音声サンプル長、OTIO音声1回参照、既存上書き・別名・第三者ファイル保全と途中復旧がnone/openと同じ経路で維持されること。
 - WAV一覧でLAB valid/missing/invalid/確認失敗を区別し、LABが無効・不在ならaiueoを新規選択不可。旧プロジェクトJSON v1/v2の読み込み・none/open互換、aiueoモードのv2往復、プロジェクト復元後のLAB再照合をPlaywrightで検証。
 - Mac Humanは口形の見た目・選択操作を評価する。Resolveは実PSD/WAV/LABの透過・音素タイミング・PCM・OTIO読み込みを独立検証する。CIとremoteコード独立監査のPASSでは代替しない。
+
+- Issue #27実機フィードバック（2026-11-17）：aiueoの休止口`n`が空配列（基本表示へ継承）、5母音が明示設定されている保存済みプリセットで一括書き出しを拒否しない。フロントpreflightとPython検証を一致させる。他の母音キー欠落・未設定は拒否する。合成PSDで基本表示と`n`のPNG RGBAが一致し、実MOV+OTIO書き出しも成功すること。添付された実素材や制作プロジェクトJSONをGitHubのテストフィクスチャへコピーしない。

@@ -56,12 +56,22 @@ class AiueoCoreTests(unittest.TestCase):
             base = [{"path": entry["path"], "visible": entry["visible"]}
                     for entry in metadata["layers"]]
             psd, visibility = validated_snapshot(psd_path, metadata["fingerprint"], base)
+            from PIL import Image
+            from tachie_motion.psd.crop import write_fixed_crop_png
+
+            mouth = six_shapes(closed, opened)
+            mouth["n"] = []  # Rest uses the preset's unmodified base state.
             shapes = validate_aiueo_mouth(
-                psd, visibility, six_shapes(closed, opened),
+                psd, visibility, mouth,
                 [closed.rsplit("/", 1)[0]],
             )
             original = psd_path.read_bytes()
+            reference = Path(root) / "reference-rest.png"
+            write_fixed_crop_png(psd, reference, padding=16)
             outputs = render_aiueo_states(psd, visibility, shapes, Path(root))
+            with Image.open(reference) as base_img, Image.open(outputs[-1]) as n_img:
+                self.assertEqual(base_img.convert("RGBA").tobytes(),
+                                 n_img.convert("RGBA").tobytes())
             self.assertEqual(len(outputs), 6)
             self.assertNotEqual(outputs[0].read_bytes(), outputs[1].read_bytes())
             self.assertEqual(outputs[1].read_bytes(), outputs[3].read_bytes())
@@ -75,8 +85,17 @@ class AiueoCoreTests(unittest.TestCase):
                     for entry in meta["layers"]]
             psd, visibility = validated_snapshot(psd_path, meta["fingerprint"], base)
             shapes = six_shapes(closed, opened)
+            self.assertEqual(
+                validate_aiueo_mouth(psd, visibility, {**shapes, "n": []},
+                                     [closed.rsplit("/", 1)[0]])["n"],
+                {},
+            )
             with self.assertRaisesRegex(ValueError, "configured"):
-                validate_aiueo_mouth(psd, visibility, {**shapes, "n": []})
+                validate_aiueo_mouth(psd, visibility, {**shapes, "a": []})
+            with self.assertRaisesRegex(ValueError, "six-shape"):
+                validate_aiueo_mouth(psd, visibility, {
+                    key: value for key, value in shapes.items() if key != "n"
+                })
             with self.assertRaisesRegex(ValueError, "assigned"):
                 validate_aiueo_mouth(psd, visibility, shapes, [])
             # An assigned mouth group must not admit an unrelated root leaf.
@@ -168,7 +187,7 @@ class AiueoApiTests(unittest.TestCase):
                          "FFmpeg required")
     def test_real_pcm_mov_four_frames_aiueo_pose_diff_and_otio(self):
         original = (self.psd.read_bytes(), self.wav.read_bytes(), self.lab.read_bytes())
-        response = self.post()
+        response = self.post(aiueo_mouth={**self.body["aiueo_mouth"], "n": []})
         self.assertEqual(response.status_code, 200, response.text)
         result = response.json()
         self.assertEqual(result["frames"], 4)

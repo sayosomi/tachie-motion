@@ -78,7 +78,7 @@ export default function UtteranceExportPanel({
         このプリセットの「口パク（open）」で、異なる閉口・開口のレイヤー表示状態を設定してください。
       </p>}
       {aiueoMouthMissing && <p className="hint warning" role="status">
-        このプリセットのaiueoで「あ・い・う・え・お・ん」の6口形をすべて設定してください。
+        このプリセットのaiueoで「あ・い・う・え・お」の口形を設定してください。「ん」は基本表示を利用できます。
       </p>}
       {current.mode === "aiueo" && labStatus?.status !== "valid" && <p className="hint warning" role="status">
         有効なLABが必要です。{labStatus?.status === "missing" ? "同名のLABが見つかりません。"
