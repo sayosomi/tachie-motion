@@ -74,7 +74,7 @@ export function readPresetDraft(): PresetDraft | null {
   // Stored edits must be safe to render after a reload, including aiueo
   // mappings that are not yet used for video export.
   for (const item of collection.items) {
-    if (item.openMouth === undefined && item.aiueoMouth === undefined) continue;
+    if (item.openMouth === undefined && item.aiueoMouth === undefined && item.eyes === undefined) continue;
     const basePaths = new Set(item.base.map((layer) => layer.path));
     const parseShape = (value: unknown): Set<string> => {
       if (!Array.isArray(value) || value.length > basePaths.size) {
@@ -109,6 +109,15 @@ export function readPresetDraft(): PresetDraft | null {
       }
       for (const key of AIUEO_KEYS) parseShape(mouth[key]);
     }
+    if (item.eyes !== undefined) {
+      const eyes: unknown = item.eyes;
+      if (!object(eyes) || Object.keys(eyes).length !== 2 ||
+          !Object.hasOwn(eyes, "opened") || !Object.hasOwn(eyes, "closed")) {
+        throw new Error("保存済み瞬き設定が不正です");
+      }
+      parseShape(eyes.opened);
+      parseShape(eyes.closed);
+    }
   }
   if (collection.defaultId !== null && !ids.has(collection.defaultId)) {
     throw new Error("既定プリセットが見つかりません");
@@ -136,10 +145,13 @@ export function matchesSource(draft: PresetDraft, fingerprint: string, layers: L
       const aiueoPathsValid = !item.aiueoMouth ||
         AIUEO_KEYS.every((key) => item.aiueoMouth![key].every(({ path }) =>
           leafPaths.has(path)));
+      const eyePathsValid = !item.eyes ||
+        [item.eyes.opened, item.eyes.closed].every((shape) =>
+          shape.every(({ path }) => leafPaths.has(path)));
       return savedPaths.size === paths.size
         && item.base.length === paths.size
         && [...savedPaths].every((path) => paths.has(path))
-        && openPathsValid && aiueoPathsValid;
+        && openPathsValid && aiueoPathsValid && eyePathsValid;
     });
   if (!sourceMatches) return false;
   try {
