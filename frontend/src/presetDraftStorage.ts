@@ -2,6 +2,7 @@ import type { Layer } from "./LayerTree";
 import type { Presets } from "./presetModel";
 import { AIUEO_KEYS } from "./presetModel";
 import { validMotionGroups } from "./motionGroups";
+import { validatePsdChoices } from "./psdChoice";
 
 // Crash/reload recovery for this one browser and exact site origin only.
 // Not the versioned, portable character-profile format in PRODUCT_SPEC §7.
@@ -126,17 +127,29 @@ export function matchesSource(draft: PresetDraft, fingerprint: string, layers: L
   if (paths.size !== layers.length) return false;
   const leafPaths = new Set(layers.filter((layer) => layer.kind !== "group")
     .map((layer) => layer.path));
-  return validMotionGroups(draft.collection, layers)
+  const sourceMatches = validMotionGroups(draft.collection, layers)
     && draft.collection.items.every((item) => {
-    const savedPaths = new Set(item.base.map((layer) => layer.path));
-    const aiueoPathsValid = !item.aiueoMouth ||
-      AIUEO_KEYS.every((key) => item.aiueoMouth![key].every(({ path }) =>
-        leafPaths.has(path)));
-    return savedPaths.size === paths.size
-      && item.base.length === paths.size
-      && [...savedPaths].every((path) => paths.has(path))
-      && aiueoPathsValid;
-  });
+      const savedPaths = new Set(item.base.map((layer) => layer.path));
+      const openPathsValid = !item.openMouth ||
+        [item.openMouth.closed, item.openMouth.opened].every((shape) =>
+          shape.every(({ path }) => leafPaths.has(path)));
+      const aiueoPathsValid = !item.aiueoMouth ||
+        AIUEO_KEYS.every((key) => item.aiueoMouth![key].every(({ path }) =>
+          leafPaths.has(path)));
+      return savedPaths.size === paths.size
+        && item.base.length === paths.size
+        && [...savedPaths].every((path) => paths.has(path))
+        && openPathsValid && aiueoPathsValid;
+    });
+  if (!sourceMatches) return false;
+  try {
+    validatePsdChoices(draft.collection, layers);
+    return true;
+  } catch {
+    // A corrupt/legacy draft stays in localStorage for explicit recovery;
+    // never auto-normalize or render from conflicting saved layer states.
+    return false;
+  }
 }
 
 export function writePresetDraft(draft: PresetDraft): void {
