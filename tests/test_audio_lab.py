@@ -81,15 +81,12 @@ class LabTests(unittest.TestCase):
             ("0 10000001 a\n", "exceeds WAV"),
             ("0 1000000 mystery\n", "unsupported phoneme"),
             ("0 1000000 あ\n", "unsupported phoneme"),
-            ("0 1000000 a\n\n", ""),  # trailing blank accepted by splitlines
+            ("0 1000000 a\n\n", "expected"),
             ("0 1000000 a\n\n1000000 2000000 i", "expected"),
             ("0 99999999999999999 a\n", "integer"),
         )
         for content, expected in cases:
             with self.subTest(content=content):
-                if not expected:
-                    self.assertEqual(len(parse_lab(content, samples=1000, sample_rate=1000)), 1)
-                    continue
                 with self.assertRaisesRegex(ValueError, expected):
                     parse_lab(content, samples=1000, sample_rate=1000)
 
@@ -160,8 +157,8 @@ class LabTests(unittest.TestCase):
                 nonlocal count
                 value = orig_lstat(path)
                 count += 1
-                if count == 2:
-                    # Change one identity field on a mock second lstat.
+                if count == 4:
+                    # The final pathname check detects a replaced LAB.
                     values = list(value)
                     values[1] += 1
                     return os.stat_result(values)
