@@ -28,9 +28,12 @@ async function openEditor(page: Page, requests: State[][]) {
   await page.getByRole("button", { name: "詳細を編集" }).click();
 }
 
-const roleButton = (page: Page, path: string, label: string, role: string) =>
+const roleCheckbox = (page: Page, path: string, label: string) =>
   page.locator(`.preset-layer-role[data-layer-path="${path}"]`)
-    .getByRole("button", { name: `aiueo ${label}: ${role}` });
+    .getByRole("checkbox", { name: new RegExp(label + "で表示$") });
+const roleReset = (page: Page, path: string, label: string) =>
+  page.locator(`.preset-layer-role[data-layer-path="${path}"]`)
+    .getByRole("button", { name: new RegExp(label + "を基本に戻す$") });
 
 test("six mouth shapes keep independent per-layer overrides, Open roles and base states", async ({ page }) => {
   const requests: State[][] = [];
@@ -41,17 +44,22 @@ test("six mouth shapes keep independent per-layer overrides, Open roles and base
     .getByRole("button", { name: "Open: 開き口" }).click();
 
   await page.getByRole("button", { name: "aiueo", exact: true }).click();
-  await expect(page.getByText("口形を指定してください")).toBeVisible();
+  await expect(page.getByText("この口形は未設定です。", { exact: false })).toBeVisible();
+  await expect(page.getByAltText("通常 のプレビュー")).toBeVisible();
   const baseBefore = await page.getByRole("checkbox", { name: "開き口 [0/1] 表示" }).isChecked();
   expect(baseBefore).toBe(false);
   const chosen = page.getByRole("group", { name: "編集するaiueo口形" });
 
   for (const label of labels) {
     await chosen.getByRole("button", { name: label, exact: true }).click();
-    await roleButton(page, "0/1", label, "表示").click();
-    await roleButton(page, "0/0", label, "非表示").click();
-    await expect(roleButton(page, "0/1", label, "表示")).toHaveAttribute("aria-pressed", "true");
-    await expect(roleButton(page, "0/0", label, "非表示")).toHaveAttribute("aria-pressed", "true");
+    await roleCheckbox(page, "0/1", label).check();
+    await roleCheckbox(page, "0/0", label).uncheck();
+    await expect(roleCheckbox(page, "0/1", label)).toBeChecked();
+    await expect(roleCheckbox(page, "0/0", label)).not.toBeChecked();
+    await expect(page.locator('.preset-layer-role[data-layer-path="0/1"]'))
+      .toHaveAttribute("data-aiueo-role", "show");
+    await expect(page.locator('.preset-layer-role[data-layer-path="0/0"]'))
+      .toHaveAttribute("data-aiueo-role", "hide");
     await expect.poll(() => {
       const last = requests.at(-1);
       return last?.find((row) => row.path === "0/1")?.visible;
@@ -63,8 +71,10 @@ test("six mouth shapes keep independent per-layer overrides, Open roles and base
   await expect(page.getByRole("checkbox", { name: "閉じ口 [0/0] 表示" })).toBeChecked();
 
   await chosen.getByRole("button", { name: "あ", exact: true }).click();
-  await roleButton(page, "0/1", "あ", "基本").click();
-  await expect(roleButton(page, "0/1", "あ", "基本")).toHaveAttribute("aria-pressed", "true");
+  await roleReset(page, "0/1", "あ").click();
+  await expect(page.locator('.preset-layer-role[data-layer-path="0/1"]'))
+    .toHaveAttribute("data-aiueo-role", "base");
+  await expect(roleCheckbox(page, "0/1", "あ")).not.toBeChecked();
   await expect.poll(() =>
     requests.at(-1)?.find((row) => row.path === "0/1")?.visible).toBe(false);
 
@@ -83,7 +93,7 @@ test("six mouth shapes keep independent per-layer overrides, Open roles and base
     requests.at(-1)?.find((row) => row.path === "0/1")?.visible).toBe(true);
   await page.getByRole("button", { name: "aiueo", exact: true }).click();
   await chosen.getByRole("button", { name: "い", exact: true }).click();
-  await expect(roleButton(page, "0/1", "い", "表示")).toHaveAttribute("aria-pressed", "true");
+  await expect(roleCheckbox(page, "0/1", "い")).toBeChecked();
 
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const drafts = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
@@ -102,19 +112,20 @@ test("six mouth shapes keep independent per-layer overrides, Open roles and base
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await page.getByRole("button", { name: "aiueo", exact: true }).click();
   await chosen.getByRole("button", { name: "ん", exact: true }).click();
-  await expect(roleButton(page, "0/1", "ん", "表示")).toHaveAttribute("aria-pressed", "true");
+  await expect(roleCheckbox(page, "0/1", "ん")).toBeChecked();
 });
 
-test("assigned-only list follows currently chosen mouth, and unconfigured mouth is not previewed", async ({ page }) => {
+test("assigned-only list follows current mouth and unconfigured shape shows the base portrait", async ({ page }) => {
   await openEditor(page, []);
   await page.getByRole("button", { name: "aiueo", exact: true }).click();
-  await roleButton(page, "0/1", "あ", "表示").click();
+  await roleCheckbox(page, "0/1", "あ").check();
   await page.getByRole("checkbox", { name: "割当済みのみ" }).check();
   await expect(page.locator(".preset-layer-role")).toHaveCount(1);
   await page.getByRole("group", { name: "編集するaiueo口形" })
     .getByRole("button", { name: "い", exact: true }).click();
   await expect(page.locator(".preset-layer-role")).toHaveCount(0);
-  await expect(page.getByText("口形を指定してください")).toBeVisible();
+  await expect(page.getByText("この口形は未設定です。", { exact: false })).toBeVisible();
+  await expect(page.getByAltText("通常 のプレビュー")).toBeVisible();
   await page.getByRole("checkbox", { name: "割当済みのみ" }).uncheck();
   await expect(page.locator(".preset-layer-role")).toHaveCount(4);
   await expect(page.getByText("LAB口パクのMOV出力と目・瞬きは未対応です。", { exact: false })).toBeVisible();
