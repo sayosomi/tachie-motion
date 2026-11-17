@@ -38,9 +38,12 @@ const draft = (): PresetDraft => ({
   collection: collection(), nameDrafts: {},
 });
 
-async function intercept(page: Page, rendered: Array<Array<{ path: string; visible: boolean }>>) {
+async function intercept(
+  page: Page, rendered: Array<Array<{ path: string; visible: boolean }>>,
+  psdLayers: Layer[] = layers,
+) {
   await page.route("**/api/psd", route => route.fulfill({ json: {
-    width: 64, height: 64, preview: image, fingerprint, layers,
+    width: 64, height: 64, preview: image, fingerprint, layers: psdLayers,
   } }));
   await page.route("**/api/preset-preview", route => {
     rendered.push(route.request().postDataJSON().layers);
@@ -124,14 +127,30 @@ test("direct character/project JSON export refuses base changes that violate sav
 
 test("eyes recovery validates structure, duplicate/missing paths, and PSD leaf kinds", async ({ page }) => {
   const rendered: Array<Array<{ path: string; visible: boolean }>> = [];
-  await intercept(page, rendered);
+  // Legacy eye and mouth poses must reside in distinct original PSD groups.
+  // The prior "valid" fixture reused 0 for both, masking the regression.
+  const eyeLayers: Layer[] = [
+    ...layers,
+    { path: "1", name: "目", kind: "group", visible: true,
+      effective_visible: true, bbox: [0, 0, 64, 64] },
+    { path: "1/0", name: "開眼", kind: "pixel", visible: true,
+      effective_visible: true, bbox: [0, 0, 16, 16] },
+    { path: "1/1", name: "閉眼", kind: "pixel", visible: false,
+      effective_visible: false, bbox: [0, 0, 16, 16] },
+  ];
+  await intercept(page, rendered, eyeLayers);
   const valid = draft();
+  valid.collection.items[0].base.push(
+    { path: "1", visible: true }, { path: "1/0", visible: true },
+    { path: "1/1", visible: false },
+  );
   valid.collection.items[0].eyes = {
-    opened: [{ path: "0/0", visible: true }],
-    closed: [{ path: "0/0", visible: false }, { path: "0/1", visible: true }],
+    opened: [{ path: "1/0", visible: true }],
+    closed: [{ path: "1/0", visible: false }, { path: "1/1", visible: true }],
   };
-  expect(matchesSource(valid, fingerprint, layers)).toBe(true);
-  expect(() => serializeCharacterProfile(source, fingerprint, layers, valid.collection))
+  // No motionGroups metadata: infer the two distinct source PSD groups.
+  expect(matchesSource(valid, fingerprint, eyeLayers)).toBe(true);
+  expect(() => serializeCharacterProfile(source, fingerprint, eyeLayers, valid.collection))
     .not.toThrow();
   await restore(page, valid);
   await expect(page.getByRole("status").filter({ hasText: "前回の編集を復元しました" })).toBeVisible();
