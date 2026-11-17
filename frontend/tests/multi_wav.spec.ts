@@ -1142,7 +1142,8 @@ test("LAB status is shown per WAV without enabling unimplemented aiueo export", 
     expect(source_identity).toBe("1:2:3:4:5");
     requests.push(path);
     if (path.endsWith("ok.wav"))
-      return route.fulfill({ json: { status: "valid", reason: null } });
+      return route.fulfill({ json: { status: "valid", reason: null,
+        source_identity: "1:2:3:4:5" } });
     if (path.endsWith("missing.wav"))
       return route.fulfill({ json: { status: "missing", reason: null } });
     return route.fulfill({ json: { status: "invalid", reason: "unsupported phoneme" } });
@@ -1172,8 +1173,8 @@ test("aiueo requires valid LAB and all six preset shapes before export", async (
   await page.route("**/api/wav-lab", (route) => {
     const { path } = route.request().postDataJSON() as { path: string };
     return route.fulfill({ json: path.endsWith("good.wav")
-      ? { status: "valid", reason: null }
-      : { status: "missing", reason: null } });
+      ? { status: "valid", reason: null, source_identity: "1:2:3:4:5" }
+      : { status: "missing", reason: null, source_identity: null } });
   });
   await openSpeech(page);
   await addWav(page, "/tmp/good.wav");

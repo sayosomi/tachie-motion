@@ -15,7 +15,7 @@ from tachie_motion.web.aiueo_renderer import (
     aiueo_indices, inspect_export_lab, render_aiueo_states, validate_aiueo_mouth,
 )
 from tachie_motion.web.preset_utterance import validated_snapshot
-from tachie_motion.web.service import describe_psd, describe_wav
+from tachie_motion.web.service import describe_psd, describe_wav, describe_wav_lab
 from test_web_api import fixture
 
 try:
@@ -101,7 +101,10 @@ class AiueoApiTests(unittest.TestCase):
         metadata = describe_psd(str(self.psd))
         self.lab = self.wav.with_suffix(".lab")
         self.lab.write_text("0 220000 k\n220000 600000 a\n600000 1010000 i\n", encoding="utf-8")
+        lab_token = describe_wav_lab(str(self.wav),
+            describe_wav(str(self.wav))["source_identity"])["source_identity"]
         self.body = {
+            "lab_source_identity": lab_token,
             "psd": str(self.psd), "wav": str(self.wav),
             "source_identity": describe_wav(str(self.wav))["source_identity"],
             "fingerprint": metadata["fingerprint"],

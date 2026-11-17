@@ -291,7 +291,8 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     setItems((previous) => updateUtterance(previous, itemId, {}));
     try {
       const result = await post<ExportData>("preset-utterance-export",
-        exportPayload(draft, current, selected, outputBasename, conflictPolicy));
+        exportPayload(draft, current, selected, outputBasename, conflictPolicy,
+          labStatuses[current.id]?.source_identity));
       if (mounted.current) setItems((previous) => previous.map((item) =>
         item.id === itemId ? { ...item, result, error: "" } : item));
     } catch (err) {

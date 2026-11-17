@@ -130,6 +130,33 @@ def describe_wav_lab(raw: str, source_identity: str) -> dict:
     if (type(source_identity) is not str or len(source_identity) > 128
             or re.fullmatch(r"[0-9]+(:[0-9]+){4}", source_identity) is None):
         raise ValueError("Invalid registered WAV identity")
+    import os
+    import stat
+
     expected = tuple(int(field) for field in source_identity.split(":"))
+    sibling = wav.with_suffix(".lab")
+    try:
+        before = os.lstat(sibling)
+    except FileNotFoundError:
+        before = None
     inspection = inspect_adjacent_lab(wav, expected_wav_identity=expected)
-    return {"status": inspection.status, "reason": inspection.reason}
+    identity = None
+    if inspection.status == "valid":
+        if before is None or not stat.S_ISREG(before.st_mode):
+            return {"status": "invalid", "reason": "LAB changed during inspection",
+                    "source_identity": None}
+        try:
+            after = os.lstat(sibling)
+        except OSError:
+            after = None
+        if (after is None or
+                tuple(getattr(before, field) for field in (
+                    "st_dev", "st_ino", "st_ctime_ns", "st_size", "st_mtime_ns")) !=
+                tuple(getattr(after, field) for field in (
+                    "st_dev", "st_ino", "st_ctime_ns", "st_size", "st_mtime_ns"))):
+            return {"status": "invalid", "reason": "LAB changed during inspection",
+                    "source_identity": None}
+        identity = ":".join(map(str, (before.st_dev, before.st_ino,
+                    before.st_ctime_ns, before.st_size, before.st_mtime_ns)))
+    return {"status": inspection.status, "reason": inspection.reason,
+            "source_identity": identity}

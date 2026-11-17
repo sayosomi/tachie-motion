@@ -31,9 +31,9 @@ test("aiueo is gated by six shapes and actual LAB status; Open and none stay val
   expect(exportReady(preset, aiueo, { status: "missing", reason: null })).toBe(false);
   expect(exportReady(preset, aiueo, { status: "invalid", reason: "bad" })).toBe(false);
   expect(exportReady(preset, aiueo, { status: "checking", reason: null })).toBe(false);
-  expect(exportReady(preset, aiueo, { status: "valid", reason: null })).toBe(true);
+  expect(exportReady(preset, aiueo, { status: "valid", reason: null, source_identity: "1:2:3:4:5" })).toBe(true);
   expect(exportReady({ ...preset, aiueoMouth: { ...shapes, n: [] } },
-    aiueo, { status: "valid", reason: null })).toBe(false);
+    aiueo, { status: "valid", reason: null, source_identity: "1:2:3:4:5" })).toBe(false);
   expect(exportReady(preset, item)).toBe(true);
   const fixed = { ...preset, mouthMotionEnabled: false };
   expect(exportReady(fixed, aiueo, { status: "missing", reason: null })).toBe(true);
@@ -44,12 +44,12 @@ test("single and batch construct the same aiueo renderer payload", () => {
     samples: 1000, sample_rate: 1000, duration_seconds: 1,
     source_identity: "1:2:3:4:5",
   }, "p1", "/tmp", 1), mode: "aiueo" as const };
-  const one = exportPayload(draft, item, preset, "speech_001", "error");
-  const batch = exportPayload(draft, item, preset, "speech_001", "error");
+  const one = exportPayload(draft, item, preset, "speech_001", "error", "1:2:3:4:5");
+  const batch = exportPayload(draft, item, preset, "speech_001", "error", "1:2:3:4:5");
   expect(batch).toEqual(one);
   expect(one).toMatchObject({
     mode: "aiueo", aiueo_mouth: shapes, mouth_groups: ["0"],
-    source_identity: "1:2:3:4:5",
+    source_identity: "1:2:3:4:5", lab_source_identity: "1:2:3:4:5",
   });
   const fixed = exportPayload(draft, item, {
     ...preset, mouthMotionEnabled: false,

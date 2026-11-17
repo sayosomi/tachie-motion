@@ -126,14 +126,16 @@ class WebApiTests(unittest.TestCase):
         lab = self.wav.with_suffix(".lab")
         wav_before = self.wav.read_bytes()
         self.assertEqual(self.json_post("/api/wav-lab", body).json(),
-                         {"status": "missing", "reason": None})
+                         {"status": "missing", "reason": None, "source_identity": None})
         lab.write_text("0 250000 a\n250000 1010000 i\n", encoding="utf-8")
         lab_before = lab.read_bytes()
         response = self.json_post("/api/wav-lab", body)
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json(), {"status": "valid", "reason": None})
-        self.assertEqual(describe_wav_lab(str(self.wav), metadata["source_identity"]),
-                         {"status": "valid", "reason": None})
+        self.assertEqual(response.json()["status"], "valid")
+        self.assertIsNone(response.json()["reason"])
+        self.assertRegex(response.json()["source_identity"], r"^[0-9]+(:[0-9]+){4}$")
+        self.assertEqual(response.json(),
+                         describe_wav_lab(str(self.wav), metadata["source_identity"]))
         self.assertEqual((self.wav.read_bytes(), lab.read_bytes()), (wav_before, lab_before))
         self.assertEqual(
             self.json_post("/api/wav-lab", body, headers={

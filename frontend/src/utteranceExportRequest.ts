@@ -17,7 +17,7 @@ export function exportReady(
 ): boolean {
   if (!preset || preset.blinkEnabled) return false;
   if (item.mode === "none" || preset.mouthMotionEnabled === false) return true;
-  if (item.mode === "aiueo") return lab?.status === "valid" && aiueoMouthReady(preset);
+  if (item.mode === "aiueo") return lab?.status === "valid" && !!lab.source_identity && aiueoMouthReady(preset);
   const mouth = preset.openMouth;
   return item.mode === "open" && Boolean(
     mouth && mouth.closed.length > 0 &&
@@ -28,7 +28,7 @@ export function exportReady(
 
 export function exportPayload(
   draft: PresetDraft, item: UtteranceItem, preset: UnifiedPreset,
-  basename: string, conflictPolicy: ConflictPolicy,
+  basename: string, conflictPolicy: ConflictPolicy, labSourceIdentity?: string | null,
 ) {
   return {
     psd: draft.path,
@@ -39,6 +39,8 @@ export function exportPayload(
     mouth: preset.mouthMotionEnabled === false ? null : (preset.openMouth ?? null),
     aiueo_mouth: preset.mouthMotionEnabled === false ? null : (preset.aiueoMouth ?? null),
     mouth_groups: draft.collection.motionGroups?.mouth ?? null,
+    lab_source_identity: item.mode === "aiueo" && preset.mouthMotionEnabled !== false
+      ? (labSourceIdentity ?? null) : null,
     mode: preset.mouthMotionEnabled === false ? "none" : item.mode,
     blink_enabled: preset.blinkEnabled,
     output_dir: item.outputDir,

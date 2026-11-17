@@ -93,7 +93,7 @@ def export_preset_utterance(
     mouth: dict | None, mode: str, blink_enabled: bool,
     mov: Path, otio: Path | None, fps: int = 30, conflict_policy: str = "error",
     source_identity: str | None = None, aiueo_mouth: dict | None = None,
-    mouth_groups: list[str] | None = None,
+    mouth_groups: list[str] | None = None, lab_source_identity: str | None = None,
 ):
     """Generate one preset-backed PCM-in-MOV and synchronized OTIO.
 
@@ -128,7 +128,13 @@ def export_preset_utterance(
     if six is not None:
         if source_identity is None:
             raise ValueError("aiueo requires registered WAV identity")
+        import re
+        if (type(lab_source_identity) is not str
+                or re.fullmatch(r"[0-9]+(:[0-9]+){4}", lab_source_identity) is None):
+            raise ValueError("aiueo requires verified LAB source identity")
         intervals, lab_identity = inspect_export_lab(wav, source_identity)
+        if ":".join(map(str, lab_identity)) != lab_source_identity:
+            raise ValueError("LAB changed since selection; nothing was published")
         indices = aiueo_indices(
             intervals, samples=schedule.sample_count,
             sample_rate=schedule.sample_rate, fps=fps,

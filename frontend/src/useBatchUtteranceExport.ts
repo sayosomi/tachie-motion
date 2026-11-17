@@ -17,6 +17,7 @@ export type Plan = {
   basename: string;
   conflict_policy: Conflict;
   canonicalOutputDir: string;
+  labSourceIdentity: string | null;
 };
 export type TimelinePlan = {
   basename: string;
@@ -112,7 +113,8 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
     const conflict_policy = allowedDestination(destination, basename);
     if (conflict_policy === "overwrite") overwrites++;
     plans.push({ item, preset, basename, conflict_policy,
-      canonicalOutputDir: destination.canonical_output_dir });
+      canonicalOutputDir: destination.canonical_output_dir,
+      labSourceIdentity: labStatuses[item.id]?.source_identity ?? null });
   }
   const basename = timelineName;
   const policy = allowedDestination(dest, basename);
@@ -144,7 +146,7 @@ function planKey(draft: PresetDraft, batch: PreparedBatch): string {
     plans: batch.plans.map((plan) => ({
       id: plan.item.id, folder: plan.canonicalOutputDir,
       payload: exportPayload(draft, { ...plan.item, outputDir: plan.canonicalOutputDir },
-        plan.preset, plan.basename, plan.conflict_policy),
+        plan.preset, plan.basename, plan.conflict_policy, plan.labSourceIdentity),
     })),
   });
 }
@@ -165,7 +167,8 @@ export function useBatchUtteranceExport(
   const busy = useRef(false);
   const key = snapshotKey(draft, items, naming) + "|" + conflictChoice +
     "|" + JSON.stringify(items.map((item) => [
-      item.id, item.mode === "aiueo" ? labStatuses[item.id]?.status : null,
+      item.id, item.mode === "aiueo"
+        ? [labStatuses[item.id]?.status, labStatuses[item.id]?.source_identity] : null,
     ]));
 
   useEffect(() => {
@@ -233,7 +236,8 @@ export function useBatchUtteranceExport(
         try {
           const payload = exportPayload(draft, {
             ...item, outputDir: plan.canonicalOutputDir,
-          }, plan.preset, plan.basename, plan.conflict_policy);
+          }, plan.preset, plan.basename, plan.conflict_policy,
+            plan.labSourceIdentity);
           const result = await post<MovieResult>("preset-batch-mov-export", {
             ...payload, batch_id: sessionId, batch_index: index,
           });

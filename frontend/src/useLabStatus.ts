@@ -4,8 +4,9 @@ import type { UtteranceItem } from "./utteranceItems";
 export type LabInfo = {
   status: "valid" | "missing" | "invalid" | "checking" | "unavailable";
   reason: string | null;
+  source_identity?: string | null;
 };
-type LabResponse = { status: "valid" | "missing" | "invalid"; reason: string | null };
+type LabResponse = { status: "valid" | "missing" | "invalid"; reason: string | null; source_identity: string | null };
 type CheckedStatus = { key: string; value: LabInfo };
 
 function identityKey(item: UtteranceItem): string {
@@ -16,7 +17,11 @@ function isLabResponse(value: unknown): value is LabResponse {
   if (!value || typeof value !== "object") return false;
   const result = value as Record<string, unknown>;
   return (result.status === "valid" || result.status === "missing" || result.status === "invalid") &&
-    (result.reason === null || typeof result.reason === "string");
+    (result.reason === null || typeof result.reason === "string") &&
+    (result.status === "valid"
+      ? typeof result.source_identity === "string" &&
+        /^[0-9]+(:[0-9]+){4}$/.test(result.source_identity)
+      : result.source_identity === null || result.source_identity === undefined);
 }
 
 /** Async WAV-side LAB inspections are derived state, never project JSON data. */
