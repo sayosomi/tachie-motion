@@ -1190,3 +1190,86 @@ test("aiueo requires valid LAB and all six preset shapes before export", async (
   await page.locator('[data-utterance-id]').first().locator(".utterance-item-select").click();
   await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toHaveValue("aiueo");
 });
+
+
+test("batch manifest and actual MOV requests agree for valid LAB none/open/aiueo/disabled", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 800, sample_rate: 8000, duration_seconds: 0.1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  await page.route("**/api/wav-lab", (route) => route.fulfill({ json: {
+    status: "valid", reason: null, source_identity: "9:8:7:6:5",
+  } }));
+  await openSpeech(page);
+  // Supply a valid saved character setup with both open and all six aiueo
+  // shapes; this exercises the real React hook, not two calls to exportPayload.
+  await page.evaluate(() => {
+    const key = "tachie-motion.preset-draft.v1";
+    const value = localStorage.getItem(key);
+    if (!value) throw new Error("Missing preset draft");
+    const draft = JSON.parse(value) as {
+      collection: { items: Array<Record<string, unknown>>;
+        motionGroups?: { mouth: string[] } };
+    };
+    const preset = draft.collection.items[0];
+    if (!preset) throw new Error("Missing default preset");
+    preset.openMouth = {
+      closed: [{ path: "0/0", visible: true }],
+      opened: [{ path: "0/0", visible: false }],
+    };
+    preset.aiueoMouth = Object.fromEntries(["a", "i", "u", "e", "o", "n"].map((name) =>
+      [name, [{ path: "0/0", visible: name !== "a" }]]));
+    draft.collection.motionGroups = { mouth: ["0"] };
+    draft.collection.items.push({ ...structuredClone(preset), id: "mouth-off",
+      name: "口パクOFF", mouthMotionEnabled: false });
+    localStorage.setItem(key, JSON.stringify(draft));
+  });
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await expect(page.locator(".utterance-list-panel")).toBeVisible();
+  for (const name of ["none", "open", "aiueo", "disabled"]) {
+    await addWav(page, "/tmp/" + name + ".wav");
+  }
+  const rows = page.locator("[data-utterance-id]");
+  await expect(rows).toHaveCount(4);
+  await expect(rows.locator('[data-lab-status="valid"]')).toHaveCount(4);
+  await rows.nth(1).locator(".utterance-row-mode select").selectOption("open");
+  await rows.nth(2).locator(".utterance-row-mode select").selectOption("aiueo");
+  await rows.nth(3).locator(".utterance-row-mode select").selectOption("aiueo");
+  await rows.nth(3).locator(".utterance-row-preset select").selectOption("mouth-off");
+
+  type Entry = { basename: string; wav: string; lab_source_identity: string | null };
+  type Movie = Entry & { mode: string; batch_index: number };
+  const manifests: Entry[][] = [];
+  const requests: Movie[] = [];
+  await page.route("**/api/preset-batch-start", (route) => {
+    const body = route.request().postDataJSON() as { entries: Entry[] };
+    manifests.push(body.entries);
+    return route.fulfill({ json: { batch_id: "mixed-modes" } });
+  });
+  await page.route("**/api/preset-batch-mov-export", (route) => {
+    const body = route.request().postDataJSON() as Movie;
+    requests.push(body);
+    return route.fulfill({ json: {
+      mov: "/tmp/output/" + body.basename + ".mov",
+      frames: 3, sample_count: 800, sample_rate: 8000,
+    } });
+  });
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await expect(page.locator(".export-plan-items li")).toHaveCount(4);
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
+  await expect(page.getByText("一括書き出し完了：MOV 4件／全体OTIO", { exact: false }))
+    .toBeVisible();
+
+  expect(manifests).toHaveLength(1);
+  expect(requests).toHaveLength(4);
+  expect(manifests[0].map((entry) => entry.lab_source_identity))
+    .toEqual([null, null, "9:8:7:6:5", null]);
+  expect(requests.map((entry) => entry.mode)).toEqual(["none", "open", "aiueo", "none"]);
+  for (const [index, entry] of manifests[0].entries()) {
+    expect(requests[index].batch_index).toBe(index);
+    expect(requests[index].basename).toBe(entry.basename);
+    expect(requests[index].wav).toBe(entry.wav);
+    expect(requests[index].lab_source_identity).toBe(entry.lab_source_identity);
+  }
+});

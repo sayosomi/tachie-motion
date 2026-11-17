@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { PresetDraft } from "./presetDraftStorage";
 import type { UnifiedPreset } from "./presetModel";
-import { exportPayload, exportReady } from "./utteranceExportRequest";
+import { effectiveLabSourceIdentity, exportPayload, exportReady } from "./utteranceExportRequest";
 import { movName, otioName, validateBatchNaming, type BatchNaming } from "./nameTemplate";
 import type { UtteranceItem } from "./utteranceItems";
 import type { LabInfo } from "./useLabStatus";
@@ -114,7 +114,9 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
     if (conflict_policy === "overwrite") overwrites++;
     plans.push({ item, preset, basename, conflict_policy,
       canonicalOutputDir: destination.canonical_output_dir,
-      labSourceIdentity: labStatuses[item.id]?.source_identity ?? null });
+      labSourceIdentity: effectiveLabSourceIdentity(
+        item, preset, labStatuses[item.id]?.source_identity,
+      ) });
   }
   const basename = timelineName;
   const policy = allowedDestination(dest, basename);

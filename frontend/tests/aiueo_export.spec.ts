@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import type { UnifiedPreset } from "../src/presetModel";
 import type { PresetDraft } from "../src/presetDraftStorage";
 import { createUtterance } from "../src/utteranceItems";
-import { aiueoMouthReady, exportPayload, exportReady } from "../src/utteranceExportRequest";
+import { aiueoMouthReady, effectiveLabSourceIdentity, exportPayload, exportReady } from "../src/utteranceExportRequest";
 
 const base = [{ path: "0", visible: true }, { path: "0/0", visible: true }];
 const keys = ["a", "i", "u", "e", "o", "n"] as const;
@@ -39,14 +39,17 @@ test("aiueo is gated by six shapes and actual LAB status; Open and none stay val
   expect(exportReady(fixed, aiueo, { status: "missing", reason: null })).toBe(true);
 });
 
-test("single and batch construct the same aiueo renderer payload", () => {
+test("mode-specific LAB identity is shared by the manifest and rendered payload", () => {
   const item = { ...createUtterance("w1", "/tmp/声 e\u0301.wav", {
     samples: 1000, sample_rate: 1000, duration_seconds: 1,
     source_identity: "1:2:3:4:5",
   }, "p1", "/tmp", 1), mode: "aiueo" as const };
   const one = exportPayload(draft, item, preset, "speech_001", "error", "1:2:3:4:5");
-  const batch = exportPayload(draft, item, preset, "speech_001", "error", "1:2:3:4:5");
-  expect(batch).toEqual(one);
+  expect(effectiveLabSourceIdentity(item, preset, "1:2:3:4:5")).toBe("1:2:3:4:5");
+  expect(effectiveLabSourceIdentity({ ...item, mode: "none" }, preset, "1:2:3:4:5")).toBeNull();
+  expect(effectiveLabSourceIdentity({ ...item, mode: "open" }, preset, "1:2:3:4:5")).toBeNull();
+  expect(effectiveLabSourceIdentity(item, { ...preset, mouthMotionEnabled: false },
+    "1:2:3:4:5")).toBeNull();
   expect(one).toMatchObject({
     mode: "aiueo", aiueo_mouth: shapes, mouth_groups: ["0"],
     source_identity: "1:2:3:4:5", lab_source_identity: "1:2:3:4:5",
@@ -56,4 +59,9 @@ test("single and batch construct the same aiueo renderer payload", () => {
   }, "speech_001", "error");
   expect(fixed.mode).toBe("none");
   expect(fixed.aiueo_mouth).toBeNull();
+  expect(fixed.lab_source_identity).toBeNull();
+  expect(exportPayload(draft, { ...item, mode: "none" }, preset,
+    "speech_001", "error", "1:2:3:4:5").lab_source_identity).toBeNull();
+  expect(exportPayload(draft, { ...item, mode: "open" }, preset,
+    "speech_001", "error", "1:2:3:4:5").lab_source_identity).toBeNull();
 });

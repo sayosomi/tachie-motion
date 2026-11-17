@@ -26,6 +26,16 @@ export function exportReady(
   );
 }
 
+/** Only a LAB-driven, enabled aiueo movie may reserve a LAB identity. */
+export function effectiveLabSourceIdentity(
+  item: Pick<UtteranceItem, "mode">,
+  preset: Pick<UnifiedPreset, "mouthMotionEnabled">,
+  sourceIdentity?: string | null,
+): string | null {
+  return item.mode === "aiueo" && preset.mouthMotionEnabled !== false
+    ? (sourceIdentity ?? null) : null;
+}
+
 export function exportPayload(
   draft: PresetDraft, item: UtteranceItem, preset: UnifiedPreset,
   basename: string, conflictPolicy: ConflictPolicy, labSourceIdentity?: string | null,
@@ -39,8 +49,7 @@ export function exportPayload(
     mouth: preset.mouthMotionEnabled === false ? null : (preset.openMouth ?? null),
     aiueo_mouth: preset.mouthMotionEnabled === false ? null : (preset.aiueoMouth ?? null),
     mouth_groups: draft.collection.motionGroups?.mouth ?? null,
-    lab_source_identity: item.mode === "aiueo" && preset.mouthMotionEnabled !== false
-      ? (labSourceIdentity ?? null) : null,
+    lab_source_identity: effectiveLabSourceIdentity(item, preset, labSourceIdentity),
     mode: preset.mouthMotionEnabled === false ? "none" : item.mode,
     blink_enabled: preset.blinkEnabled,
     output_dir: item.outputDir,
