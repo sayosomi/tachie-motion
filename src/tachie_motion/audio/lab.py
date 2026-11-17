@@ -116,31 +116,46 @@ def inspect_adjacent_lab(
     try:
         if wav_path.suffix.lower() != ".wav" or wav_path.is_symlink():
             raise ValueError("Expected a regular WAV path")
-        before = _identity(wav_path.stat())
-        if expected_wav_identity is not None and before != expected_wav_identity:
-            raise ValueError("WAV changed since registration")
-        with wave.open(str(wav_path), "rb") as reader:
-            if reader.getcomptype() != "NONE":
-                raise ValueError("Only PCM WAV is supported")
-            samples = reader.getnframes()
-            rate = reader.getframerate()
-            channels = reader.getnchannels()
-            width = reader.getsampwidth()
-            if samples <= 0 or rate <= 0 or channels <= 0 or width not in (1, 2, 3, 4):
-                raise ValueError("Invalid WAV PCM timing or format")
-            validate_pcm_header(
-                wav_path, sample_rate=rate, channels=channels,
-                sample_width=width, sample_count=samples,
-            )
-        if lab_path.is_symlink():
-            raise ValueError("LAB symlinks are not supported")
-        if not lab_path.exists():
-            result = LabInspection("missing", lab_path)
-        else:
-            intervals = parse_lab(_read_regular_lab(lab_path), samples=samples, sample_rate=rate)
-            result = LabInspection("valid", lab_path, intervals)
-        if _identity(wav_path.stat()) != before:
-            raise ValueError("WAV changed during LAB inspection")
-        return result
+        # O_NONBLOCK prevents an unwritten FIFO from hanging in open(); the
+        # fd's mode is checked before wave parses any bytes.
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(wav_path, flags)
+        with os.fdopen(descriptor, "rb") as stream:
+            source = os.fstat(stream.fileno())
+            before = _identity(source)
+            if not stat.S_ISREG(source.st_mode) or _identity(os.lstat(wav_path)) != before:
+                raise ValueError("WAV must be a stable regular file")
+            if expected_wav_identity is not None and before != expected_wav_identity:
+                raise ValueError("WAV changed since registration")
+            # wave and the RIFF integrity scanner must read the same opened
+            # inode, even if another process swaps the pathname meanwhile.
+            with wave.open(stream, "rb") as reader:
+                if reader.getcomptype() != "NONE":
+                    raise ValueError("Only PCM WAV is supported")
+                samples = reader.getnframes()
+                rate = reader.getframerate()
+                channels = reader.getnchannels()
+                width = reader.getsampwidth()
+                if samples <= 0 or rate <= 0 or channels <= 0 or width not in (1, 2, 3, 4):
+                    raise ValueError("Invalid WAV PCM timing or format")
+                validate_pcm_header(
+                    wav_path, sample_rate=rate, channels=channels,
+                    sample_width=width, sample_count=samples, stream=stream,
+                )
+            if (_identity(os.fstat(stream.fileno())) != before
+                    or _identity(os.lstat(wav_path)) != before):
+                raise ValueError("WAV changed during inspection")
+            if lab_path.is_symlink():
+                raise ValueError("LAB symlinks are not supported")
+            if not lab_path.exists():
+                result = LabInspection("missing", lab_path)
+            else:
+                intervals = parse_lab(_read_regular_lab(lab_path), samples=samples, sample_rate=rate)
+                result = LabInspection("valid", lab_path, intervals)
+            if (_identity(os.fstat(stream.fileno())) != before
+                    or _identity(os.lstat(wav_path)) != before):
+                raise ValueError("WAV changed during LAB inspection")
+            return result
     except (OSError, ValueError, wave.Error, EOFError) as exc:
         return LabInspection("invalid", lab_path, reason=str(exc))
