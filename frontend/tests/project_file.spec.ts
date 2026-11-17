@@ -71,7 +71,7 @@ test("project parser rejects malformed IDs, paths, versions, references and sign
     (v) => { v.items[0].wav.source_identity = ""; },
     (v) => { v.items[0].wav.source_identity = "1:2:three:4:5"; },
     (v) => { v.items[0].presetId = "missing"; },
-    (v) => { v.items[0].mode = "aiueo"; },
+    (v) => { v.items[0].mode = "unsupported"; },
     (v) => { v.items[0].fps = 23; },
     (v) => { v.items[0].basename = "../escape"; },
     (v) => { v.items[0].outputDir = "relative"; },

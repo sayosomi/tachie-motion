@@ -1159,7 +1159,7 @@ test("LAB status is shown per WAV without enabling unimplemented aiueo export", 
   await expect(rows.nth(2).locator('[data-lab-status="invalid"]')).toHaveAttribute(
     "title", "unsupported phoneme");
   expect(new Set(requests)).toEqual(new Set(["/tmp/ok.wav", "/tmp/missing.wav", "/tmp/bad.wav"]));
-  await expect(rows.nth(0).locator(".utterance-row-mode option")).toHaveCount(2);
+  await expect(rows.nth(0).locator(".utterance-row-mode option")).toHaveCount(3);
   await rows.nth(0).locator(".utterance-item-select").click();
   await expect(rows.nth(0).locator('[data-lab-status="valid"]')).toBeVisible();
 });
@@ -1186,7 +1186,7 @@ test("aiueo requires valid LAB and all six preset shapes before export", async (
   await addWav(page, "/tmp/missing.wav");
   await expect(page.locator('[data-selected="true"] [data-lab-status="missing"]')).toBeVisible();
   await expect(page.locator('[data-selected="true"] .utterance-row-mode option[value="aiueo"]'))
-    .toBeDisabled();
+    .toHaveAttribute("disabled", "");
   await page.locator('[data-utterance-id]').first().locator(".utterance-item-select").click();
   await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toHaveValue("aiueo");
 });
