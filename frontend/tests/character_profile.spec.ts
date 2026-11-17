@@ -519,7 +519,8 @@ test("character JSON validates real group paths and the preset mouth switch", as
   await openPsd(page);
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await assignOpenPair(page, "0/0", "0/1", "顔");
-  await page.getByRole("checkbox", { name: "口パク", exact: true }).uncheck();
+  await page.getByRole("tabpanel", { name: "口パク" })
+    .getByRole("button", { name: "OFFにする" }).click();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const saved = await exportJson(page);
   expect(saved.version).toBe(1);
