@@ -248,6 +248,8 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .preset-role-custom { flex:1 0 100%; font-size:10px; text-align:center; color:#d6c5a2; }
 .preset-role-group-count { flex:0 0 120px; font-size:11px; color:#9bb8c8; text-align:center; }
 .preset-visibility-label:focus-within { border-radius:5px; }
+.preset-motion-switches { display:flex; flex-wrap:wrap; gap:8px 22px; align-items:center;
+  margin:12px 0; padding:6px 10px; border:1px solid #34475e; border-radius:6px; }
 .motion-enabled-toggle { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:14px; }
 .motion-enabled-toggle input { width:19px; height:19px; accent-color:#86dbbe; }
 .motion-group-selector { margin:4px 0 12px; }
