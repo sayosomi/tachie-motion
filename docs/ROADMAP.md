@@ -1,6 +1,6 @@
 # Roadmap
 
-**現在の状態：Phase 0とPhase 1のCLI、およびmainの統合プリセット編集・Mac Finder選択・単一WAVのnone/open書き出しは実装済み。新規・上書き・別名保存とDaVinci Resolveの透過・口パク・音声同期は2026年11月1日にMac Human PASS。aiueoの6口形レイヤー編集・静止プレビューはmainで対応済み。LAB駆動MOV・個別／一括OTIOはIssue #27 / Draft PR #28で実装・検証中（main未統合）。瞬き・変更点タイムライン・複数キャラクターは未実装。制作プロジェクトJSON保存・復元、単一キャラ全体OTIOはPR #17・#19で実装済み。キャラクター設定JSONの独立保存・読み込みはIssue #44 / PR #45で実装済み。JSON往復の自動テストとMac Chrome保存UIのHuman UXはPASS。**
+**現在の状態：Phase 0とPhase 1のCLI、およびmainの統合プリセット編集・Mac Finder選択・単一WAVのnone/open書き出しは実装済み。新規・上書き・別名保存とDaVinci Resolveの透過・口パク・音声同期は2026年11月1日にMac Human PASS。aiueoの6口形レイヤー編集・静止プレビューはmainで対応済み。LAB駆動aiueoの個別／一括MOVとOTIOはIssue #27 / PR #28で実装・CI・独立監査・Mac実機の書き出し／口パク表示／Resolve OTIO読み込みを確認済み（main統合対象）。瞬き・変更点タイムライン・複数キャラクターは未実装。制作プロジェクトJSON保存・復元、単一キャラ全体OTIOはPR #17・#19で実装済み。キャラクター設定JSONの独立保存・読み込みはIssue #44 / PR #45で実装済み。JSON往復の自動テストとMac Chrome保存UIのHuman UXはPASS。**
 
 この文書は実装の進捗と今後の作業範囲を示します。確定した製品要件は [PRODUCT_SPEC.md](PRODUCT_SPEC.md)、実際に使えるコマンドは [README.md](../README.md) を参照してください。PoCで確認したことと、完成したアプリでできることは区別します。
 
@@ -56,10 +56,10 @@ PR #10は2026-11-06にマージ済み。1 WAV・1キャラクターのPCM入りM
 - [x] プリセット一覧・詳細編集、レイヤーON/OFF・静止PSD合成プレビュー — Issue #27（旧Private開発履歴） / PR #28（旧Private開発履歴）。ブラウザ限定の自動復元はPR #32で追加。口のopen動画出力はPR #38で実装。プロファイルJSON保存はPR #45で実装、目の瞬きMOVは未実装。
 - [ ] 表情＋ポーズ**統合プリセット**の管理画面（一覧／詳細ページ、サムネイル、作成・独立複製・名前変更・削除・ドラッグ＆ドロップ並び替え）と、各レイヤーのON/OFF・永続保存 — Issue #23（旧Private開発履歴）。
 - [ ] 1プリセットに独立して登録できるopen（閉口／開口）とaiueo（あ・い・う・え・お・ん）の**両**口形セット、複数レイヤーで構成する口・目状態、プレビューとレンダラーの一貫性 — Issue #23（旧Private開発履歴）。
-- [x] **aiueoの6口形レイヤー編集と静止プレビュー** — Public Issue #23 / PR #24。Openと独立した6口形の保存・静止プレビューを実装。旧「ここだけ」UIはHuman UX未PASSのため、後続Issue #25 / PR #26のPSDグループ割当UIに置き換えた。LAB駆動aiueo MOV/OTIOと目・瞬きのアニメーションは未実装。
-- [x] **PSDレイヤーグループによる動作対象管理と通常レイヤーの分離** — Public Issue #25 / PR #26。元PSDグループの複数割当、通常レイヤーと口形編集の分離、Open/aiueo独立、プリセット単位の口パクOFF、`*` 同親グループ排他ラジオと `!` 強制表示、未設定プレビューと拡大に対応。旧JSON・ブラウザ復元・制作プロジェクトの参照とレイヤー制約を検証し、不正データは保持して復元を拒否。2026-11-17 Mac Human UX PASS、独立ブロッキング監査 PASS（HIGH 0 / MEDIUM 0 / LOW 0、監査対象コードHEAD `423129e`）。瞬きUI・レンダリングとaiueo動画生成は後続Issueの対象。
+- [x] **aiueoの6口形レイヤー編集と静止プレビュー** — Public Issue #23 / PR #24。Openと独立した6口形の保存・静止プレビューを実装。旧「ここだけ」UIはHuman UX未PASSのため、後続Issue #25 / PR #26のPSDグループ割当UIに置き換えた。LAB駆動aiueo MOV/OTIOはPublic Issue #27 / PR #28で実装。目・瞬きのアニメーションは未実装。
+- [x] **PSDレイヤーグループによる動作対象管理と通常レイヤーの分離** — Public Issue #25 / PR #26。元PSDグループの複数割当、通常レイヤーと口形編集の分離、Open/aiueo独立、プリセット単位の口パクOFF、`*` 同親グループ排他ラジオと `!` 強制表示、未設定プレビューと拡大に対応。旧JSON・ブラウザ復元・制作プロジェクトの参照とレイヤー制約を検証し、不正データは保持して復元を拒否。2026-11-17 Mac Human UX PASS、独立ブロッキング監査 PASS（HIGH 0 / MEDIUM 0 / LOW 0、監査対象コードHEAD `423129e`）。aiueo動画生成はPublic Issue #27 / PR #28にて実装済み。瞬きUI・レンダリングは後続Issueの対象。
 - [x] **LAB検出・形式／時刻検証のPython基盤（Public Issue #21）** — WAVと同名隣接のLABを元のUnicode名のまま読み取り、VOICEVOX/OpenJTalkの既知音素と整数100ns時刻をWAVサンプル尺に照らして検証。不在・不正を区別し、未知音素・重複／逆転時刻・WAV/LAB変更や危険なファイルを拒否。これは内部パーサと合成素材テストだけであり、aiueo選択UI・口形フレーム生成・MOV書き出しは上の未実装項目に残る。
-- [ ] **LAB連動aiueoのセリフMOV・OTIO（Issue #27 / Draft PR #28、main未統合）** — WAVと同名LABの検出結果を一覧に表示し、承認済みフレーム中央・次母音先取り・無声化母音規則（D27）で6口形を切替。PCM内包ProRes MOV・個別OTIO・全体OTIO・制作JSON v2へ接続する変更をDraftへ実装。LABとWAVの登録時識別子、全件公開直前のLAB再検査、PSDTool強制表示と同親排他、元ソースの非改変を検証対象とする。CIの成功・独立コード監査・Mac Human UX・Resolve実機確認はそれぞれ別ゲートとして記録し、未検証分をPASSとしない。完了・マージの前にREADMEと本ROADMAPの状態を再更新する。
+- [x] **LAB連動aiueoのセリフMOV・OTIO（Public Issue #27 / PR #28）** — WAVと同名LABの状態を一覧表示し、承認済みD27のフレーム中央・次母音先取り・無声化母音規則で6口形を駆動。休止口「ん」は未設定なら基本表示を継承。個別／一括のPCM内包ProRes MOV・OTIOと制作プロジェクトJSON v2へ接続。WAV/LAB識別子、最終公開前のLAB再検査、PSDTool制約と元素材の保護を自動テスト。最終コードHEAD `387c95f2` のPython/Web UI CIはSUCCESS、独立差分監査PASS（HIGH 0 / MEDIUM 0 / LOW 2）。2026-11-17 Mac実素材で一括MOV・aiueo口パク表示・DaVinci ResolveのOTIO読み込みを利用者がPASS確認。音声のサンプル単位の同期精度や実素材透過画素の厳密照合は今回のHuman報告では未確認。後続の非ブロッキング品質強化はIssue #29。
 - [ ] 安定したプリセットIDを参照する変更点タイムライン。
 - [ ] 瞬き間隔、プリセットごとの無効化、再書き出しでも再現可能な揺らぎ。
 - [ ] 波形表示、再生、シーク、変更点の移動・削除・差し替え。

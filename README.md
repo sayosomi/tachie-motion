@@ -287,7 +287,7 @@ tachie-otio-poc \
 
 動画の各フレームはWAV時間上の中央サンプルで音素を評価します。子音は次のLAB母音を先取りし、無声化母音（大文字A/I/U/E/O）は対応する母音口形、無音・LAB空隙・Nは「ん」です。LABの存在しないWAVはOpen／なしを利用できます。WAV音量から母音を推定しません。元PSD/WAV/LABの名前・内容を変更せず、MOVへWAV由来のPCMを1回だけ内包して個別・全体OTIOと同期します。制作プロジェクトJSONはv2のまま口パク方式aiueoを保存しますが、LABファイル本体はJSONに保存しません。書き出し前に現在のLABを再確認します。
 
-**検証の区別：** 新aiueoのMac実PSD/WAV/LABによるHuman UX・DaVinci Resolve確認、独立コード監査はPR #28の完了ゲートです。既存Openの過去の実機PASSをaiueoのPASSとして扱いません。
+**検証結果（2026-11-17）：** Mac実PSD/WAV/LABでの一括MOV書き出しとaiueo口パクの見た目、DaVinci ResolveでのOTIO読み込みを利用者がPASS確認しました。最終HEAD `387c95f2` のPython/Web UI CIはSUCCESS、独立差分監査はPASS（HIGH 0 / MEDIUM 0 / LOW 2）。実機での透過の厳密な画素一致や音声サンプル単位の同期精度までPASSとはしていません。非ブロッキングのテスト・検証強化はIssue #29で扱います。
 
 ### PSDグループ管理とOpen／aiueo口形の編集（Public Issue #23／#25）
 
