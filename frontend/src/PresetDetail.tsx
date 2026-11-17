@@ -58,9 +58,11 @@ export default function PresetDetail({
     .map((layer) => [layer.path, roleMode === "open"
       ? openLayerRole(preset, layer.path) : aiueoLayerRole(preset, aiueoKey, layer.path)]));
   const unsetRole = roleMode === "open" ? "none" : "base";
+  const editingBase = roleMode === "aiueo" && previewState === "base";
   const chosen = [...roles.values()].filter((role) => role !== unsetRole).length;
   const queryText = query.trim().toLocaleLowerCase();
-  const activeFilter = Boolean(queryText || assignedOnly);
+  const showAssignedOnly = roleMode === "open" && assignedOnly;
+  const activeFilter = Boolean(queryText || showAssignedOnly);
   const matches = new Set<string>();
   const matchingGroups = layers.filter((layer) => layer.kind === "group"
     && queryText && (layer.name.toLocaleLowerCase().includes(queryText)
@@ -68,7 +70,7 @@ export default function PresetDetail({
   for (const layer of layers) {
     if (layer.kind === "group") continue;
     const role = roles.get(layer.path) ?? unsetRole;
-    if (assignedOnly && role === unsetRole) continue;
+    if (showAssignedOnly && role === unsetRole) continue;
     if (queryText && !(
       layer.name.toLocaleLowerCase().includes(queryText)
       || layer.path.includes(queryText)
@@ -89,7 +91,7 @@ export default function PresetDetail({
       const missing = matchedGroups.filter((path) => !previous.includes(path));
       return missing.length ? [...previous, ...missing] : previous;
     });
-  }, [queryText, assignedOnly, roleMode, aiueoKey, preset.openMouth, preset.aiueoMouth]);
+  }, [queryText, showAssignedOnly, roleMode, aiueoKey, preset.openMouth, preset.aiueoMouth]);
 
   function visibleInTree(path: string): boolean {
     const components = path.split("/");
@@ -217,36 +219,38 @@ export default function PresetDetail({
           <button type="button" disabled title="後続対応">目・瞬き（未対応）</button>
         </div>
         {roleMode === "aiueo" && <div className="preset-aiueo-choice" role="group"
-          aria-label="編集するaiueo口形">
+          aria-label="編集する口形">
+          <button type="button" aria-pressed={editingBase} onClick={() => setPreviewState("base")}>
+            基本
+          </button>
           {AIUEO_KEYS.map((key) => <button key={key} type="button"
-            aria-pressed={aiueoKey === key}
+            aria-pressed={!editingBase && aiueoKey === key}
             title={key === "n" ? "ん（無音・静止口）" : undefined}
             onClick={() => { setAiueoKey(key); setPreviewState(`aiueo-${key}`); }}>
             {AIUEO_LABELS[key]}
           </button>)}
         </div>}
-        <p className="hint">{roleMode === "open"
-          ? "レイヤー名は位置選択、左のチェックは基本表示、右の「なし／閉／開」はOpenの役割です。"
-          : "上で口形を選び、右のチェックを切り替えてその口形の見た目を作ります。左側のチェックは全口形共通の基本表示です。変更したレイヤーは「元に戻す」で基本表示に戻せます。"
-        }</p>
+        {roleMode === "open" && <p className="hint">
+          レイヤー名は位置選択、左のチェックは基本表示、右の「なし／閉／開」はOpenの役割です。
+        </p>}
         <div className="preset-role-tools">
           <input aria-label="レイヤー検索" value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="レイヤー名・パスで検索" />
-          <label className="preset-role-filter"><input type="checkbox"
+          {roleMode === "open" && <label className="preset-role-filter"><input type="checkbox"
             checked={assignedOnly} onChange={(e) => setAssignedOnly(e.target.checked)} />
             割当済みのみ
-          </label>
+          </label>}
         </div>
         <div className="tree-tools">
           <button type="button" className="secondary" onClick={() =>
             setExpanded(layers.filter((layer) => layer.kind === "group").map((layer) => layer.path))
           }>すべて開く</button>
           <button type="button" className="secondary" onClick={() => setExpanded([])}>すべて閉じる</button>
-          <span className="hint">{roleMode === "open" ? "Open対象" : `${AIUEO_LABELS[aiueoKey]}対象`} {chosen} レイヤー</span>
+          {roleMode === "open" && <span className="hint">Open対象 {chosen} レイヤー</span>}
         </div>
-        <div className="preset-role-head" aria-hidden="true">
-          <span>基本表示・PSDレイヤー</span><span>{roleMode === "open" ? "Openの役割" : `${AIUEO_LABELS[aiueoKey]}で表示`}</span>
-        </div>
+        {roleMode === "open" && <div className="preset-role-head" aria-hidden="true">
+          <span>基本表示・PSDレイヤー</span><span>Openの役割</span>
+        </div>}
         <div className="layer-list preset-layer-list" aria-label="プリセットのPSDレイヤー">
           {layers.filter((layer) => (!activeFilter || matches.has(layer.path))
             && visibleInTree(layer.path)).map((layer) => {
@@ -254,9 +258,10 @@ export default function PresetDetail({
             const on = baseByPath.get(layer.path) ?? false;
             const depth = layer.path.split("/").length - 1;
             const role = roles.get(layer.path) ?? unsetRole;
-            const groupCount = isGroup ? [...roles].filter(([path, item]) =>
+            const groupCount = isGroup && roleMode === "open" ? [...roles].filter(([path, item]) =>
               path.startsWith(layer.path + "/") && item !== unsetRole).length : 0;
             return <div key={layer.path} data-layer-path={layer.path}
+              data-aiueo-role={roleMode === "aiueo" && !isGroup && !editingBase ? role : undefined}
               data-selected={selectedPath === layer.path ? "true" : "false"}
               className={"layer preset-layer " + (isGroup ? "group" : "")}
               style={{ paddingLeft: 10 + depth * 13 }}>
@@ -269,8 +274,19 @@ export default function PresetDetail({
                 {expanded.includes(layer.path) ? "▾" : "▸"}
               </button>}
               <div className="preset-visibility-label">
-                <input type="checkbox" checked={on} onChange={() => onToggle(layer.path)}
-                  aria-label={layer.name + " [" + layer.path + "] 表示"} />
+                {(roleMode === "open" || editingBase || !isGroup) &&
+                  <input type="checkbox"
+                    checked={roleMode === "aiueo" && !editingBase
+                      ? role === "base" ? on : role === "show" : on}
+                    onChange={(event) => {
+                      if (roleMode === "aiueo" && !editingBase) {
+                        const next = event.target.checked;
+                        onAiueoRoleChange(aiueoKey, layer.path,
+                          next === on ? "base" : next ? "show" : "hide");
+                      } else onToggle(layer.path);
+                    }}
+                    aria-label={layer.name + " [" + layer.path + "] " +
+                      (roleMode === "open" ? "表示" : editingBase ? "基本" : AIUEO_LABELS[aiueoKey])} />}
                 <button type="button" className="preset-layer-select"
                   aria-pressed={selectedPath === layer.path}
                   aria-label={layer.name + " [" + layer.path + "] を選択"}
@@ -280,80 +296,47 @@ export default function PresetDetail({
                   <span className="preset-layer-name">{layer.name}</span>
                 </button>
               </div>
-              {isGroup
+              {roleMode === "open" && (isGroup
                 ? <span className="preset-role-group-count">{groupCount ? "対象 " + groupCount : ""}</span>
                 : <div className="preset-layer-role" data-layer-path={layer.path}
-                    data-open-role={roleMode === "open" ? role : undefined}
-                    data-aiueo-role={roleMode === "aiueo" ? role : undefined}
-                    role="group" aria-label={layer.name + " [" + layer.path + "] " +
-                      (roleMode === "open" ? "Openの役割" : AIUEO_LABELS[aiueoKey] + "の表示")}>
-                    {roleMode === "open" ? <>
-                      {(["none", "closed", "opened"] as const).map((next) => (
-                        <button key={next} type="button" aria-pressed={role === next}
-                          aria-label={layer.name + " [" + layer.path + "] Open: " +
-                            (next === "none" ? "なし" : next === "closed" ? "閉じ口" : "開き口")}
-                          title={next === "none" ? "Open割当なし" : next === "closed" ? "閉じ口に割当" : "開き口に割当"}
-                          onClick={() => onOpenRoleChange(layer.path, next)}>
-                          {next === "none" ? "なし" : next === "closed" ? "閉" : "開"}
-                        </button>
-                      ))}
-                      {role === "custom" && <span className="preset-role-custom">既存の個別設定</span>}
-                    </> : <div className="preset-aiueo-visibility">
-                      <label className="preset-aiueo-toggle">
-                        <input type="checkbox" checked={role === "base" ? on : role === "show"}
-                          aria-label={layer.name + " [" + layer.path + "] " +
-                            AIUEO_LABELS[aiueoKey] + "で表示"}
-                          onChange={(event) => onAiueoRoleChange(aiueoKey, layer.path,
-                            event.target.checked ? "show" : "hide")} />
-                        表示
-                      </label>
-                      {role === "base"
-                        ? <span className="preset-aiueo-inherit">基本と同じ</span>
-                        : <button type="button" className="preset-aiueo-reset"
-                            aria-label={layer.name + " [" + layer.path + "] " +
-                              AIUEO_LABELS[aiueoKey] + "を基本に戻す"}
-                            onClick={() => onAiueoRoleChange(aiueoKey, layer.path, "base")}>
-                            元に戻す
-                          </button>}
-                    </div>}
-                  </div>}
+                    data-open-role={role} role="group"
+                    aria-label={layer.name + " [" + layer.path + "] Openの役割"}>
+                    {(["none", "closed", "opened"] as const).map((next) => (
+                      <button key={next} type="button" aria-pressed={role === next}
+                        aria-label={layer.name + " [" + layer.path + "] Open: " +
+                          (next === "none" ? "なし" : next === "closed" ? "閉じ口" : "開き口")}
+                        title={next === "none" ? "Open割当なし" : next === "closed" ? "閉じ口に割当" : "開き口に割当"}
+                        onClick={() => onOpenRoleChange(layer.path, next)}>
+                        {next === "none" ? "なし" : next === "closed" ? "閉" : "開"}
+                      </button>
+                    ))}
+                    {role === "custom" && <span className="preset-role-custom">既存の個別設定</span>}
+                  </div>)}
             </div>;
           })}
           {activeFilter && matches.size === 0 && <p className="hint">該当するレイヤーがありません。</p>}
         </div>
         {hiddenParents.length > 0 && <p className="hint warning" role="status">
-          口形対象の親グループが非表示です。プレビューで表示するには左側の基本表示をONにしてください。
+          口形対象の親グループが非表示です。{roleMode === "aiueo"
+            ? "「基本」に切り替えて親グループをONにしてください。"
+            : "左側の基本表示をONにしてください。"}
         </p>}
         {roleMode === "open" && [...roles.values()].includes("custom") && <p className="hint warning">
           既存の特殊な口形設定は保持しています。該当レイヤーの役割を選ぶと、そのレイヤーだけ通常のOpen割当に変更します。
         </p>}
-        <p className="hint">aiueo口形の編集と静止プレビューは利用できます。LAB口パクのMOV出力と目・瞬きは未対応です。</p>
         <button type="button" className="secondary preset-delete" onClick={onDelete}>このプリセットを削除</button>
       </section>
       <section className="panel preset-preview">
         <h2>プレビュー</h2>
-        <div className="preset-shape-tabs" role="group" aria-label="プレビューする状態">
-          {roleMode === "open" ? <>
-            <button type="button" aria-pressed={previewState === "base"}
-              onClick={() => setPreviewState("base")}>基本表示</button>
-            <button type="button" aria-pressed={previewState === "closed"}
-              onClick={() => setPreviewState("closed")}>閉じ口</button>
-            <button type="button" aria-pressed={previewState === "opened"}
-              onClick={() => setPreviewState("opened")}>開き口</button>
-          </> : <>
-            <span className="preset-active-shape" aria-live="polite">
-              {previewState === "base" ? "基本表示を比較中" :
-                AIUEO_LABELS[aiueoKey] + " の口形を編集中"}
-            </span>
-            <button type="button" aria-pressed={previewState === "base"}
-              onClick={() => setPreviewState(previewState === "base"
-                ? `aiueo-${aiueoKey}` : "base")}>
-              {previewState === "base" ? "編集中の口形に戻る" : "基本表示と比較"}
-            </button>
-          </>}
-        </div>
-        {roleMode === "aiueo" && unconfiguredAiueo && !sourceChanged && <p className="hint"
-          role="status">この口形は未設定です。基本表示を見ながらレイヤーのチェックを切り替えてください。</p>}
+        {roleMode === "open" && <div className="preset-shape-tabs" role="group"
+          aria-label="プレビューする状態">
+          <button type="button" aria-pressed={previewState === "base"}
+            onClick={() => setPreviewState("base")}>基本表示</button>
+          <button type="button" aria-pressed={previewState === "closed"}
+            onClick={() => setPreviewState("closed")}>閉じ口</button>
+          <button type="button" aria-pressed={previewState === "opened"}
+            onClick={() => setPreviewState("opened")}>開き口</button>
+        </div>}
         <p className="hint preset-selected-summary" aria-live="polite">
           {selectedLayer
             ? "選択中: " + selectedLayer.name + " [" + selectedLayer.path + "]" +
