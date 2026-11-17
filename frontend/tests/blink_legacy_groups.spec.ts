@@ -125,14 +125,16 @@ test("browser draft recovery rejects conflicting legacy groups and preserves byt
     version: 1, path, fingerprint,
     collection: collection(eye, groups), nameDrafts: {},
   });
-  const invalid = JSON.stringify(makeDraft({ mouth: ["0/0"] }));
-  await page.evaluate((value) =>
-    localStorage.setItem("tachie-motion.preset-draft.v1", value), invalid);
-  await page.reload();
-  await expect(page.getByRole("status")).toContainText("不整合があります");
-  expect(await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(invalid);
-  await expect(page.locator("[data-preset-id]")).toHaveCount(0);
+  for (const groups of [{ mouth: ["0/0"] }, undefined]) {
+    const invalid = JSON.stringify(makeDraft(groups));
+    await page.evaluate((value) =>
+      localStorage.setItem("tachie-motion.preset-draft.v1", value), invalid);
+    await page.reload();
+    await expect(page.getByRole("status")).toContainText("動作対象グループが競合");
+    expect(await page.evaluate(() =>
+      localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(invalid);
+    await expect(page.locator("[data-preset-id]")).toHaveCount(0);
+  }
 
   const valid = JSON.stringify(makeDraft(undefined, "0/1/0"));
   await page.evaluate((value) =>
