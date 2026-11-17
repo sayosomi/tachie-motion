@@ -241,13 +241,13 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     .getByRole("button", { name: "Open: 開き口" }).click();
   await page.getByRole("button", { name: "aiueo", exact: true }).click();
   await page.locator('.preset-layer-role[data-layer-path="0/0"]')
-    .getByRole("button", { name: "aiueo あ: 非表示" }).click();
+    .getByRole("checkbox", { name: "閉じ口 [0/0] あで表示" }).uncheck();
   await page.locator('.preset-layer-role[data-layer-path="0/1"]')
-    .getByRole("button", { name: "aiueo あ: 表示" }).click();
+    .getByRole("checkbox", { name: "開き口 [0/1] あで表示" }).check();
   await page.getByRole("group", { name: "編集するaiueo口形" })
     .getByRole("button", { name: "ん", exact: true }).click();
   await page.locator('.preset-layer-role[data-layer-path="0/2"]')
-    .getByRole("button", { name: "aiueo ん: 非表示" }).click();
+    .getByRole("checkbox", { name: "差分 [0/2] んで表示" }).uncheck();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const saved = await exportJson(page);
   expect(saved.version).toBe(1);
