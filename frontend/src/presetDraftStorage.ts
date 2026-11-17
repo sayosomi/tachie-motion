@@ -1,6 +1,7 @@
 import type { Layer } from "./LayerTree";
 import type { Presets } from "./presetModel";
 import { AIUEO_KEYS } from "./presetModel";
+import { validMotionGroups } from "./motionGroups";
 
 // Crash/reload recovery for this one browser and exact site origin only.
 // Not the versioned, portable character-profile format in PRODUCT_SPEC §7.
@@ -33,6 +34,17 @@ export function readPresetDraft(): PresetDraft | null {
     throw new Error("保存済みプリセットの形式が不正です");
   }
   const collection = value.collection as unknown as Presets;
+  if (collection.motionGroups !== undefined) {
+    const motion: unknown = collection.motionGroups;
+    if (!object(motion) || Object.keys(motion).length !== 1 ||
+        !Array.isArray(motion.mouth) || motion.mouth.length > 50_000 ||
+        new Set(motion.mouth).size !== motion.mouth.length ||
+        !motion.mouth.every((path: unknown) =>
+          typeof path === "string" && /^(0|[1-9][0-9]*)(\\/(0|[1-9][0-9]*))*$/.test(path)
+          && path.length <= 256)) {
+      throw new Error("保存済み動作対象グループが不正です");
+    }
+  }
   if (typeof collection.defaultId !== "string" && collection.defaultId !== null) {
     throw new Error("既定プリセットのIDが不正です");
   }
@@ -42,7 +54,8 @@ export function readPresetDraft(): PresetDraft | null {
     if (!object(item) || typeof item.id !== "string" || !item.id
       || Object.hasOwn(Object.prototype, item.id)
       || typeof item.name !== "string" || !item.name.trim()
-      || !Array.isArray(item.base) || typeof item.blinkEnabled !== "boolean") {
+      || !Array.isArray(item.base) || typeof item.blinkEnabled !== "boolean"
+      || (item.mouthMotionEnabled !== undefined && typeof item.mouthMotionEnabled !== "boolean")) {
       throw new Error("保存済みプリセットの内容が不正です");
     }
     const name = item.name.trim().normalize("NFC").toLocaleLowerCase();
@@ -113,7 +126,8 @@ export function matchesSource(draft: PresetDraft, fingerprint: string, layers: L
   if (paths.size !== layers.length) return false;
   const leafPaths = new Set(layers.filter((layer) => layer.kind !== "group")
     .map((layer) => layer.path));
-  return draft.collection.items.every((item) => {
+  return validMotionGroups(draft.collection, layers)
+    && draft.collection.items.every((item) => {
     const savedPaths = new Set(item.base.map((layer) => layer.path));
     const aiueoPathsValid = !item.aiueoMouth ||
       AIUEO_KEYS.every((key) => item.aiueoMouth![key].every(({ path }) =>
