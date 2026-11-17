@@ -43,6 +43,7 @@ export default function PresetDetail({
   const [query, setQuery] = useState("");
   const [assignedOnly, setAssignedOnly] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [scopePath, setScopePath] = useState<string | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState>("base");
   const [roleMode, setRoleMode] = useState<"open" | "aiueo">("open");
   const [aiueoKey, setAiueoKey] = useState<AiueoKey>("a");
@@ -51,6 +52,7 @@ export default function PresetDetail({
   useEffect(() => {
     setExpanded(layers.filter((layer) => layer.kind === "group").map((layer) => layer.path));
     setSelectedPath(null);
+    setScopePath(null);
   }, [layers]);
 
   const baseByPath = new Map(preset.base.map((layer) => [layer.path, layer.visible]));
@@ -93,10 +95,22 @@ export default function PresetDetail({
     });
   }, [queryText, showAssignedOnly, roleMode, aiueoKey, preset.openMouth, preset.aiueoMouth]);
 
+  function inScope(path: string): boolean {
+    return scopePath === null || path === scopePath || path.startsWith(scopePath + "/");
+  }
+
   function visibleInTree(path: string): boolean {
     const components = path.split("/");
-    return components.slice(1).every((_, i) =>
-      expanded.includes(components.slice(0, i + 1).join("/")));
+    // The selected group's row becomes the root of this view even when one
+    // of its ancestors was folded in the full PSD tree.
+    const firstAncestor = scopePath === null ? 1 : scopePath.split("/").length;
+    return components.slice(firstAncestor).every((_, i) =>
+      expanded.includes(components.slice(0, i + firstAncestor).join("/")));
+  }
+
+  function focusGroup(path: string): void {
+    setScopePath(path);
+    setExpanded((old) => old.includes(path) ? old : [...old, path]);
   }
 
   const shape = previewState === "base" ? undefined :
@@ -232,6 +246,15 @@ export default function PresetDetail({
         {roleMode === "open" && <p className="hint">
           レイヤー名は位置選択、左のチェックは基本表示、右の「なし／閉／開」はOpenの役割です。
         </p>}
+        {scopePath !== null && <div className="preset-group-scope" role="group"
+          aria-label="表示中のグループ">
+          <span className="preset-group-scope-name">
+            {layers.find((layer) => layer.path === scopePath)?.name}
+          </span>
+          <button type="button" className="secondary" onClick={() => setScopePath(null)}>
+            全体へ戻る
+          </button>
+        </div>}
         <div className="preset-role-tools">
           <input aria-label="レイヤー検索" value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="レイヤー名・パスで検索" />
@@ -251,11 +274,13 @@ export default function PresetDetail({
           <span>基本表示・PSDレイヤー</span><span>Openの役割</span>
         </div>}
         <div className="layer-list preset-layer-list" aria-label="プリセットのPSDレイヤー">
-          {layers.filter((layer) => (!activeFilter || matches.has(layer.path))
+          {layers.filter((layer) => inScope(layer.path)
+            && (!activeFilter || matches.has(layer.path))
             && visibleInTree(layer.path)).map((layer) => {
             const isGroup = layer.kind === "group";
             const on = baseByPath.get(layer.path) ?? false;
-            const depth = layer.path.split("/").length - 1;
+            const depth = layer.path.split("/").length - 1
+              - (scopePath === null ? 0 : scopePath.split("/").length - 1);
             const role = roles.get(layer.path) ?? unsetRole;
             const groupCount = isGroup && roleMode === "open" ? [...roles].filter(([path, item]) =>
               path.startsWith(layer.path + "/") && item !== unsetRole).length : 0;
@@ -294,6 +319,11 @@ export default function PresetDetail({
                   {roleMode === "open" && <span className="layer-path">{layer.path}</span>}
                   <span className="preset-layer-name">{layer.name}</span>
                 </button>
+                {isGroup && scopePath !== layer.path && <button type="button"
+                  className="secondary preset-group-focus"
+                  aria-label={layer.name + " [" + layer.path + "] だけ表示"}
+                  title="このグループだけ表示"
+                  onClick={() => focusGroup(layer.path)}>ここだけ</button>}
               </div>
               {roleMode === "open" && (isGroup
                 ? <span className="preset-role-group-count">{groupCount ? "対象 " + groupCount : ""}</span>
@@ -313,7 +343,9 @@ export default function PresetDetail({
                   </div>)}
             </div>;
           })}
-          {activeFilter && matches.size === 0 && <p className="hint">該当するレイヤーがありません。</p>}
+          {activeFilter && !layers.some((layer) =>
+            inScope(layer.path) && matches.has(layer.path)) &&
+            <p className="hint">該当するレイヤーがありません。</p>}
         </div>
         {hiddenParents.length > 0 && !editingBase && <p className="hint warning" role="status">
           口形対象の親グループが非表示です。{roleMode === "aiueo"
