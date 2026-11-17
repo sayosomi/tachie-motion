@@ -94,7 +94,9 @@ export default function PresetWorkspace() {
       .then((data) => {
         if (cancelled) return;
         if (!matchesSource(recovery, data.fingerprint, data.layers)) {
-          setRestoreMessage("PSDの内容、口形の参照、または*・!レイヤーの保存状態に不整合があります。保存データは変更せず、復元を中止しました。");
+          setRestoreMessage(data.fingerprint !== recovery.fingerprint
+            ? "PSDが変更されています。保存済みの編集内容は保持していますが、復元はしていません。"
+            : "PSDのレイヤー構造、口形参照、または*・!の保存状態に不整合があります。保存データは変更せず、復元を中止しました。");
           return;
         }
         setPsd(data);
@@ -171,7 +173,9 @@ export default function PresetWorkspace() {
       }
       if (recoveringSameSource && recovery) {
         if (!matchesSource(recovery, data.fingerprint, data.layers)) {
-          throw new Error("PSDまたは口形・*・!レイヤーの保存状態が一致しません。保存データは保持しています。");
+          throw new Error(data.fingerprint !== recovery.fingerprint
+            ? "元PSDが変更されているため復元できません。保存済みデータは保持しています。"
+            : "PSDのレイヤー構造、口形参照、または*・!の保存状態が一致しません。保存データは保持しています。");
         }
         setPsd(data);
         setLoadedPath(requested);
