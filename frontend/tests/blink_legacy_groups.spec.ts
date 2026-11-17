@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { Layer } from "../src/LayerTree";
 import type { Presets } from "../src/presetModel";
 import { validMotionGroups } from "../src/motionGroups";
+import { serializeProjectFile } from "../src/projectFile";
 
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tmdoAAAAASUVORK5CYII=";
 const path = "/tmp/blink-legacy.psd";
@@ -54,6 +55,23 @@ for (const fixture of cases) {
       .toBe(fixture.valid);
   });
 }
+
+test("project JSON v2 export refuses conflicting old eye/mouth groups", () => {
+  const draft = (groups: GroupMetadata | undefined, eyePath: string) => ({
+    version: 1 as const, path, fingerprint, nameDrafts: {},
+    collection: collection(eyePath, groups),
+  });
+  for (const invalid of [
+    draft({ mouth: ["0/0"] }, "0/0/1"),
+    draft(undefined, "0/0/1"),
+    draft({ mouth: ["0"] }, "0/1/0"),
+  ]) {
+    expect(() => serializeProjectFile(invalid, nodes, [], null))
+      .toThrow("動作対象グループが不正");
+  }
+  const valid = draft({ mouth: ["0/0"] }, "0/1/0");
+  expect(() => serializeProjectFile(valid, nodes, [], null)).not.toThrow();
+});
 
 function characterProfile(value: Presets) {
   return {

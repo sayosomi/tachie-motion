@@ -317,6 +317,8 @@ Use self-authored / permission-cleared synthetic test PSD and WAV in CI. Do not 
 
 ## Public Issue #32 — 瞬き開眼／閉眼設定と静止プレビュー
 
+- PR #33 MEDIUM-01回帰：旧 `motionGroups: { mouth }`、`motionGroups`なし、同じPSDグループ・親子グループへの口/目割当は、元PSDの実グループを推定して復元前に拒否。競合しない旧設定はそのまま読み込めること。キャラクターJSON・制作プロジェクトJSON・ブラウザ復元を検査し、失敗時に元JSON/ブラウザ保存データのバイト列と現行設定を変更しない。新規PlaywrightでPythonフォールバックへ送る開眼／閉眼のレイヤー可視状態も検証。
+
 - PSDの目の動作対象グループを手動指定し、口グループと同一・親子重複を拒否。既存割当葉を含むグループを無断解除しない。元PSD・口形・プリセットIDは不変。
 - 開眼・閉眼を基本表示から独立上書きし、複数の葉・PSDTool `*` 同親排他・`!` 強制表示・親非表示を検証。ブラウザCanvas優先とPythonフォールバックの静止プレビューの表示経路を保護。
 - 瞬き設定ON/OFF、目のグループ、二つの形をキャラクター設定JSON v1とブラウザ復元に保存し、旧 `motionGroups: {mouth}`・既存 `eyes` データも破壊せず読み込み。
