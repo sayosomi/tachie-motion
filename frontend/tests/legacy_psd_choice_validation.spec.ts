@@ -181,7 +181,6 @@ test("character JSON import rejects old conflicting states but keeps current dra
   await page.getByRole("button", { name: "＋ 作成" }).click();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const before = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
-  const renderedBefore = renderRequests.length;
   const malformed = profile();
   malformed.collection.items[0].base[2].visible = true;
   await page.locator("#character-profile-file").setInputFiles({
@@ -191,6 +190,13 @@ test("character JSON import rejects old conflicting states but keeps current dra
   await expect(page.getByRole("alert")).toContainText("*排他");
   await expect(page.locator("[data-preset-id]")).toHaveCount(2);
   expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(before);
-  expect(renderRequests.length).toBe(renderedBefore);
+  // An in-flight render of the legitimate second preset may finish after
+  // the rejected import. Check the full renderer inputs, not call timing.
+  for (const states of renderRequests) {
+    expect(states).toHaveLength(layers.length);
+    expect(states.find(x => x.path === "0/0")?.visible).toBe(true);
+    expect(states.find(x => x.path === "0/1")?.visible).toBe(false);
+    expect(states.find(x => x.path === "0/2")?.visible).toBe(true);
+  }
   expect(original).not.toBe(before);
 });
