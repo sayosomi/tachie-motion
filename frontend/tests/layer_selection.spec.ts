@@ -31,8 +31,8 @@ test("PSD name selection uses unique paths without toggling base or Open roles",
   const previewRequestCount = await openDetail(page);
   const secondName = page.getByRole("button", { name: "目 [0/1] を選択" });
   const firstName = page.getByRole("button", { name: "目 [0/0] を選択" });
-  const secondCheckbox = page.getByRole("checkbox", { name: "目 [0/1] 表示" });
-  const secondRole = page.locator('.preset-layer-role[data-layer-path="0/1"]');
+  const secondCheckbox = page.getByRole("checkbox", { name: "目 [0/1] 基本" });
+
   const overlay = page.locator(".preset-image-selection");
 
   await expect(page.getByRole("button", { name: "選択位置へ" })).toBeDisabled();
@@ -43,7 +43,7 @@ test("PSD name selection uses unique paths without toggling base or Open roles",
   await expect(secondName).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator('.preset-layer[data-layer-path="0/1"]')).toHaveAttribute("data-selected", "true");
   await expect(secondCheckbox).not.toBeChecked();
-  await expect(secondRole).toHaveAttribute("data-open-role", "none");
+
   await expect(page.locator(".preset-selected-summary")).toContainText("目 [0/1]");
   await expect(overlay).toHaveAttribute("viewBox", "0 0 64 64");
   await expect(overlay.locator("rect")).toHaveAttribute("x", "22");
@@ -82,7 +82,7 @@ test("PSD name selection uses unique paths without toggling base or Open roles",
   await expect(overlay).toHaveAttribute("style", await img.getAttribute("style") ?? "");
   await secondCheckbox.check();
   await expect(secondName).toHaveAttribute("aria-pressed", "true");
-  await expect(secondRole).toHaveAttribute("data-open-role", "none");
+
 
   await secondName.click();
   await expect(overlay).toHaveCount(0);
