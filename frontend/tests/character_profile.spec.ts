@@ -240,14 +240,14 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
   await page.locator('.preset-layer-role[data-layer-path="0/1"]')
     .getByRole("button", { name: "Open: 開き口" }).click();
   await page.getByRole("button", { name: "aiueo", exact: true }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/0"]')
-    .getByRole("checkbox", { name: "閉じ口 [0/0] あで表示" }).uncheck();
-  await page.locator('.preset-layer-role[data-layer-path="0/1"]')
-    .getByRole("checkbox", { name: "開き口 [0/1] あで表示" }).check();
-  await page.getByRole("group", { name: "編集するaiueo口形" })
+  await page.locator('.preset-layer[data-layer-path="0/0"]')
+    .getByRole("checkbox", { name: "閉じ口 [0/0] あ" }).uncheck();
+  await page.locator('.preset-layer[data-layer-path="0/1"]')
+    .getByRole("checkbox", { name: "開き口 [0/1] あ" }).check();
+  await page.getByRole("group", { name: "編集する口形" })
     .getByRole("button", { name: "ん", exact: true }).click();
-  await page.locator('.preset-layer-role[data-layer-path="0/2"]')
-    .getByRole("checkbox", { name: "差分 [0/2] んで表示" }).uncheck();
+  await page.locator('.preset-layer[data-layer-path="0/2"]')
+    .getByRole("checkbox", { name: "差分 [0/2] ん" }).uncheck();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const saved = await exportJson(page);
   expect(saved.version).toBe(1);
@@ -267,20 +267,20 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     await importJson(fresh, saved);
     await expect(fresh.getByRole("status")).toContainText("キャラクター設定JSONを読み込みました");
     await fresh.getByRole("button", { name: "詳細を編集" }).click();
-    await expect(fresh.locator('.preset-layer-role[data-layer-path="0/0"]'))
+    await expect(fresh.locator('.preset-layer[data-layer-path="0/0"]'))
       .toHaveAttribute("data-open-role", "closed");
     await fresh.getByRole("button", { name: "aiueo", exact: true }).click();
-    await expect(fresh.locator('.preset-layer-role[data-layer-path="0/1"]'))
+    await expect(fresh.locator('.preset-layer[data-layer-path="0/1"]'))
       .toHaveAttribute("data-aiueo-role", "show");
-    await fresh.getByRole("group", { name: "編集するaiueo口形" })
+    await fresh.getByRole("group", { name: "編集する口形" })
       .getByRole("button", { name: "ん", exact: true }).click();
-    await expect(fresh.locator('.preset-layer-role[data-layer-path="0/2"]'))
+    await expect(fresh.locator('.preset-layer[data-layer-path="0/2"]'))
       .toHaveAttribute("data-aiueo-role", "hide");
     await fresh.getByRole("button", { name: "← 一覧へ" }).click();
     await fresh.reload();
     await fresh.getByRole("button", { name: "詳細を編集" }).click();
     await fresh.getByRole("button", { name: "aiueo", exact: true }).click();
-    await expect(fresh.locator('.preset-layer-role[data-layer-path="0/1"]'))
+    await expect(fresh.locator('.preset-layer[data-layer-path="0/1"]'))
       .toHaveAttribute("data-aiueo-role", "show");
 
     const beforeStorage = await fresh.evaluate(() =>
