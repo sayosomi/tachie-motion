@@ -3,6 +3,7 @@ import type { BatchNaming } from "./nameTemplate";
 import type { PreparedBatch } from "./useBatchUtteranceExport";
 import { wavFilename } from "./utteranceItems";
 import type { Fps, UtteranceItem } from "./utteranceItems";
+import type { LabInfo } from "./useLabStatus";
 
 export type ExportScope = "single" | "all";
 export type ExportDestination = {
@@ -25,6 +26,8 @@ type Props = {
   current: UtteranceItem | undefined;
   draftAvailable: boolean;
   openMouthMissing: boolean;
+  aiueoMouthMissing: boolean;
+  labStatus?: LabInfo;
   blinkUnsupported: boolean;
   info: ExportDestination | undefined;
   destinationError: string;
@@ -45,7 +48,7 @@ type Props = {
 };
 
 export default function UtteranceExportPanel({
-  items, current, draftAvailable, openMouthMissing, blinkUnsupported,
+  items, current, draftAvailable, openMouthMissing, aiueoMouthMissing, labStatus, blinkUnsupported,
   info, destinationError, requiresAlternate,
   saveAsName, outputBasename, canExport, exportingId, addingCount,
   scope, onScopeChange, onRevise, onSingleExport, batch, disabled, naming, onNamingChange,
@@ -73,6 +76,15 @@ export default function UtteranceExportPanel({
       <p className="hint">選択中のセリフの保存設定です。全件を選んでも、各WAVに指定した設定を使用します。</p>
       {openMouthMissing && <p className="hint warning">
         このプリセットの「口パク（open）」で、異なる閉口・開口のレイヤー表示状態を設定してください。
+      </p>}
+      {aiueoMouthMissing && <p className="hint warning" role="status">
+        このプリセットのaiueoで「あ・い・う・え・お・ん」の6口形をすべて設定してください。
+      </p>}
+      {current.mode === "aiueo" && labStatus?.status !== "valid" && <p className="hint warning" role="status">
+        有効なLABが必要です。{labStatus?.status === "missing" ? "同名のLABが見つかりません。"
+          : labStatus?.status === "invalid" ? "LABの内容が不正です。"
+          : labStatus?.status === "unavailable" ? "LABの確認に失敗しました。"
+          : "LABを確認しています。"}
       </p>}
       {blinkUnsupported && <p className="hint warning">
         このプリセットは瞬きが有効です。瞬きの書き出しは未実装です。
@@ -155,7 +167,7 @@ export default function UtteranceExportPanel({
         <p className="hint">使える項目：{"{番号}"}・{"{WAV名}"}・{"{キャラ名}"}・{"{プロジェクト名}"}。OTIOでは{"{プロジェクト名}"}のみ。</p>
       </div>
       {noneCount > 0 && <p className="hint warning" role="note">
-        口パク「なし」が{noneCount}件あります。口を動かす場合は各WAVの方式をopenにしてください。
+        口パク「なし」が{noneCount}件あります。口を動かす場合は各WAVの方式をopenまたはaiueoにしてください。
       </p>}
       {batch.reviewing && <p className="hint" role="status">出力先と保存名を確認中…</p>}
       {batch.reviewError && <p className="hint warning" role="alert">
@@ -172,7 +184,7 @@ export default function UtteranceExportPanel({
           </span>
           <span>プリセット: {plan.preset.name}</span>
           <span>口パク: {plan.preset.mouthMotionEnabled === false ? "なし（プリセット設定）"
-             : plan.item.mode === "open" ? "open" : "なし"} ／ {plan.item.fps} fps</span>
+             : plan.item.mode === "open" ? "open" : plan.item.mode === "aiueo" ? "aiueo" : "なし"} ／ {plan.item.fps} fps</span>
           <span className="export-plan-path" title={plan.canonicalOutputDir}>
             出力先: {plan.canonicalOutputDir}
           </span>

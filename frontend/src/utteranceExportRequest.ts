@@ -1,13 +1,23 @@
 import type { PresetDraft } from "./presetDraftStorage";
 import type { UnifiedPreset } from "./presetModel";
+import { AIUEO_KEYS } from "./presetModel";
+import type { LabInfo } from "./useLabStatus";
 import type { UtteranceItem } from "./utteranceItems";
 
 export type ConflictPolicy = "error" | "overwrite";
 
 /** Both single and all-item exports must share the exact same render inputs. */
-export function exportReady(preset: UnifiedPreset | undefined, item: UtteranceItem): boolean {
+export function aiueoMouthReady(preset?: UnifiedPreset): boolean {
+  return Boolean(preset?.aiueoMouth &&
+    AIUEO_KEYS.every((key) => preset.aiueoMouth![key].length > 0));
+}
+
+export function exportReady(
+  preset: UnifiedPreset | undefined, item: UtteranceItem, lab?: LabInfo,
+): boolean {
   if (!preset || preset.blinkEnabled) return false;
   if (item.mode === "none" || preset.mouthMotionEnabled === false) return true;
+  if (item.mode === "aiueo") return lab?.status === "valid" && aiueoMouthReady(preset);
   const mouth = preset.openMouth;
   return item.mode === "open" && Boolean(
     mouth && mouth.closed.length > 0 &&
@@ -27,6 +37,8 @@ export function exportPayload(
     fingerprint: draft.fingerprint,
     layers: preset.base,
     mouth: preset.mouthMotionEnabled === false ? null : (preset.openMouth ?? null),
+    aiueo_mouth: preset.mouthMotionEnabled === false ? null : (preset.aiueoMouth ?? null),
+    mouth_groups: draft.collection.motionGroups?.mouth ?? null,
     mode: preset.mouthMotionEnabled === false ? "none" : item.mode,
     blink_enabled: preset.blinkEnabled,
     output_dir: item.outputDir,

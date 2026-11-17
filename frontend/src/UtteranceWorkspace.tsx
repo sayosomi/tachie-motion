@@ -9,7 +9,7 @@ import { initialNaming, type BatchNaming } from "./nameTemplate";
 import useWavPlayback from "./WavPlayback";
 import { useLabStatus } from "./useLabStatus";
 import { useBatchUtteranceExport } from "./useBatchUtteranceExport";
-import { exportPayload, exportReady } from "./utteranceExportRequest";
+import { exportPayload, exportReady, aiueoMouthReady } from "./utteranceExportRequest";
 import type { UnifiedPreset } from "./presetModel";
 import { matchesSource, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
@@ -70,12 +70,12 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const mounted = useRef(false);
   // Synchronous guard closes the gap before React commits exportingId state.
   const singleExportLock = useRef(false);
+  const labStatuses = useLabStatus(items, active);
   const batch = useBatchUtteranceExport(draft, items, setItems,
     () => setProbeVersion((previous) => previous + 1),
     active && exportScope === "all" && !projectBusy && !exportingId,
-    naming, () => projectBusyRef.current || singleExportLock.current);
+    naming, () => projectBusyRef.current || singleExportLock.current, labStatuses);
   const playback = useWavPlayback(items);
-  const labStatuses = useLabStatus(items, active);
   const editingLocked = batch.running || batch.isBusy() || !!exportingId || projectBusy;
   const projectLock = (locked: boolean) => {
     projectBusyRef.current = locked;
@@ -276,7 +276,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const outputBasename = requiresAlternate ? saveAsName : current?.basename ?? "";
   const conflictPolicy = info?.state === "complete" && !requiresAlternate
     ? "overwrite" : "error";
-  const allowed = !!current && exportReady(selected, current);
+  const allowed = !!current && exportReady(selected, current, labStatuses[current.id]);
   const canExport = !!draft && !!current && allowed && !editingLocked &&
     !singleExportLock.current && addingCount === 0 &&
     !!info && !destinationError &&
@@ -307,7 +307,8 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     }
   }
 
-  const canApplyToAll = !!current && !!selected && exportReady(selected, current) &&
+  const canApplyToAll = !!current && !!selected && exportReady(selected, current, labStatuses[current.id]) &&
+    (current.mode !== "aiueo" || items.every((item) => labStatuses[item.id]?.status === "valid")) &&
     !editingLocked && addingCount === 0 && items.length > 1;
 
   function applySelectedAnimationToAll() {
@@ -322,7 +323,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     <header className="topbar"><div className="brand"><span className="brand-mark">t</span>
       <span>tachie-motion</span></div></header>
     <div className="intro"><h1>セリフ</h1></div>
-    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件はMOVと全体OTIO 1本を生成します。aiueo・瞬き・待機・変更点は後続対応です。</p>
+    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件はMOVと全体OTIO 1本を生成します。aiueoには同名の有効なLABとプリセット6口形の設定が必要です。瞬き・待機・変更点は後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} labStatuses={labStatuses} presets={draft?.collection.items ?? []}
       projectControls={<ProjectActions
@@ -351,6 +352,9 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         items={items} current={current} draftAvailable={!!draft}
         openMouthMissing={current?.mode === "open" && selected?.mouthMotionEnabled !== false
           && !openMouthReady(selected)}
+        aiueoMouthMissing={current?.mode === "aiueo" && selected?.mouthMotionEnabled !== false
+          && !aiueoMouthReady(selected)}
+        labStatus={current ? labStatuses[current.id] : undefined}
         blinkUnsupported={!!selected?.blinkEnabled}
         info={info} destinationError={destinationError}
         requiresAlternate={requiresAlternate} saveAsName={saveAsName}

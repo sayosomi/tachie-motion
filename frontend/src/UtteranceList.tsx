@@ -167,6 +167,10 @@ export default function UtteranceList({
                 }}>
                 <option value="none">なし</option>
                 <option value="open">open</option>
+                <option value="aiueo"
+                  disabled={labStatuses[item.id]?.status !== "valid"}>
+                  aiueo{labStatuses[item.id]?.status === "valid" ? "" : "（有効なLABが必要）"}
+                </option>
               </select>
             </label>
             <div className="utterance-item-actions">

@@ -4,6 +4,7 @@ import type { UnifiedPreset } from "./presetModel";
 import { exportPayload, exportReady } from "./utteranceExportRequest";
 import { movName, otioName, validateBatchNaming, type BatchNaming } from "./nameTemplate";
 import type { UtteranceItem } from "./utteranceItems";
+import type { LabInfo } from "./useLabStatus";
 
 type Destination = {
   state: "available" | "complete" | "unsafe" | "recovery_required";
@@ -56,7 +57,8 @@ function allowedDestination(response: Destination, name: string): Conflict {
 export type BatchConflictChoice = "overwrite" | "rename";
 
 async function prepare(items: UtteranceItem[], draft: PresetDraft,
-  naming: BatchNaming, choice: BatchConflictChoice): Promise<PreparedBatch> {
+  naming: BatchNaming, choice: BatchConflictChoice,
+  labStatuses: Record<string, LabInfo>): Promise<PreparedBatch> {
   validateBatchNaming(naming);
   const rawMovieNames = items.map((item, index) => movName(
     naming.movTemplate, index + 1, item.wavPath,
@@ -102,7 +104,7 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   let overwrites = 0;
   for (const [index, item] of items.entries()) {
     const preset = draft.collection.items.find((entry) => entry.id === item.presetId);
-    if (!preset || !exportReady(preset, item)) {
+    if (!preset || !exportReady(preset, item, labStatuses[item.id])) {
       throw new Error(item.wavPath + " — 口パク・プリセットの設定を確認してください");
     }
     const basename = movieNames[index];
@@ -151,7 +153,7 @@ export function useBatchUtteranceExport(
   draft: PresetDraft | null, items: UtteranceItem[],
   setItems: Dispatch<SetStateAction<UtteranceItem[]>>,
   onFinished: () => void, enabled: boolean, naming: BatchNaming,
-  otherBusy: () => boolean,
+  otherBusy: () => boolean, labStatuses: Record<string, LabInfo>,
 ) {
   const [conflictChoice, setConflictChoice] = useState<BatchConflictChoice>("overwrite");
   const [running, setRunning] = useState(false);
@@ -161,7 +163,10 @@ export function useBatchUtteranceExport(
   const [reviewError, setReviewError] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const busy = useRef(false);
-  const key = snapshotKey(draft, items, naming) + "|" + conflictChoice;
+  const key = snapshotKey(draft, items, naming) + "|" + conflictChoice +
+    "|" + JSON.stringify(items.map((item) => [
+      item.id, item.mode === "aiueo" ? labStatuses[item.id]?.status : null,
+    ]));
 
   useEffect(() => {
     if (running) return;
@@ -171,7 +176,7 @@ export function useBatchUtteranceExport(
     }
     let cancelled = false;
     setReview(null); setReviewError(""); setReviewing(true);
-    void prepare([...items], draft, naming, conflictChoice).then((prepared) => {
+    void prepare([...items], draft, naming, conflictChoice, labStatuses).then((prepared) => {
       if (!cancelled) setReview({ key, prepared });
     }).catch((error: unknown) => {
       if (!cancelled) setReviewError(error instanceof Error ? error.message : String(error));
@@ -190,7 +195,7 @@ export function useBatchUtteranceExport(
     setProgress("出力先と保存名を再確認中…");
     let sessionId: string | null = null;
     try {
-      const refreshed = await prepare([...items], draft, naming, conflictChoice);
+      const refreshed = await prepare([...items], draft, naming, conflictChoice, labStatuses);
       if (planKey(draft, refreshed) !== planKey(draft, displayed)) {
         setSummary("出力予定が変更されました。新しい予定を確認してから再実行してください。");
         return;

@@ -1162,3 +1162,30 @@ test("LAB status is shown per WAV without enabling unimplemented aiueo export", 
   await rows.nth(0).locator(".utterance-item-select").click();
   await expect(rows.nth(0).locator('[data-lab-status="valid"]')).toBeVisible();
 });
+
+
+test("aiueo requires valid LAB and all six preset shapes before export", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 1000, sample_rate: 1000, duration_seconds: 1,
+      source_identity: "1:2:3:4:5" },
+  }));
+  await page.route("**/api/wav-lab", (route) => {
+    const { path } = route.request().postDataJSON() as { path: string };
+    return route.fulfill({ json: path.endsWith("good.wav")
+      ? { status: "valid", reason: null }
+      : { status: "missing", reason: null } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/good.wav");
+  await expect(page.locator('[data-lab-status="valid"]')).toBeVisible();
+  await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("aiueo");
+  await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toHaveValue("aiueo");
+  await expect(page.getByText("6口形をすべて設定してください。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+  await addWav(page, "/tmp/missing.wav");
+  await expect(page.locator('[data-selected="true"] [data-lab-status="missing"]')).toBeVisible();
+  await expect(page.locator('[data-selected="true"] .utterance-row-mode option[value="aiueo"]'))
+    .toBeDisabled();
+  await page.locator('[data-utterance-id]').first().locator(".utterance-item-select").click();
+  await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toHaveValue("aiueo");
+});
