@@ -62,11 +62,21 @@ class LabTests(unittest.TestCase):
             make_wav(wav)
             normalized = Path(tmp) / "声 é.lab"
             normalized.write_text("0 10000000 a\n", encoding="utf-8")
-            missing = inspect_adjacent_lab(wav)
-            self.assertEqual(missing.status, "missing")
-            self.assertEqual(missing.path, wav.with_suffix(".lab"))
-            self.assertFalse(missing.intervals)
-            self.assertIsNone(missing.reason)
+            sibling = wav.with_suffix(".lab")
+            inspection = inspect_adjacent_lab(wav)
+            self.assertEqual(inspection.path, sibling)
+            # APFS often resolves NFC/NFD spellings to the same directory
+            # entry. Only normalization-sensitive filesystems can require
+            # "missing"; preserve the requested NFD string on either kind.
+            if sibling.exists():
+                self.assertTrue(sibling.samefile(normalized))
+                self.assertEqual(inspection.status, "valid")
+                self.assertEqual([part.phoneme for part in inspection.intervals], ["a"])
+            else:
+                self.assertEqual(inspection.status, "missing")
+                self.assertFalse(inspection.intervals)
+                self.assertIsNone(inspection.reason)
+            self.assertEqual(normalized.read_text(encoding="utf-8"), "0 10000000 a\n")
 
     def test_invalid_fields_phonemes_and_timestamps(self):
         cases = (
@@ -152,17 +162,19 @@ class LabTests(unittest.TestCase):
             lab.write_text("0 10000000 a\n", encoding="utf-8")
             from tachie_motion.audio import lab as module
             original_fstat = os.fstat
+            lab_inode = lab.stat().st_ino
             lab_checks = 0
 
             def changed_lab_stat(descriptor):
                 nonlocal lab_checks
                 info = original_fstat(descriptor)
-                lab_checks += 1
-                if lab_checks == 2:
-                    # Force a change at the second fd-based LAB identity check.
-                    values = list(info)
-                    values[1] += 1
-                    return os.stat_result(values)
+                if info.st_ino == lab_inode:
+                    lab_checks += 1
+                    if lab_checks == 2:
+                        # Change the second fd-based LAB identity, not WAV's.
+                        values = list(info)
+                        values[1] += 1
+                        return os.stat_result(values)
                 return info
 
             with patch.object(module.os, "fstat", side_effect=changed_lab_stat):
@@ -180,6 +192,66 @@ class LabTests(unittest.TestCase):
 
             with patch.object(module, "_read_regular_lab", side_effect=replace_wav):
                 self.assertIn("WAV changed during", inspect_adjacent_lab(wav).reason)
+
+    def test_wav_symlink_directory_and_fifo_are_rejected_without_reading(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wav = root / "speech.wav"
+            make_wav(root / "regular.wav")
+            wav.mkdir()
+            try:
+                self.assertEqual(inspect_adjacent_lab(wav).status, "invalid")
+                self.assertIn("regular file", inspect_adjacent_lab(wav).reason)
+            finally:
+                wav.rmdir()
+            try:
+                wav.symlink_to(root / "regular.wav")
+            except (OSError, NotImplementedError):
+                pass
+            else:
+                self.assertEqual(inspect_adjacent_lab(wav).status, "invalid")
+                wav.unlink()
+            if hasattr(os, "mkfifo"):
+                os.mkfifo(wav)
+                try:
+                    # No writer is connected. A blocking wave.open would hang.
+                    result = inspect_adjacent_lab(wav)
+                    self.assertEqual(result.status, "invalid")
+                    self.assertIn("regular file", result.reason)
+                finally:
+                    wav.unlink()
+
+    def test_wav_header_check_stays_on_open_inode_during_path_swap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wav = root / "speech.wav"
+            replacement = root / "replacement.wav"
+            held = root / "held.wav"
+            make_wav(wav)
+            replacement.write_bytes(b"not a WAV")
+            from tachie_motion.audio import lab as module
+            original_validator = module.validate_pcm_header
+            verified = False
+
+            def swap_during_validation(path, *, stream, **kwargs):
+                nonlocal verified
+                self.assertEqual(path, wav)
+                wav.rename(held)
+                replacement.rename(wav)
+                try:
+                    # The new pathname is corrupt, but the existing descriptor
+                    # must still validate the original well-formed PCM header.
+                    original_validator(path, stream=stream, **kwargs)
+                    verified = True
+                finally:
+                    wav.rename(replacement)
+                    held.rename(wav)
+
+            with patch.object(module, "validate_pcm_header", side_effect=swap_during_validation):
+                result = inspect_adjacent_lab(wav)
+            self.assertTrue(verified)
+            # Pathname swaps may alter ctime; safe rejection is also valid.
+            self.assertIn(result.status, ("missing", "invalid"))
 
     def test_input_limits_and_no_fallback(self):
         for sample_count, rate in ((0, 1000), (1, 0), (1.0, 1000), (1, "48000")):
