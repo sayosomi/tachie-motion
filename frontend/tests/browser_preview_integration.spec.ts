@@ -91,6 +91,68 @@ test("Canvas fast path respects the parent, rapid edits and Open shapes without 
   expect(statusReads).toBeGreaterThanOrEqual(4);
 });
 
+
+test("aiueo Canvas preview renders independent overrides and hidden parents without Python", async ({ page }) => {
+  let pythonRequests = 0;
+  await page.route("**/api/psd", (route) => route.fulfill({ json: {
+    width: 2, height: 2, fingerprint: "test-snapshot", source_identity: "stat-v1",
+    preview: red, layers: sourceLayers,
+  } }));
+  await page.route("**/api/preview-layer-assets", (route) => route.fulfill({ json: assets }));
+  await page.route("**/api/preview-source-status", (route) =>
+    route.fulfill({ json: { valid: true } }));
+  await page.route("**/api/preset-preview", (route) => {
+    pythonRequests++;
+    return route.fulfill({ json: { preview: red } });
+  });
+  await openDetails(page);
+  await expect(page.locator("main.preset-workspace")).toHaveAttribute("data-preview-renderer", "canvas");
+  await page.getByRole("button", { name: "aiueo", exact: true }).click();
+  await page.locator('.preset-layer-role[data-layer-path="0/0"]')
+    .getByRole("button", { name: "aiueo あ: 非表示" }).click();
+  await page.locator('.preset-layer-role[data-layer-path="0/1"]')
+    .getByRole("button", { name: "aiueo あ: 表示" }).click();
+  await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
+  await page.getByRole("checkbox", { name: "face [0] 表示" }).uncheck();
+  await expect.poll(() => pixel(page)).toEqual([0, 0, 0, 0]);
+  await page.getByRole("checkbox", { name: "face [0] 表示" }).check();
+  await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
+
+  await page.getByRole("button", { name: "aiueo いをプレビュー" }).click();
+  await expect(page.getByText("口形を指定してください")).toBeVisible();
+  await page.getByRole("button", { name: "aiueo あをプレビュー" }).click();
+  await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
+  expect(pythonRequests).toBe(0);
+});
+
+test("aiueo Python fallback receives the exact overlay without changing base or Open", async ({ page }) => {
+  const requests: Array<{path:string;visible:boolean}[]> = [];
+  await page.route("**/api/psd", (route) => route.fulfill({ json: {
+    width: 2, height: 2, fingerprint: "test-snapshot", source_identity: "stat-v1",
+    preview: red, layers: sourceLayers,
+  } }));
+  await page.route("**/api/preview-layer-assets", (route) =>
+    route.fulfill({ json: { supported: false } }));
+  await page.route("**/api/preview-source-status", (route) =>
+    route.fulfill({ json: { valid: true } }));
+  await page.route("**/api/preset-preview", (route) => {
+    requests.push(route.request().postDataJSON().layers);
+    return route.fulfill({ json: { preview: blue } });
+  });
+  await openDetails(page);
+  await expect(page.locator("main.preset-workspace")).toHaveAttribute("data-preview-renderer", "python");
+  await page.getByRole("button", { name: "aiueo", exact: true }).click();
+  await page.locator('.preset-layer-role[data-layer-path="0/0"]')
+    .getByRole("button", { name: "aiueo あ: 非表示" }).click();
+  await page.locator('.preset-layer-role[data-layer-path="0/1"]')
+    .getByRole("button", { name: "aiueo あ: 表示" }).click();
+  await expect.poll(() => requests.some((states) =>
+    states.find((part) => part.path === "0/0")?.visible === false &&
+    states.find((part) => part.path === "0/1")?.visible === true &&
+    states.find((part) => part.path === "0")?.visible === true)).toBe(true);
+  await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
+});
+
 for (const mode of [
   "unsupported", "broken PNG", "server failure", "mismatched layer paths",
   "missing in-canvas PNG", "group with bitmap",
