@@ -248,14 +248,13 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .preset-role-custom { flex:1 0 100%; font-size:10px; text-align:center; color:#d6c5a2; }
 .preset-role-group-count { flex:0 0 120px; font-size:11px; color:#9bb8c8; text-align:center; }
 .preset-visibility-label:focus-within { border-radius:5px; }
-.preset-motion-switches { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
-.preset-motion-switch { display:flex; align-items:center; gap:5px; padding:2px 8px;
-  border:1px solid #34475e; border-radius:5px; }
-.preset-motion-switch[data-selected="true"] { border-color:#8bd8c5; background:#275063; }
-.preset-motion-switch input { flex:none; width:19px; height:19px; accent-color:#86dbbe; }
-.preset-motion-switch button { margin:0; padding:7px 5px; min-height:34px; border:0;
-  border-radius:3px; background:transparent; color:inherit; font-size:14px; }
-.preset-motion-switch button:focus-visible { outline:2px solid #a8e8d4; outline-offset:1px; }
+.preset-motion-tabs { margin:10px 0; }
+.preset-motion-tabs [role="tab"][aria-selected="true"] {
+  border-color:#8bd8c5; background:#275063; color:#e6fff7;
+}
+.preset-motion-disabled { padding:9px 0; }
+.preset-motion-status { display:flex; justify-content:flex-end; margin:4px 0; }
+.preset-motion-status button { min-height:30px; padding:4px 10px; }
 .motion-group-selector { margin:4px 0 12px; }
 .motion-group-header { display:flex; gap:12px; align-items:center; border:1px solid #34475e;
   padding:8px 10px; border-radius:6px; }

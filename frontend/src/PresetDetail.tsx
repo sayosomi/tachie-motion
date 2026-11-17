@@ -315,7 +315,7 @@ export default function PresetDetail({
             aria-label={motionKind === "mouth" ? "口パク" : "瞬き"}
             className="preset-motion-disabled">
             <button type="button" onClick={() => toggleCurrentMotion(true)}>
-              {motionKind === "mouth" ? "口パク" : "瞬き"}をONにする
+              ONにする
             </button>
           </div> : <div id="preset-motion-content" role="tabpanel"
             aria-label={motionKind === "mouth" ? "口パク" : "瞬き"}
