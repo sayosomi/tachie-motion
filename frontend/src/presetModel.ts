@@ -54,6 +54,7 @@ export function appendPreset(current: Presets, preset: UnifiedPreset): Presets {
   if (current.items.some((item) => item.id === preset.id)) throw new Error("Duplicate preset ID");
   if (nameTaken(current, preset.name)) throw new Error("同じ名前のプリセットがあります");
   return {
+    ...current,
     items: [...current.items, preset],
     defaultId: current.defaultId ?? preset.id,
   };
