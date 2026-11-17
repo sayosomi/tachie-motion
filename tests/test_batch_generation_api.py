@@ -149,6 +149,64 @@ class BatchGenerationApiTests(unittest.TestCase):
                              for p in self.root.iterdir()))
 
 
+    def test_foreign_otio_preflight_matches_start_guard_without_changes(self):
+        # Stage nothing if a second timeline may reference overwritten MOVs.
+        original = b"existing media; keep unchanged"
+        for name in self.names:
+            (self.root / (name + ".mov")).write_bytes(original)
+        (self.root / (self.timeline + ".otio")).write_bytes(original)
+        other = self.root / "別の編集.OTIO"
+        other.write_bytes(original)
+
+        status = self.send("preset-combined-otio-destination", {
+            "output_dir": str(self.root), "basename": self.timeline,
+        })
+        self.assertTrue(status["other_otio_present"])
+        self.assertEqual(status["state"], "complete")
+        response = self.client.post("/api/preset-batch-start", json={
+            "output_dir": str(self.root), "timeline_basename": self.timeline,
+            "timeline_policy": "overwrite", "entries": [{
+                "basename": name, "wav": str(self.wav),
+                "source_identity": self.base["source_identity"],
+                "fps": 30, "samples": self.samples,
+                "sample_rate": self.sample_rate, "conflict_policy": "overwrite",
+            } for name in self.names],
+        })
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("Another OTIO", response.text)
+        for name in self.names:
+            self.assertEqual((self.root / (name + ".mov")).read_bytes(), original)
+        self.assertEqual(other.read_bytes(), original)
+        self.assertFalse(list(self.root.glob(".tachie-batch-stage-*")))
+
+        # Preview is not permission: if a foreign timeline arrives after the
+        # user last checked, the start gate still refuses it.
+        other.unlink()
+        status = self.send("preset-combined-otio-destination", {
+            "output_dir": str(self.root), "basename": self.timeline,
+        })
+        self.assertFalse(status["other_otio_present"])
+        other.write_bytes(original)
+        response = self.client.post("/api/preset-batch-start", json={
+            "output_dir": str(self.root), "timeline_basename": self.timeline,
+            "timeline_policy": "overwrite", "entries": [{
+                "basename": name, "wav": str(self.wav),
+                "source_identity": self.base["source_identity"],
+                "fps": 30, "samples": self.samples,
+                "sample_rate": self.sample_rate, "conflict_policy": "overwrite",
+            } for name in self.names],
+        })
+        self.assertEqual(response.status_code, 400, response.text)
+
+    def test_foreign_otio_does_not_block_fresh_movie_names(self):
+        (self.root / "別の編集.otio").write_text("existing user timeline", encoding="utf-8")
+        status = self.send("preset-combined-otio-destination", {
+            "output_dir": str(self.root), "basename": self.timeline,
+        })
+        self.assertTrue(status["other_otio_present"])
+        self.start(overwrite=False)
+        self.cancel()
+
     def test_aiueo_batch_generates_all_movs_and_one_otio(self):
         lab = self.wav.with_suffix(".lab")
         lab.write_text("0 200000 k\n200000 500000 a\n500000 1010000 i\n",
