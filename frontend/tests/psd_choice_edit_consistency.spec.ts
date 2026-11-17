@@ -144,6 +144,9 @@ test("eyes recovery validates structure, duplicate/missing paths, and PSD leaf k
     ], closed: [] } },
     { name: "group", eyes: { opened: [{ path: "0", visible: true }], closed: [] } },
     { name: "malformed", eyes: { opened: [], closed: [], extra: [] } },
+    { name: "unknown entry field", eyes: { opened: [
+      { path: "0/0", visible: true, unexpected: 123 },
+    ], closed: [] } },
   ];
   for (const item of cases) {
     const invalid = draft();
@@ -164,5 +167,46 @@ test("eyes recovery validates structure, duplicate/missing paths, and PSD leaf k
       expect(() => serializeCharacterProfile(source, fingerprint, layers, invalid.collection))
         .toThrow("瞬き設定");
     }
+    if (item.name === "unknown entry field") {
+      expect(() => serializeCharacterProfile(source, fingerprint, layers, invalid.collection))
+        .toThrow("項目が不正");
+    }
+  }
+});
+
+test("browser recovery rejects extra layer fields in base, Open and aiueo without rewriting draft", async ({ page }) => {
+  const rendered: Array<Array<{ path: string; visible: boolean }>> = [];
+  await intercept(page, rendered);
+  await page.goto("/");
+
+  const variants: Array<{ name: string; mutate: (value: PresetDraft) => void }> = [
+    { name: "base", mutate: value => {
+      (value.collection.items[0].base[1] as unknown as Record<string, unknown>).unexpected = 123;
+    } },
+    { name: "Open", mutate: value => {
+      (value.collection.items[0] as unknown as Record<string, unknown>).openMouth = {
+        closed: [{ path: "0/0", visible: true, unexpected: 123 }],
+        opened: [{ path: "0/0", visible: false }],
+      };
+    } },
+    { name: "aiueo", mutate: value => {
+      (value.collection.items[0].aiueoMouth!.a[0] as unknown as Record<string, unknown>).unexpected = 123;
+    } },
+  ];
+  for (const variant of variants) {
+    const invalid = draft();
+    variant.mutate(invalid);
+    expect(() => serializeCharacterProfile(source, fingerprint, layers, invalid.collection))
+      .toThrow("項目が不正");
+    const raw = JSON.stringify(invalid);
+    await page.evaluate((text) =>
+      localStorage.setItem("tachie-motion.preset-draft.v1", text), raw);
+    const before = rendered.length;
+    await page.reload();
+    await expect(page.locator("[data-preset-id]")).toHaveCount(0);
+    await expect(page.getByRole("status")).toContainText("保存データ");
+    expect(await page.evaluate(() =>
+      localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(raw);
+    expect(rendered.length).toBe(before);
   }
 });
