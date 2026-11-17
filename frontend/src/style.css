@@ -248,6 +248,21 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .preset-role-custom { flex:1 0 100%; font-size:10px; text-align:center; color:#d6c5a2; }
 .preset-role-group-count { flex:0 0 120px; font-size:11px; color:#9bb8c8; text-align:center; }
 .preset-visibility-label:focus-within { border-radius:5px; }
+.motion-enabled-toggle { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:14px; }
+.motion-enabled-toggle input { width:19px; height:19px; accent-color:#86dbbe; }
+.motion-group-selector { margin:4px 0 12px; }
+.motion-group-header { display:flex; gap:12px; align-items:center; border:1px solid #34475e;
+  padding:8px 10px; border-radius:6px; }
+.motion-group-header button { min-height:32px; padding:5px 10px; }
+.motion-group-summary { flex:1; display:flex; flex-direction:column; gap:3px; min-width:0; }
+.motion-group-summary span { overflow-wrap:anywhere; color:#b7ccdb; font-size:12px; }
+.motion-group-choices { border:1px solid #34475e; border-top:0;
+  padding:6px 8px; max-height:240px; overflow:auto; border-radius:0 0 6px 6px; }
+.motion-group-choice { display:flex; align-items:center; gap:8px; min-height:36px;
+  margin:0; font-size:13px; cursor:pointer; }
+.motion-group-choice input { width:18px; height:18px; flex:none; accent-color:#86dbbe; }
+.preset-editor[data-edit-area="motion"] .preset-visibility-label { width:100%; }
+
 .preset-group-focus { flex:0 0 auto; padding:4px 8px; min-height:30px;
   font-size:11px; white-space:nowrap; }
 .preset-group-scope { display:flex; align-items:center; gap:10px; margin:10px 0 4px;
