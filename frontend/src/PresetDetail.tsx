@@ -36,7 +36,7 @@ type Props = {
   onMouthMotionChange: (enabled: boolean) => void;
   onBlinkChange: (enabled: boolean) => void;
   blinkTiming?: BlinkTiming;
-  onBlinkTimingChange: (timing: BlinkTiming) => void;
+  onBlinkTimingChange: (timing: BlinkTiming) => boolean;
   onEyeShapeChange: (pose: "opened" | "closed", path: string, visible: boolean) => void;
   onOpenShapeChange: (shape: "closed" | "opened", path: string, visible: boolean) => void;
   onAiueoChoiceChange: (key: AiueoKey, path: string, visible: boolean) => void;
