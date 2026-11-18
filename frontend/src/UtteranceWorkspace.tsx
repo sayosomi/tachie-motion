@@ -12,7 +12,7 @@ import { useBatchUtteranceExport } from "./useBatchUtteranceExport";
 import { exportPayload, exportReady, aiueoMouthReady } from "./utteranceExportRequest";
 import { blinkFrames } from "./blinkTiming";
 import type { UnifiedPreset } from "./presetModel";
-import { matchesSource, persistMissingBlinkTiming, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
+import { matchesSource, persistMissingBlinkTiming, PresetDraftChangedError, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
   createUtterance, moveUtterance, reorderUtterances, updateUtterance,
   type ExportData, type UtteranceItem, type WavData,
@@ -124,8 +124,9 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         // Write a missing initial timing here too, before enabling export or
         // project JSON saves. A failed write leaves the previous draft intact.
         let restored: PresetDraft;
-        try { restored = persistMissingBlinkTiming(saved); }
-        catch {
+        try { restored = persistMissingBlinkTiming(saved, psd.fingerprint, psd.layers); }
+        catch (err) {
+          if (err instanceof PresetDraftChangedError) throw err;
           throw new Error("瞬き初期値をブラウザへ保存できません。空き容量・保存設定を確認してください。保存済みの設定は保持しています。");
         }
         if (cancelled) return;
