@@ -86,7 +86,7 @@ export default function UtteranceExportPanel({
           : labStatus?.status === "unavailable" ? "LABの確認に失敗しました。"
           : "LABを確認しています。"}
       </p>}
-      {blinkMissing && <p className="hint warning" role="status">
+      {blinkMissing && <p className="hint warning" role="note">
         瞬きの閉じ目レイヤーとキャラクター共通の時間設定を確認してください。fpsに対して閉眼時間が短すぎる場合も書き出せません。
       </p>}
       <label htmlFor="speech-fps">フレームレート</label>
