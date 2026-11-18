@@ -12,7 +12,7 @@ import { useBatchUtteranceExport } from "./useBatchUtteranceExport";
 import { exportPayload, exportReady, aiueoMouthReady } from "./utteranceExportRequest";
 import { blinkFrames } from "./blinkTiming";
 import type { UnifiedPreset } from "./presetModel";
-import { matchesSource, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
+import { matchesSource, persistMissingBlinkTiming, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
   createUtterance, moveUtterance, reorderUtterances, updateUtterance,
   type ExportData, type UtteranceItem, type WavData,
@@ -120,7 +120,12 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
           throw new Error("PSDが変更されています。「プリセット」で読み込み直してください");
         }
         if (cancelled) return;
-        setDraft(saved);
+        // The Presets view may have been unmounted during its own recovery.
+        // Write a missing initial timing here too, before enabling export or
+        // project JSON saves. A failed write leaves the previous draft intact.
+        const restored = persistMissingBlinkTiming(saved);
+        if (cancelled) return;
+        setDraft(restored);
         setPsdLayers(psd.layers);
         setPresetStatus("ready");
         setDefaultOutputDir(health.default_output_dir);
