@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import type { BlinkTiming } from "./blinkTiming";
+import BlinkTimingEditor from "./BlinkTimingEditor";
 import type { Layer } from "./LayerTree";
 import type { UnifiedPreset, AiueoKey } from "./presetModel";
 import { AIUEO_KEYS, AIUEO_LABELS, aiueoLayerRole, openLayerRole } from "./presetModel";
@@ -33,6 +35,8 @@ type Props = {
   onEyeGroupsChange: (groups: string[]) => void;
   onMouthMotionChange: (enabled: boolean) => void;
   onBlinkChange: (enabled: boolean) => void;
+  blinkTiming?: BlinkTiming;
+  onBlinkTimingChange: (timing: BlinkTiming) => void;
   onEyeShapeChange: (pose: "opened" | "closed", path: string, visible: boolean) => void;
   onOpenShapeChange: (shape: "closed" | "opened", path: string, visible: boolean) => void;
   onAiueoChoiceChange: (key: AiueoKey, path: string, visible: boolean) => void;
@@ -51,6 +55,7 @@ export default function PresetDetail({
   onNameDraftChange, onBack, onRename, onToggle, mouthGroups, eyeGroups,
   onMouthGroupsChange, onEyeGroupsChange, onMouthMotionChange, onBlinkChange,
   onEyeShapeChange, onOpenShapeChange, onAiueoChoiceChange, onClearMotionShape, onDelete,
+  blinkTiming, onBlinkTimingChange,
 }: Props) {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -335,6 +340,8 @@ export default function PresetDetail({
                 </button>)}
               </div>}
             </>}
+            {motionKind === "eyes" && <BlinkTimingEditor timing={blinkTiming}
+              onSave={onBlinkTimingChange} />}
             <MotionGroupSelector groups={layers.filter((layer) => layer.kind === "group")}
               selected={selectedGroups} onChange={motionKind === "mouth"
                 ? onMouthGroupsChange : onEyeGroupsChange} />
