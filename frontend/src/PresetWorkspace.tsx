@@ -12,7 +12,7 @@ import {
   type AiueoKey,
   type Presets, type UnifiedPreset, withDefaultBlinkTiming,
 } from "./presetModel";
-import { matchesSource, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
+import { matchesSource, persistMissingBlinkTiming, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
   MAX_PROFILE_SIZE, matchesCharacterProfileSource, parseCharacterProfile,
   serializeCharacterProfile, validateCharacterProfileOpenTargets,
@@ -44,17 +44,6 @@ function signature(preset: UnifiedPreset): string {
 }
 
 const empty: Presets = { items: [], defaultId: null };
-
-/** Upgrade an exact-source draft only after validation, committing before UI updates.
- * This also handles existing v2 drafts that predate the approved defaults.
- */
-function restoreBlinkTiming(draft: PresetDraft): PresetDraft {
-  const collection = withDefaultBlinkTiming(draft.collection);
-  if (collection === draft.collection) return draft;
-  const restored = { ...draft, collection };
-  writePresetDraft(restored);
-  return restored;
-}
 
 export default function PresetWorkspace() {
   const [psdPath, setPsdPath] = useState("");
@@ -118,7 +107,7 @@ export default function PresetWorkspace() {
         }
         // Never display the default as saved until its durable write succeeds.
         let restored: PresetDraft;
-        try { restored = restoreBlinkTiming(recovery); }
+        try { restored = persistMissingBlinkTiming(recovery); }
         catch {
           setRestoreMessage("初期の瞬き時間を保存できないため復元を中止しました。保存済みデータは保持しています。");
           return;
@@ -205,7 +194,7 @@ export default function PresetWorkspace() {
               ? "保存済みの口・目の動作対象グループが競合、または不正です。保存データは保持しています。"
               : "PSDのレイヤー構造、口形参照、または*・!の保存状態が一致しません。保存データは保持しています。");
         }
-        const restored = restoreBlinkTiming(recovery);
+        const restored = persistMissingBlinkTiming(recovery);
         setPsd(data);
         setLoadedPath(requested);
         setPsdPath(requested);
