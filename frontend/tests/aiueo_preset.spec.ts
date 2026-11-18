@@ -37,12 +37,15 @@ async function openEditor(page: Page, requests: State[][] = []) {
 async function chooseMouthGroups(page: Page) {
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "可動レイヤー" }).click();
-  await page.getByRole("button", { name: "変更", exact: true }).click();
+  await expect(page.locator(".preset-layer-list")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "レイヤー検索" })).toHaveCount(0);
+  await page.getByRole("button", { name: "グループを選択", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口１ [0/0]" }).check();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口２ [0/1]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
+  await expect(page.locator(".preset-layer-list")).toBeVisible();
 }
 
 test("Open uses fixed layers for close and edits only the open pose", async ({ page }) => {
@@ -323,7 +326,7 @@ test("Open and aiueo have separate PSDTool sibling radio selections and a shared
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "可動レイヤー" }).click();
-  await page.getByRole("button", { name: "変更", exact: true }).click();
+  await page.getByRole("button", { name: "グループを選択", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "!口 [0]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();

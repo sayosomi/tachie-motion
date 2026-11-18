@@ -329,7 +329,7 @@ Use self-authored / permission-cleared synthetic test PSD and WAV in CI. Do not 
 
 ## Public Issue #32 / PR #33 — 固定レイヤー基準とA案タブUI（2026-11-18）
 
-- 固定レイヤー編集は目のopen・口のcloseを決定し、可動レイヤーは「口／目」「Open／aiueo」「あいうえおん」で切り替える。動作ON/OFFはチェック1個であり、OFFは一覧・操作を隠すが設定JSONを削除しない。
+- 固定レイヤー編集は目のopen・口のcloseを決定し、可動レイヤーは「口／目」「Open／aiueo」「あいうえおん」で切り替える。動作ON/OFFはチェック1個であり、OFFは一覧・操作を隠すが設定JSONを削除しない。グループ未選択のときは可動側の検索・PSD一覧を隠し、対象グループ選択後に操作可能とする（UIの文言・配置の固定テストは不要）。
 - Open-openだけに動作時差分があり、closeの各映像フレームは常に最新の固定レイヤーで合成する。JSON中の旧`openMouth.closed`が異なっても使わない。目のopenも固定レイヤーを継承し、旧`eyes.opened`は不使用だが保存・復元で保持。
 - Open-openと固定レイヤーが同じ場合はOpen書き出し不可。aiueoは母音ごと独立し、「ん」未登録は固定表示。PSDTool `*` 排他・`!` 強制、親グループ非表示、目／口の動作対象の競合拒否を維持する。
 - Canvas静止プレビューとPythonフォールバックの状態一致、従来の個別／一括PCM入りMOVとOTIO、旧キャラクターJSON・ブラウザ復元・制作プロジェクトJSON v2を回帰確認。瞬きMOVは依然未実装で実行拒否。

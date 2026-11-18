@@ -336,7 +336,12 @@ export default function PresetDetail({
                 ? onMouthGroupsChange : onEyeGroupsChange} />
           </div>}
         </>}
-        {(area === "normal" || motionEnabled) && <>
+        {(area === "normal" || (motionEnabled && selectedGroups.length > 0)) && <>
+        {area === "motion" && <p className="preset-motion-instruction">
+          {motionKind === "eyes" ? "② 閉じた目のレイヤーを選択してください"
+            : roleMode === "open" ? "② 開いた口のレイヤーを選択してください"
+              : `② 「${AIUEO_LABELS[aiueoKey]}」の口のレイヤーを選択してください`}
+        </p>}
         <div className="preset-role-tools">
           <input aria-label="レイヤー検索" value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="レイヤー名・パスで検索" />
@@ -347,11 +352,6 @@ export default function PresetDetail({
           }>すべて開く</button>
           <button type="button" className="secondary" onClick={() => setExpanded([])}>すべて閉じる</button>
         </div>
-        {area === "motion" && motionEnabled && <p className="preset-motion-instruction">
-          {motionKind === "eyes" ? "閉じた目のレイヤーを選択してください"
-            : roleMode === "open" ? "開いた口のレイヤーを選択してください"
-              : `「${AIUEO_LABELS[aiueoKey]}」の口のレイヤーを選択してください`}
-        </p>}
         <div className="layer-list preset-layer-list" aria-label="プリセットのPSDレイヤー">
           {layers.filter((layer) => eligible.has(layer.path)
             && (!activeFilter || matches.has(layer.path))
@@ -414,9 +414,6 @@ export default function PresetDetail({
               </div>
             </div>;
           })}
-          {area === "motion" && selectedGroups.length === 0 && <p className="hint">
-            対象グループを選択してください。
-          </p>}
           {activeFilter && !layers.some((layer) => eligible.has(layer.path)
             && matches.has(layer.path)) &&
             <p className="hint">該当するレイヤーがありません。</p>}
@@ -431,7 +428,7 @@ export default function PresetDetail({
       </section>
       <section className="panel preset-preview">
         <h2>プレビュー</h2>
-        {(area === "normal" || motionEnabled)
+        {(area === "normal" || (motionEnabled && selectedGroups.length > 0))
           && (selectedLayer || roleMode === "open" || motionKind === "eyes")
           && <p className="hint preset-selected-summary" aria-live="polite">
           {selectedLayer
@@ -443,7 +440,8 @@ export default function PresetDetail({
           error={shownError} focus={area === "motion" && !motionEnabled ? undefined : focus}
           focusLabel={motionKind === "eyes" && area === "motion" ? "目元へ" : "口元へ"}
           selectedFocus={selectedFocus} />
-        {area === "motion" && motionEnabled && motionKind === "mouth" && unconfiguredOpened &&
+        {area === "motion" && motionEnabled && selectedGroups.length > 0 &&
+          motionKind === "mouth" && unconfiguredOpened &&
           preset.mouthMotionEnabled !== false
           && !sourceChanged && <p className="hint warning">口のopenを指定してください</p>}
         {(area === "normal" || motionEnabled) &&

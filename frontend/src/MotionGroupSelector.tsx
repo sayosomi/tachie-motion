@@ -27,12 +27,12 @@ export default function MotionGroupSelector({ groups, selected, onChange }: Prop
   return <div className="motion-group-selector">
     <div className="motion-group-header">
       <div className="motion-group-summary">
-        <strong>対象グループ</strong>
-        <span>{names.length ? names.join("、") : "未選択"}</span>
+        <strong>{selected.length ? "① 対象グループ" : "① 対象グループを選択してください"}</strong>
+        {names.length > 0 && <span>{names.join("、")}</span>}
       </div>
       <button type="button" className="secondary" aria-expanded={editing}
         onClick={() => { setEditing((previous) => !previous); setError(""); }}>
-        {editing ? "閉じる" : "変更"}
+        {editing ? "閉じる" : selected.length ? "変更" : "グループを選択"}
       </button>
     </div>
     {editing && <div className="motion-group-choices" role="group" aria-label="PSDグループ">

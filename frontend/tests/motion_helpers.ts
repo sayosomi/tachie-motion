@@ -7,7 +7,7 @@ export async function openMotion(page: Page) {
 }
 
 export async function selectMouthGroup(page: Page, name: string, path: string) {
-  await page.getByRole("button", { name: "変更", exact: true }).click();
+  await page.getByRole("button", { name: "グループを選択", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: name + " [" + path + "]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();

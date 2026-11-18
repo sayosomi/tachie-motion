@@ -45,7 +45,7 @@ async function enableEye(page: Page) {
 
 async function setEyeGroup(page: Page) {
   await enableEye(page);
-  await page.getByRole("button", { name: "変更", exact: true }).click();
+  await page.getByRole("button", { name: "グループを選択", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "目 [0/1]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
@@ -107,13 +107,13 @@ test("normal layers edit the resting eye independently of the blink state", asyn
 
 test("mouth/eye PSD groups cannot overlap or detach assigned leaves", async ({ page }) => {
   await openEditor(page);
-  await page.getByRole("button", { name: "変更", exact: true }).click();
+  await page.getByRole("button", { name: "グループを選択", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口 [0/0]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
 
   await enableEye(page);
-  await page.getByRole("button", { name: "変更", exact: true }).click();
+  await page.getByRole("button", { name: "グループを選択", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口 [0/0]" }).click();
   await expect(page.getByRole("alert")).toContainText("重複するPSDグループ");
@@ -139,7 +139,7 @@ test("checkbox toggles retain eye and mouth shapes without duplicating controls"
   await expect(page.getByRole("checkbox", { name: "目 ON" })).not.toBeChecked();
   await expect(page.locator(".preset-layer-list")).toHaveCount(0);
   await page.getByRole("checkbox", { name: "目 ON" }).check();
-  await page.getByRole("button", { name: "変更", exact: true }).click();
+  await page.getByRole("button", { name: "グループを選択", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "目 [0/1]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
