@@ -330,6 +330,7 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
                 conflict_policy=payload.conflict_policy,
                 mov=folder / (payload.basename + ".mov"),
                 otio=None,  # Single utterance exports only PCM-in-MOV.
+                protect_otio_references=True,
                 fps=payload.fps, source_identity=payload.source_identity,
             )
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
