@@ -179,7 +179,7 @@ class BlinkExportApiTests(unittest.TestCase):
             {"eye_groups": [self.mouth_group]},
             {"eyes": {"opened": [], "closed": []}},
             {"eyes": {"opened": [], "closed": [
-                {"path": self.eye_open, "visible": True},
+                {"path": self.eye_close, "visible": True},
                 {"path": self.eye_close, "visible": True},
             ]}},
         )
