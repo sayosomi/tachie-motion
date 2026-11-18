@@ -185,7 +185,7 @@ class AiueoApiTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")
-    def test_real_pcm_mov_four_frames_aiueo_pose_diff_and_otio(self):
+    def test_real_pcm_mov_four_frames_aiueo_pose_diff_without_otio(self):
         original = (self.psd.read_bytes(), self.wav.read_bytes(), self.lab.read_bytes())
         response = self.post()
         self.assertEqual(response.status_code, 200, response.text)
@@ -194,12 +194,8 @@ class AiueoApiTests(unittest.TestCase):
         self.assertEqual(result["sample_count"], 101)
         mov = Path(result["mov"])
         self.assertTrue(mov.is_file())
-        doc = json.loads(Path(result["otio"]).read_text("utf-8"))
-        track_refs = [
-            track["children"][0]["media_references"]["DEFAULT_MEDIA"]["target_url"]
-            for track in doc["tracks"]["children"]
-        ]
-        self.assertEqual(track_refs, [mov.resolve().as_uri(), str(mov.resolve())])
+        self.assertNotIn("otio", result)
+        self.assertFalse((self.root / "speech.otio").exists())
         probe = subprocess.run([
             "ffprobe", "-v", "error", "-select_streams", "v:0",
             "-show_entries", "stream=width,height", "-of", "csv=p=0", str(mov),
