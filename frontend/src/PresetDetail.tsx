@@ -347,6 +347,11 @@ export default function PresetDetail({
           }>すべて開く</button>
           <button type="button" className="secondary" onClick={() => setExpanded([])}>すべて閉じる</button>
         </div>
+        {area === "motion" && motionEnabled && <p className="preset-motion-instruction">
+          {motionKind === "eyes" ? "閉じた目のレイヤーを選択してください"
+            : roleMode === "open" ? "開いた口のレイヤーを選択してください"
+              : `「${AIUEO_LABELS[aiueoKey]}」の口のレイヤーを選択してください`}
+        </p>}
         <div className="layer-list preset-layer-list" aria-label="プリセットのPSDレイヤー">
           {layers.filter((layer) => eligible.has(layer.path)
             && (!activeFilter || matches.has(layer.path))

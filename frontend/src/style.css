@@ -498,3 +498,6 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .preset-aiueo-choice button { flex:1 1 38px; border-radius:3px; min-width:38px; min-height:40px; }
 .preset-aiueo-choice button[aria-pressed="true"] {
   border-color:#74c5c9; background:#3f7389; color:#fff; }
+
+/* Single-line instruction above the movable PSD layer tree. */
+.preset-motion-instruction { margin:8px 0 6px; font-weight:700; color:#e6fff7; }
