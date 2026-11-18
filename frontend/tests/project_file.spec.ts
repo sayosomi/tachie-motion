@@ -14,7 +14,7 @@ const layers = [
   { path: "0/1", name: "開き口", kind: "pixel", visible: false },
 ] as Layer[];
 const draft: PresetDraft = {
-  version: 1, path: source, fingerprint: "1000:2000", nameDrafts: {},
+  version: 2, path: source, fingerprint: "1000:2000", nameDrafts: {},
   collection: { defaultId: "p1", items: [{
     id: "p1", name: "通常", blinkEnabled: false,
     base: layers.map((l) => ({ path: l.path, visible: l.visible })),
@@ -60,25 +60,23 @@ test("project JSON keeps duplicate WAV registrations, Unicode and exact settings
   expect(json).not.toContain("nameDrafts");
 });
 
-test("explicit rest inheritance survives project JSON and rejects conflicting n override", () => {
-  const shapes = { a: [], i: [], u: [], e: [], o: [], n: [] } as
+test("explicit n leaf matching fixed survives project v3 without inheritance marker", () => {
+  const shapes = { a: [], i: [], u: [], e: [], o: [],
+    n: [{ path: "0/0", visible: true }] } as
     Record<"a" | "i" | "u" | "e" | "o" | "n", { path: string; visible: boolean }[]>;
   const updated: PresetDraft = { ...draft, collection: {
     ...draft.collection, items: draft.collection.items.map((preset) => ({
-      ...preset, aiueoMouth: shapes, aiueoRestUsesBase: true,
+      ...preset, aiueoMouth: shapes,
     })),
   } };
   const json = serializeProjectFile(updated, layers, [makeWav("a", 1)], "a");
   const restored = projectPresetDraft(parseProjectFile(json)).collection.items[0];
-  expect(restored.aiueoRestUsesBase).toBe(true);
-  expect(restored.aiueoMouth?.n).toEqual([]);
+  expect(restored.aiueoMouth?.n).toEqual([{ path: "0/0", visible: true }]);
+  expect(restored).not.toHaveProperty("aiueoRestUsesBase");
 
   const invalid = JSON.parse(json);
-  invalid.character.collection.items[0].aiueoMouth.n = [{ path: "0/0", visible: false }];
-  expect(() => parseProjectFile(JSON.stringify(invalid))).toThrow(/継承/);
-  invalid.character.collection.items[0].aiueoMouth.n = [];
-  invalid.character.collection.items[0].aiueoRestUsesBase = "true";
-  expect(() => parseProjectFile(JSON.stringify(invalid))).toThrow(/継承/);
+  invalid.character.collection.items[0].aiueoRestUsesBase = true;
+  expect(() => parseProjectFile(JSON.stringify(invalid))).toThrow("項目");
 });
 
 test("project parser rejects malformed IDs, paths, versions, references and signatures", () => {
@@ -126,32 +124,16 @@ test("project snapshot returned for editing cannot mutate parsed source", () => 
   expect(parsed.character.collection.items[0].name).toBe("通常");
 });
 
-test("v1 project imports naming defaults without changing saved WAV settings", () => {
-  const v1 = valid();
-  v1.version = 1;
-  delete v1.naming;
-  const parsed = parseProjectFile(JSON.stringify(v1));
-  expect(parsed.version).toBe(2);
-  expect(parsed.naming.movTemplate).toBe("{番号}_{キャラ名}_{WAV名}");
-  expect(parsed.naming.otioTemplate).toBe("{プロジェクト名}");
-  expect(parsed.items[0].wavPath).toBe(wavPath);
+test("old project v1/v2 are rejected without migration", () => {
+  const existing = valid();
+  for (const version of [1, 2]) {
+    const old = structuredClone(existing);
+    old.version = version;
+    expect(() => parseProjectFile(JSON.stringify(old))).toThrow("未対応");
+  }
 });
 
-test("a v1 project with zero WAVs can migrate and be re-saved as v2", () => {
-  const legacy = valid();
-  legacy.version = 1;
-  legacy.items = [];
-  legacy.selectedId = null;
-  delete legacy.naming;
-  const converted = parseProjectFile(JSON.stringify(legacy));
-  expect(converted.naming.outputDir).toBe("");
-  const restoredDraft = projectPresetDraft(converted);
-  const next = serializeProjectFile(restoredDraft, layers, [], null, converted.naming);
-  expect(parseProjectFile(next).items).toEqual([]);
-});
-
-
-test("aiueo mode roundtrips within project v2 without copying any LAB contents", () => {
+test("aiueo mode roundtrips within project v3 without copying any LAB contents", () => {
   const value = valid();
   value.items[0].mode = "aiueo";
   value.character.collection.items[0].aiueoMouth = {
@@ -163,7 +145,7 @@ test("aiueo mode roundtrips within project v2 without copying any LAB contents",
     n: [{ path: "0/0", visible: true }],
   };
   const restored = parseProjectFile(JSON.stringify(value));
-  expect(restored.version).toBe(2);
+  expect(restored.version).toBe(3);
   expect(restored.items[0].mode).toBe("aiueo");
   expect(restored.items[1].mode).toBe("open");
   expect(restored.character.collection.items[0].aiueoMouth?.a).toEqual([

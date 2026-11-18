@@ -126,12 +126,12 @@ test("cancelled Finder picker keeps original PSD edit state", async ({ page }) =
   await expect(page.getByRole("checkbox", { name: "mouth [0/0] 固定" })).not.toBeChecked();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const originalDraft = await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"));
+    localStorage.getItem("tachie-motion.preset-draft.v2"));
   await page.getByRole("button", { name: "Finderで選ぶ" }).click();
   await expect(page.getByRole("button", { name: "詳細を編集" })).toBeVisible();
   await expect(page.locator("#preset-psd-path")).toHaveValue("/tmp/existing.psd");
   await expect(page.locator("[data-preset-id]")).toHaveCount(1);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1")))
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2")))
     .toBe(originalDraft);
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await expect(page.getByRole("checkbox", { name: "mouth [0/0] 固定" })).not.toBeChecked();
@@ -173,14 +173,14 @@ test("Finder-selected replacement PSD rejected by confirm leaves original edit a
   await page.getByRole("checkbox", { name: "mouth [0/0] 固定" }).uncheck();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const draftBefore = await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"));
+    localStorage.getItem("tachie-motion.preset-draft.v2"));
   await Promise.all([
     page.waitForEvent("dialog").then((dialog) => dialog.dismiss()),
     page.getByRole("button", { name: "Finderで選ぶ" }).click(),
   ]);
   await expect(page.locator("#preset-psd-path")).toHaveValue("/tmp/original.psd");
   expect(loaded).toEqual(["/tmp/original.psd"]);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1")))
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2")))
     .toBe(draftBefore);
   expect(await page.evaluate(() => localStorage.getItem("tachie-motion.picker-dir.v1.psd")))
     .toBeNull();

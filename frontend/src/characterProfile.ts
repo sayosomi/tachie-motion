@@ -86,15 +86,25 @@ function preset(value: unknown, allowed: Set<string>): UnifiedPreset {
     const closed = new Set(mouth.closed.map((x) => x.path));
     const opened = new Set(mouth.opened.map((x) => x.path));
     if (!closed.size || closed.size !== opened.size ||
-        [...closed].some((path) => !opened.has(path))) {
+        [...closed].some((path) => !opened.has(path)) ||
+        !mouth.opened.some((entry) => entry.visible)) {
       throw new Error("キャラクター設定JSONのOpen口形が不正です");
     }
   }
   if (Object.hasOwn(value, "aiueoMouth")) {
-    paired(value.aiueoMouth, ["a", "i", "u", "e", "o", "n"], allowed);
+    const mouth = paired(value.aiueoMouth, ["a", "i", "u", "e", "o", "n"], allowed);
+    const active = ["a", "i", "u", "e", "o", "n"];
+    if (!active.some((key) => mouth[key].some((entry) => entry.visible)) ||
+        active.some((key) => mouth[key].length > 0 &&
+          !mouth[key].some((entry) => entry.visible))) {
+      throw new Error("キャラクター設定JSONの口形に明示選択がありません");
+    }
   }
   if (Object.hasOwn(value, "eyes")) {
-    paired(value.eyes, ["opened", "closed"], allowed);
+    const eyes = paired(value.eyes, ["opened", "closed"], allowed);
+    if (!eyes.closed.some((entry) => entry.visible)) {
+      throw new Error("キャラクター設定JSONの閉じ目に明示選択がありません");
+    }
   }
   return value as unknown as UnifiedPreset;
 }

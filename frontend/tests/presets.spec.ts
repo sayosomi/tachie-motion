@@ -269,17 +269,17 @@ test("changed PSD fingerprint fails closed without erasing the stored draft", as
   await page.locator("#preset-psd-path").fill("/tmp/changed.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "＋ 作成" }).click();
-  const stored = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
+  const stored = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"));
   expect(stored).toContain("source-A");
   fingerprint = "source-B";
   await page.reload();
   await expect(page.getByRole("status")).toContainText("PSDが変更されています");
   await expect(page.locator("[data-preset-id]")).toHaveCount(0);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(stored);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(stored);
   await expect(page.getByRole("button", { name: "保存済みを破棄して新規" })).toBeVisible();
   page.once("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("button", { name: "保存済みを破棄して新規" }).click();
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(stored);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(stored);
 });
 
 test("invalid cached draft cannot be silently replaced by reading PSD", async ({ page }) => {
@@ -287,18 +287,18 @@ test("invalid cached draft cannot be silently replaced by reading PSD", async ({
     width: 64, height: 64, fingerprint: "source-A", preview: png, layers,
   } }));
   await page.goto("/");
-  await page.evaluate(() => localStorage.setItem("tachie-motion.preset-draft.v1", "{broken"));
+  await page.evaluate(() => localStorage.setItem("tachie-motion.preset-draft.v2", "{broken"));
   await page.reload();
   await expect(page.getByRole("status")).toContainText("形式が壊れています");
   await page.locator("#preset-psd-path-advanced").evaluate((el) => { (el as HTMLDetailsElement).open = true; });
   await page.locator("#preset-psd-path").fill("/tmp/recovery.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("上書きしません");
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe("{broken");
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe("{broken");
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "保存済みを破棄して新規" }).click();
   await expect(page.locator("[data-preset-id]")).toHaveCount(1);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toContain("source-A");
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toContain("source-A");
 });
 
 test("the reorder target is visible and arrow move works without a touch drag", async ({ page }) => {
@@ -445,9 +445,9 @@ test("older custom mouth overrides are preserved until explicitly changed", asyn
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await expect(page.getByRole("button", { name: "詳細を編集" })).toBeVisible();
   await expect.poll(() => page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"))).not.toBeNull();
+    localStorage.getItem("tachie-motion.preset-draft.v2"))).not.toBeNull();
   await page.evaluate(() => {
-    const key = "tachie-motion.preset-draft.v1";
+    const key = "tachie-motion.preset-draft.v2";
     const saved = JSON.parse(localStorage.getItem(key)!);
     saved.collection.items[0].openMouth = {
       closed: [{ path: "0/0", visible: true }],
@@ -464,7 +464,7 @@ test("older custom mouth overrides are preserved until explicitly changed", asyn
   // 開閉の初期状態で開いた口を編集する。
   await second.getByRole("checkbox").check();
   const value = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v1")!));
+    JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v2")!));
   expect(value.collection.items[0].openMouth.closed)
     .toContainEqual({ path: "0/0", visible: true });
   expect(value.collection.items[0].openMouth.opened)

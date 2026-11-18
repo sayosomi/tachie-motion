@@ -284,7 +284,7 @@ test("a fixed-expression preset exports none even when the WAV row selects open"
   await assignOpenPair(page);
   await page.getByRole("checkbox", { name: "口 ON" }).uncheck();
   const before = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   expect(before.collection.items[0].openMouth.closed).toHaveLength(2);
   expect(before.collection.items[0].mouthMotionEnabled).toBe(false);
   await page.getByRole("button", { name: "← 一覧へ" }).click();

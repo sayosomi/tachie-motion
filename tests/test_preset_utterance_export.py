@@ -57,11 +57,12 @@ class PresetSnapshotTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "complete"):
                 validate_open_mouth(image, visibility, None)
-            with self.assertRaisesRegex(ValueError, "matches fixed-layer"):
-                validate_open_mouth(image, visibility, {
-                    "closed": [{"path": closed, "visible": True}],
-                    "opened": [{"path": closed, "visible": True}],
-                })
+            # Explicit selection may match the fixed-layer pose exactly.
+            same = validate_open_mouth(image, visibility, {
+                "closed": [{"path": closed, "visible": True}],
+                "opened": [{"path": closed, "visible": True}],
+            })
+            self.assertTrue(same["opened"][parse_index_path(closed)])
             with self.assertRaisesRegex(ValueError, "same layers"):
                 validate_open_mouth(image, visibility, {
                     "closed": [{"path": closed, "visible": True}],

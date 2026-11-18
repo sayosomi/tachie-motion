@@ -37,12 +37,12 @@ const validCollection: Presets = {
   items: [{ id: "p1", name: "通常", base: validBase, blinkEnabled: false, openMouth: openShape }],
 };
 const profile = (): CharacterProfile => ({
-  format: "tachie-motion-character-profile", version: 1,
+  format: "tachie-motion-character-profile", version: 2,
   source: { path: source, fingerprint, layerPaths: layers.map((layer) => layer.path) },
   collection: structuredClone(validCollection),
 });
 const draft = (): PresetDraft => ({
-  version: 1, path: source, fingerprint,
+  version: 2, path: source, fingerprint,
   collection: structuredClone(validCollection), nameDrafts: {},
 });
 
@@ -148,7 +148,7 @@ test("browser recovery rejects bad old PSDTool layer data without rewriting loca
   await mockPsd(page, renderRequests);
   await openPsd(page);
   const initial = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   expect(initial.collection.items[0].base).toEqual(validBase);
 
   const variants: Array<{ label: string; make: (data: PresetDraft) => void }> = [
@@ -165,13 +165,13 @@ test("browser recovery rejects bad old PSDTool layer data without rewriting loca
     const bad = draft();
     variant.make(bad);
     const raw = JSON.stringify(bad);
-    await page.evaluate((value) => localStorage.setItem("tachie-motion.preset-draft.v1", value), raw);
+    await page.evaluate((value) => localStorage.setItem("tachie-motion.preset-draft.v2", value), raw);
     const countBefore = renderRequests.length;
     await page.reload();
     await expect(page.getByRole("status")).toContainText("復元を中止しました");
     await expect(page.locator("[data-preset-id]")).toHaveCount(0);
     expect(await page.evaluate(() =>
-      localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(raw);
+      localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(raw);
     expect(renderRequests.length).toBe(countBefore);
   }
 });
@@ -180,10 +180,10 @@ test("character JSON import rejects old conflicting states but keeps current dra
   const renderRequests: Array<{ path: string; visible: boolean }[]> = [];
   await mockPsd(page, renderRequests);
   await openPsd(page);
-  const original = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
+  const original = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"));
   await page.getByRole("button", { name: "＋ 作成" }).click();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
-  const before = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
+  const before = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"));
   const malformed = profile();
   malformed.collection.items[0].base[2].visible = true;
   await page.locator("#character-profile-file").setInputFiles({
@@ -192,7 +192,7 @@ test("character JSON import rejects old conflicting states but keeps current dra
   });
   await expect(page.getByRole("alert")).toContainText("*排他");
   await expect(page.locator("[data-preset-id]")).toHaveCount(2);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(before);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(before);
   // An in-flight render of the legitimate second preset may finish after
   // the rejected import. Check the full renderer inputs, not call timing.
   for (const states of renderRequests) {

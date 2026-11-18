@@ -34,7 +34,7 @@ const collection = (): Presets => ({
   }],
 });
 const draft = (): PresetDraft => ({
-  version: 1, path: source, fingerprint,
+  version: 2, path: source, fingerprint,
   collection: collection(), nameDrafts: {},
 });
 
@@ -55,7 +55,7 @@ async function restore(page: Page, value: PresetDraft) {
   await page.goto("/");
   const raw = JSON.stringify(value);
   await page.evaluate((text) =>
-    localStorage.setItem("tachie-motion.preset-draft.v1", text), raw);
+    localStorage.setItem("tachie-motion.preset-draft.v2", text), raw);
   await page.reload();
   return raw;
 }
@@ -83,7 +83,7 @@ test("base * switch cannot invalidate inherited aiueo shape; resolving the pose 
   await expect(radio(page, "0/0")).toBeChecked();
   await expect(radio(page, "0/1")).not.toBeChecked();
   expect(await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(raw);
+    localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(raw);
   // Any in-flight legitimate preview still receives the entire old base.
   for (const state of rendered) {
     expect(state.map(x => x.visible)).toEqual([true, true, false, true]);
@@ -103,7 +103,7 @@ test("base * switch cannot invalidate inherited aiueo shape; resolving the pose 
   await expect(radio(page, "0/1")).toBeChecked();
   await expect(page.getByRole("alert")).toHaveCount(0);
   const saved = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   expect(saved.collection.items[0].base.map((x: { visible: boolean }) => x.visible))
     .toEqual([true, false, true, true]);
   expect(saved.collection.items[0].aiueoMouth.a).toEqual([
@@ -114,7 +114,7 @@ test("base * switch cannot invalidate inherited aiueo shape; resolving the pose 
   await page.reload();
   await expect(page.getByRole("status").filter({ hasText: "前回の編集を復元しました" })).toBeVisible();
   expect(await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(JSON.stringify(saved));
+    localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(JSON.stringify(saved));
 });
 
 test("direct character/project JSON export refuses base changes that violate saved phonemes", () => {
@@ -175,13 +175,13 @@ test("eyes recovery validates structure, duplicate/missing paths, and PSD leaf k
     (invalid.collection.items[0] as unknown as { eyes: unknown }).eyes = item.eyes;
     const raw = JSON.stringify(invalid);
     await page.evaluate((text) =>
-      localStorage.setItem("tachie-motion.preset-draft.v1", text), raw);
+      localStorage.setItem("tachie-motion.preset-draft.v2", text), raw);
     const before = rendered.length;
     await page.reload();
     await expect(page.locator("[data-preset-id]")).toHaveCount(0);
     await expect(page.getByRole("status")).toContainText("保存データ");
     expect(await page.evaluate(() =>
-      localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(raw);
+      localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(raw);
     expect(rendered.length).toBe(before);
     if (item.name === "group") {
       expect(matchesSource(invalid, fingerprint, layers)).toBe(false);
@@ -221,13 +221,13 @@ test("browser recovery rejects extra layer fields in base, Open and aiueo withou
       .toThrow("項目が不正");
     const raw = JSON.stringify(invalid);
     await page.evaluate((text) =>
-      localStorage.setItem("tachie-motion.preset-draft.v1", text), raw);
+      localStorage.setItem("tachie-motion.preset-draft.v2", text), raw);
     const before = rendered.length;
     await page.reload();
     await expect(page.locator("[data-preset-id]")).toHaveCount(0);
     await expect(page.getByRole("status")).toContainText("保存データ");
     expect(await page.evaluate(() =>
-      localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(raw);
+      localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(raw);
     expect(rendered.length).toBe(before);
   }
 });

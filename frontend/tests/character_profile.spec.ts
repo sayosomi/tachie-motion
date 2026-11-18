@@ -92,7 +92,7 @@ test("native Save dialog writes one JSON and never silently downloads", async ({
   const downloads: string[] = [];
   page.on("download", (download) => downloads.push(download.suggestedFilename()));
   const saved = await exportJson(page);
-  expect(saved.version).toBe(1);
+  expect(saved.version).toBe(2);
   const probe = await page.evaluate(() =>
     (window as Window & { __profileSaveProbe: SaveProbe }).__profileSaveProbe);
   expect(probe.options).toHaveLength(1);
@@ -195,7 +195,7 @@ test("character JSON roundtrip keeps ordered preset IDs, Open roles, Unicode and
 
   const saved = await exportJson(page);
   expect(saved.format).toBe("tachie-motion-character-profile");
-  expect(saved.version).toBe(1);
+  expect(saved.version).toBe(2);
   expect(saved.source.path).toBe(source);
   expect(saved.source.fingerprint).toBe(fingerprint);
   expect(saved.source.layerPaths).toEqual(layers.map((layer) => layer.path));
@@ -249,7 +249,7 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     .getByRole("checkbox", { name: "差分 [0/2] ん" }).uncheck();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const saved = await exportJson(page);
-  expect(saved.version).toBe(1);
+  expect(saved.version).toBe(2);
   expect(saved.source.path).toBe(source);
   expect(saved.collection.items[0].aiueoMouth).toEqual({
     a: [{ path: "0/0", visible: false }, { path: "0/1", visible: true }],
@@ -287,13 +287,13 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
       .toHaveAttribute("data-aiueo-role", "show");
 
     const beforeStorage = await fresh.evaluate(() =>
-      localStorage.getItem("tachie-motion.preset-draft.v1"));
+      localStorage.getItem("tachie-motion.preset-draft.v2"));
     const invalid = structuredClone(saved);
     invalid.collection.items[0].aiueoMouth.a = [{ path: "0", visible: false }];
     await importJson(fresh, invalid);
     await expect(fresh.getByRole("alert")).toContainText("aiueo口形");
     expect(await fresh.evaluate(() =>
-      localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(beforeStorage);
+      localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(beforeStorage);
   } finally {
     await other.close();
   }
@@ -305,7 +305,7 @@ test("malformed profiles and changed source reject without touching current stat
   await openPsd(page);
   const saved = await exportJson(page);
   const idBefore = await page.locator("[data-preset-id]").first().getAttribute("data-preset-id");
-  const originalStorage = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
+  const originalStorage = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"));
 
   const broken = [
     { ...saved, version: 99 },
@@ -326,7 +326,7 @@ test("malformed profiles and changed source reject without touching current stat
     await importJson(page, data);
     await expect(page.getByRole("alert")).toBeVisible();
     await expect(page.locator("[data-preset-id]").first()).toHaveAttribute("data-preset-id", idBefore!);
-    expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(originalStorage);
+    expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(originalStorage);
   }
 
   await page.locator("#character-profile-file").setInputFiles({
@@ -337,12 +337,12 @@ test("malformed profiles and changed source reject without touching current stat
     name: "oversized.json", mimeType: "application/json", buffer: Buffer.alloc(2_000_001, 32),
   });
   await expect(page.getByRole("alert")).toContainText("大きすぎます");
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(originalStorage);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(originalStorage);
 
   currentFingerprint = "1000:3000";
   await importJson(page, saved);
   await expect(page.getByRole("alert")).toContainText("PSDの内容またはレイヤー構造");
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(originalStorage);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(originalStorage);
 });
 
 test("group Open targets reject without replacing edits; custom leaf targets remain supported", async ({ page }) => {
@@ -356,7 +356,7 @@ test("group Open targets reject without replacing edits; custom leaf targets rem
   const beforeIds = await page.locator("[data-preset-id]").evaluateAll((elements) =>
     elements.map((element) => element.getAttribute("data-preset-id")));
   const beforeStorage = await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"));
+    localStorage.getItem("tachie-motion.preset-draft.v2"));
 
   const invalid = structuredClone(saved);
   // Path "0" exists and passes the JSON path/set checks, but is a PSD group.
@@ -369,7 +369,7 @@ test("group Open targets reject without replacing edits; custom leaf targets rem
   expect(await page.locator("[data-preset-id]").evaluateAll((elements) =>
     elements.map((element) => element.getAttribute("data-preset-id")))).toEqual(beforeIds);
   expect(await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(beforeStorage);
+    localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(beforeStorage);
 
   // Both-on is an existing custom per-leaf assignment; do not prohibit it.
   const valid = structuredClone(saved);
@@ -404,7 +404,7 @@ for (const reservedId of ["__proto__", "constructor", "toString", "hasOwnPropert
     const idsBefore = await page.locator("[data-preset-id]").evaluateAll((elements) =>
       elements.map((element) => element.getAttribute("data-preset-id")));
     const draftBefore = await page.evaluate(() =>
-      localStorage.getItem("tachie-motion.preset-draft.v1"));
+      localStorage.getItem("tachie-motion.preset-draft.v2"));
 
     const invalid = structuredClone(saved);
     invalid.collection.items[0].id = reservedId;
@@ -414,7 +414,7 @@ for (const reservedId of ["__proto__", "constructor", "toString", "hasOwnPropert
     expect(await page.locator("[data-preset-id]").evaluateAll((elements) =>
       elements.map((element) => element.getAttribute("data-preset-id")))).toEqual(idsBefore);
     expect(await page.evaluate(() =>
-      localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(draftBefore);
+      localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(draftBefore);
   });
 }
 
@@ -444,19 +444,19 @@ test("browser recovery refuses persisted prototype-colliding ID without altering
   await mockPsd(page);
   await openPsd(page);
   const original = await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"));
+    localStorage.getItem("tachie-motion.preset-draft.v2"));
   expect(original).not.toBeNull();
   const savedDraft = JSON.parse(original!);
   savedDraft.collection.items[0].id = "__proto__";
   savedDraft.collection.defaultId = "__proto__";
   const poisoned = JSON.stringify(savedDraft);
-  await page.evaluate((text) => localStorage.setItem("tachie-motion.preset-draft.v1", text), poisoned);
+  await page.evaluate((text) => localStorage.setItem("tachie-motion.preset-draft.v2", text), poisoned);
   await page.reload();
   await expect(page.getByRole("status")).toContainText("保存済みプリセットの内容が不正です");
   await expect(page.getByRole("button", { name: "保存済みを破棄して新規" })).toBeVisible();
   await expect(page.locator("[data-preset-id]")).toHaveCount(0);
   expect(await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(poisoned);
+    localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(poisoned);
 });
 
 test("import cancel and storage write failure do not mutate the current profile", async ({ page }) => {
@@ -465,7 +465,7 @@ test("import cancel and storage write failure do not mutate the current profile"
   const saved = await exportJson(page);
   await page.getByRole("button", { name: "＋ 作成" }).click();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
-  const previous = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
+  const previous = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"));
   // setInputFiles resolves before the async import has completed. Wait for
   // the actual confirmation and for the UI to leave its busy state before
   // attempting a second import; otherwise both dialog handlers can overlap.
@@ -477,7 +477,7 @@ test("import cancel and storage write failure do not mutate the current profile"
   await cancelDialog;
   await expect(page.locator("#character-profile-file")).toBeEnabled();
   await expect(page.locator("[data-preset-id]")).toHaveCount(2);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(previous);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(previous);
 
   await page.evaluate(() => {
     Storage.prototype.setItem = () => { throw new DOMException("Denied", "QuotaExceededError"); };
@@ -490,7 +490,7 @@ test("import cancel and storage write failure do not mutate the current profile"
   await acceptDialog;
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.locator("[data-preset-id]")).toHaveCount(2);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(previous);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(previous);
 });
 
 test("pending editing during async profile read prevents a stale import", async ({ page }) => {
@@ -522,18 +522,18 @@ test("character JSON validates real group paths and the preset mouth switch", as
   await page.getByRole("checkbox", { name: "口 ON" }).uncheck();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const saved = await exportJson(page);
-  expect(saved.version).toBe(1);
+  expect(saved.version).toBe(2);
   expect(saved.collection.motionGroups).toEqual({ mouth: ["0"] });
   expect(saved.collection.items[0].mouthMotionEnabled).toBe(false);
   const before = await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"));
+    localStorage.getItem("tachie-motion.preset-draft.v2"));
 
   const leafAsGroup = structuredClone(saved);
   leafAsGroup.collection.motionGroups.mouth = ["0/0"];
   await importJson(page, leafAsGroup);
   await expect(page.getByRole("alert")).toContainText("動作対象グループ");
   expect(await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(before);
+    localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(before);
 
   const missingAssignedGroup = structuredClone(saved);
   missingAssignedGroup.collection.motionGroups.mouth = [];
@@ -551,5 +551,5 @@ test("character JSON validates real group paths and the preset mouth switch", as
   await expect(page.getByRole("alert")).toContainText("レイヤーパス");
 
   expect(await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(before);
+    localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(before);
 });

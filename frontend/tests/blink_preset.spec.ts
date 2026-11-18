@@ -14,7 +14,7 @@ const layers = [
 const entry = (page: Page, path: string) => page.locator(`.preset-layer[data-layer-path="${path}"]`);
 const motionTabs = (page: Page) => page.getByRole("tablist", { name: "パーツ" });
 const saved = async (page: Page) => JSON.parse((await page.evaluate(() =>
-  localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+  localStorage.getItem("tachie-motion.preset-draft.v2")))!);
 
 async function openEditor(page: Page, requests: Array<{ path: string; visible: boolean }[]> = []) {
   await page.route("**/api/psd", (route) => route.fulfill({ json: {

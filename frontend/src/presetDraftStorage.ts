@@ -103,8 +103,9 @@ export function readPresetDraft(): PresetDraft | null {
       const closed = parseShape(mouth.closed);
       const opened = parseShape(mouth.opened);
       if (!closed.size || closed.size !== opened.size ||
-          [...closed].some((path) => !opened.has(path))) {
-        throw new Error("保存済み口形の対象レイヤーが一致しません");
+          [...closed].some((path) => !opened.has(path)) ||
+          !(mouth.opened as { visible: boolean }[]).some((entry) => entry.visible)) {
+        throw new Error("保存済み口形の対象レイヤーまたは明示選択が不正です");
       }
     }
     if (item.aiueoMouth !== undefined) {
@@ -113,7 +114,16 @@ export function readPresetDraft(): PresetDraft | null {
           AIUEO_KEYS.some((key) => !Object.hasOwn(mouth, key))) {
         throw new Error("保存済みaiueo口形設定が不正です");
       }
-      for (const key of AIUEO_KEYS) parseShape(mouth[key]);
+      let selected = false;
+      for (const key of AIUEO_KEYS) {
+        parseShape(mouth[key]);
+        const entries = mouth[key] as { visible: boolean }[];
+        if (entries.length && !entries.some((entry) => entry.visible)) {
+          throw new Error("保存済み口形に明示選択がありません");
+        }
+        selected ||= entries.some((entry) => entry.visible);
+      }
+      if (!selected) throw new Error("保存済み口形に明示選択がありません");
     }
     if (item.eyes !== undefined) {
       const eyes: unknown = item.eyes;
@@ -123,6 +133,9 @@ export function readPresetDraft(): PresetDraft | null {
       }
       parseShape(eyes.opened);
       parseShape(eyes.closed);
+      if (!(eyes.closed as { visible: boolean }[]).some((entry) => entry.visible)) {
+        throw new Error("保存済み閉じ目に明示選択がありません");
+      }
     }
   }
   if (collection.defaultId !== null && !ids.has(collection.defaultId)) {
