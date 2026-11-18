@@ -20,7 +20,7 @@ Status: architecture boundaries include both implemented and proposed features. 
 4. Pure evaluator: (item, time) -> effective layer visibility and transforms. Preset first; only explicitly bound eyes/mouth are overridden.
 5. Renderer: cache repeated combinations; composite transparent RGBA frames with consistent pixel/alpha/color treatment.
 6. Encoder: stream frames to FFmpeg; export alpha ProRes 4444 MOV. Decode/reinspect rendered output for verification.
-7. Timeline: OTIO tracks containing MOV refs by character and one WAV ref per utterance, with explicit gaps for idle or absent characters.
+7. Timeline: OTIO refers to generated MOV media. WAV-derived PCM is embedded in exactly one audio-owner MOV per utterance, and the OTIO audio track references that MOV, not a standalone WAV. Multi-character tracks and gaps for idle or absent characters remain planned.
 
 ## Module boundaries (anti-monolith)
 
