@@ -36,7 +36,7 @@ test("new preset-backed none/open utterance workflow sends exact preset snapshot
   await page.route("**/api/preset-utterance-export", (route) => {
     payloads.push(route.request().postDataJSON());
     return route.fulfill({ json: {
-      mov: "/tmp/speech_001.mov", otio: "/tmp/speech_001.otio",
+      mov: "/tmp/speech_001.mov",
       frames: 30, sample_count: 1000,
     } });
   });
@@ -119,7 +119,6 @@ test("existing single MOV offers overwrite by default and an editable separate f
     requests.push(route.request().postDataJSON());
     return route.fulfill({ json: {
       mov: "/tmp/" + (requests.at(-1)?.basename as string) + ".mov",
-      otio: "/tmp/" + (requests.at(-1)?.basename as string) + ".otio",
       frames: 30, sample_count: 1000,
       warning: requests.length === 1 ? "temporary render files could not be removed" : undefined,
     } });
@@ -164,7 +163,7 @@ test("same-stem legacy OTIO forbids MOV overwrite and requires a new name", asyn
   await page.route("**/api/preset-utterance-export", route => {
     requests.push(route.request().postDataJSON());
     return route.fulfill({ json: {
-      mov: "/tmp/speech_001_002.mov", otio: "/tmp/speech_001_002.otio",
+      mov: "/tmp/speech_001_002.mov",
       frames: 30, sample_count: 1000,
     } });
   });
@@ -196,7 +195,6 @@ test("one WAV sends identical open-mouth render settings through single and all 
     requests.push(request);
     return route.fulfill({ json: {
       mov: "/tmp/" + request.basename + ".mov",
-      otio: "/tmp/" + request.basename + ".otio", frames: 30, sample_count: 1000,
     } });
   });
   await page.route("**/api/preset-batch-mov-destination", (route) =>
@@ -275,7 +273,7 @@ test("a fixed-expression preset exports none even when the WAV row selects open"
   await page.route("**/api/preset-utterance-export", route => {
     exports.push(route.request().postDataJSON());
     return route.fulfill({ json: {
-      mov: "/tmp/fixed.mov", otio: "/tmp/fixed.otio", frames: 30, sample_count: 1000,
+      mov: "/tmp/fixed.mov", frames: 30, sample_count: 1000,
     } });
   });
   await page.goto("/");
