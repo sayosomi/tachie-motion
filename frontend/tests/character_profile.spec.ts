@@ -558,3 +558,37 @@ test("character JSON validates real group paths and the preset mouth switch", as
   expect(await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(before);
 });
+
+
+test("explicit character blink timing round-trips through profile JSON", async ({ page }) => {
+  await mockPsd(page);
+  await openPsd(page);
+  const timing = {
+    intervalMs: 3200, closedMs: 125, jitterMs: 200,
+    phaseMs: 1500, seed: 24,
+  };
+  await page.evaluate((data) => {
+    const key = "tachie-motion.preset-draft.v2";
+    const current = JSON.parse(localStorage.getItem(key)!) as {
+      collection: Record<string, unknown>
+    };
+    current.collection.blinkTiming = data;
+    localStorage.setItem(key, JSON.stringify(current));
+  }, timing);
+  await page.reload();
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
+  const exported = await exportJson(page);
+  expect((exported.collection as Record<string, unknown>).blinkTiming).toEqual(timing);
+
+  await importJson(page, exported);
+  await expect(page.getByRole("status")).toContainText("キャラクター設定JSONを読み込みました");
+  const restored = await page.evaluate(() => JSON.parse(
+    localStorage.getItem("tachie-motion.preset-draft.v2")!
+  ));
+  expect(restored.collection.blinkTiming).toEqual(timing);
+
+  const invalid = structuredClone(exported);
+  invalid.collection.blinkTiming = { ...timing, jitterMs: 3400 };
+  await importJson(page, invalid);
+  await expect(page.getByRole("alert")).toContainText("瞬き時間設定が不正");
+});
