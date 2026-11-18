@@ -536,7 +536,7 @@ test("restored, explicitly approved WAV identity is sent to single and batch exp
       frames: 30, sample_count: 48000, sample_rate: 48000,
     } });
   });
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect(page.locator(".success")).toBeVisible();
   await page.getByRole("radio", { name: /全件/ }).check();
   const batchButton = page.getByRole("button", { name: "全件を書き出す" });
