@@ -153,14 +153,47 @@ export function readPresetDraft(): PresetDraft | null {
   return value as unknown as PresetDraft;
 }
 
-/** Call only after PSD identity and layer/choice validation has succeeded.
- * The missing initial timing is committed to storage before either screen can
- * publish a usable draft; an already-saved custom timing is untouched.
+/** An asynchronous PSD read must not rewrite another tab's newer draft. */
+export class PresetDraftChangedError extends Error {
+  constructor() {
+    super("別のタブでプリセットが更新されました。最新の保存内容を守るため復元を中止しました。画面を再読み込みしてください。");
+  }
+}
+
+/** The only tolerated change during async PSD validation is a newer blink
+ * timing value. Never implicitly merge other fields from an older snapshot.
  */
-export function persistMissingBlinkTiming(draft: PresetDraft): PresetDraft {
-  const collection = withDefaultBlinkTiming(draft.collection);
-  if (collection === draft.collection) return draft;
-  const upgraded: PresetDraft = { ...draft, collection };
+function sameWithoutBlinkTiming(a: PresetDraft, b: PresetDraft): boolean {
+  const withoutTiming = (draft: PresetDraft) => {
+    const { blinkTiming: _timing, ...collection } = draft.collection;
+    return JSON.stringify({ ...draft, collection });
+  };
+  return withoutTiming(a) === withoutTiming(b);
+}
+
+/** Called only after validating the original PSD snapshot. Re-read and
+ * revalidate the latest storage data before migration or UI publication.
+ * Rechecking at write time prevents overwriting known concurrent updates;
+ * localStorage is not an atomic compare-and-swap across browser tabs.
+ */
+export function persistMissingBlinkTiming(
+  draft: PresetDraft, fingerprint: string, layers: Layer[],
+): PresetDraft {
+  const latest = readPresetDraft();
+  if (!latest || latest.path !== draft.path ||
+      !matchesSource(latest, fingerprint, layers) ||
+      !sameWithoutBlinkTiming(draft, latest)) {
+    throw new PresetDraftChangedError();
+  }
+
+  // Another tab may already have saved an explicit value. Use it as-is.
+  if (latest.collection.blinkTiming !== undefined) return latest;
+
+  const collection = withDefaultBlinkTiming(latest.collection);
+  const upgraded: PresetDraft = { ...latest, collection };
+  // Verify that nothing changed between parsing and the final storage write.
+  const expected = JSON.stringify(latest);
+  if (localStorage.getItem(KEY) !== expected) throw new PresetDraftChangedError();
   writePresetDraft(upgraded);
   return upgraded;
 }
