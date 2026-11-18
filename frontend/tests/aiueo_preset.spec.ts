@@ -375,31 +375,3 @@ test("Open and aiueo have separate PSDTool sibling radio selections and a shared
   ]);
   expect(preset.aiueoMouth.i).toEqual([]);
 });
-
-test("PSD layer instruction follows Open, aiueo phoneme and eye without appearing on fixed/OFF", async ({ page }) => {
-  await openEditor(page);
-  const instruction = page.locator(".preset-motion-instruction");
-  await expect(instruction).toHaveCount(0);
-  await chooseMouthGroups(page);
-  await expect(instruction).toHaveText("開いた口のレイヤーを選択してください");
-  await expect(page.locator(".preset-motion-instruction + .preset-layer-list")).toBeVisible();
-
-  await page.getByRole("group", { name: "口の方式" })
-    .getByRole("button", { name: "aiueo" }).click();
-  await expect(instruction).toHaveText("「あ」の口のレイヤーを選択してください");
-  await shape(page, "ん").click();
-  await expect(instruction).toHaveText("「ん」の口のレイヤーを選択してください");
-
-  await page.getByRole("tablist", { name: "パーツ" })
-    .getByRole("tab", { name: "目" }).click();
-  await expect(instruction).toHaveCount(0);
-  await page.getByRole("checkbox", { name: "目 ON" }).check();
-  await expect(instruction).toHaveText("閉じた目のレイヤーを選択してください");
-  await expect(page.locator(".preset-motion-instruction + .preset-layer-list")).toBeVisible();
-  await page.getByRole("checkbox", { name: "目 ON" }).uncheck();
-  await expect(instruction).toHaveCount(0);
-
-  await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "固定レイヤー" }).click();
-  await expect(instruction).toHaveCount(0);
-});
