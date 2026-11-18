@@ -383,6 +383,8 @@ test("failed blink timing persistence has visible viewport error and no false su
       node.getBoundingClientRect().top >= 0 &&
       node.getBoundingClientRect().top < window.innerHeight / 2
   )).toBe(true);
+  await page.getByRole("button", { name: "エラーを閉じる" }).click();
+  await expect(page.locator(".preset-error-toast")).toHaveCount(0);
   // Failed storage writes must not reach React collection or a later
   // successful save. Otherwise the later edit silently saves blink timing.
   await expect(page.getByText("目安として3秒間隔", { exact: false })).toBeVisible();
@@ -393,9 +395,6 @@ test("failed blink timing persistence has visible viewport error and no false su
   await page.reload();
   await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
   expect((await saved(page)).collection.blinkTiming).toBeUndefined();
-
-  await page.getByRole("button", { name: "エラーを閉じる" }).click();
-  await expect(page.locator(".preset-error-toast")).toHaveCount(0);
 });
 
 test("failed rename persistence preserves the visible error and unchanged preset name", async ({ page }) => {
