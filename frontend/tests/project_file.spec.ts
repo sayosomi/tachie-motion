@@ -60,6 +60,27 @@ test("project JSON keeps duplicate WAV registrations, Unicode and exact settings
   expect(json).not.toContain("nameDrafts");
 });
 
+test("explicit rest inheritance survives project JSON and rejects conflicting n override", () => {
+  const shapes = { a: [], i: [], u: [], e: [], o: [], n: [] } as
+    Record<"a" | "i" | "u" | "e" | "o" | "n", { path: string; visible: boolean }[]>;
+  const updated: PresetDraft = { ...draft, collection: {
+    ...draft.collection, items: draft.collection.items.map((preset) => ({
+      ...preset, aiueoMouth: shapes, aiueoRestUsesBase: true,
+    })),
+  } };
+  const json = serializeProjectFile(updated, layers, [makeWav("a", 1)], "a");
+  const restored = projectPresetDraft(parseProjectFile(json)).collection.items[0];
+  expect(restored.aiueoRestUsesBase).toBe(true);
+  expect(restored.aiueoMouth?.n).toEqual([]);
+
+  const invalid = JSON.parse(json);
+  invalid.character.collection.items[0].aiueoMouth.n = [{ path: "0/0", visible: false }];
+  expect(() => parseProjectFile(JSON.stringify(invalid))).toThrow(/継承/);
+  invalid.character.collection.items[0].aiueoMouth.n = [];
+  invalid.character.collection.items[0].aiueoRestUsesBase = "true";
+  expect(() => parseProjectFile(JSON.stringify(invalid))).toThrow(/継承/);
+});
+
 test("project parser rejects malformed IDs, paths, versions, references and signatures", () => {
   const base = valid();
   const cases: ((v: Record<string, any>) => void)[] = [
