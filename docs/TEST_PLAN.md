@@ -9,6 +9,14 @@
 - Browser E2E: Playwright import/preview/toggle/change-point/save/export with deterministic fixtures.
 - CI: Linux unit jobs plus macOS/Windows where dependencies allow; manual Resolve import is a separate human gate.
 
+## Public Issue #38 — 単一セリフ書き出しの個別OTIO廃止
+
+- 製品の「選択中の1件」は**PCM音声入り透過MOV 1本のみ**。API応答の`otio`を不要とし、同名の個別OTIOを生成しない。FFprobeで音声PCMと映像のフレーム数／透過を確認する。
+- 出力先の事前診断ではMOVのみを評価し、単体MOVが既存なら上書き／別名を選択可能。同名の既存個別OTIOがある場合は既存MOVを単独で上書きせず、安全な別名を提示する。旧OTIO本体を変更・削除しない。
+- symlink／非通常ファイル、同名回復ディレクトリ、レンダリング中・公開直前の外部変更、PCM内包失敗、バックアップ/公開失敗を故障注入し、旧MOV/OTIO・新規出力先の保護を確認する。
+- 「全件」はMOV群＋全体OTIO 1本という従来仕様のまま。単一APIの変更で一括生成、出力先検証、復旧・音声二重再生防止が退行しないことを検証。
+- Playwrightで単一出力予定、ボタン、完了表示がMOVのみになることを検査し、旧MOV＋OTIOが同名で存在する際の別名誘導も確認。Mac実PSD Humanは見た目／操作性を、Resolveは必要な新経路受け入れだけを別途検証する。
+
 ## Public Issue #36 — 発話・書き出しごとの瞬きランダム化
 
 - 決定論的な純粋スケジューラは、明示したseed・整数フレーム幅に対して同一フレーム列を返す。これはテスト制御用であり、実MOVの再書き出し時のタイミング再現性を要求しない。
