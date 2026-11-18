@@ -178,7 +178,7 @@ test("same-stem legacy OTIO forbids MOV overwrite and requires a new name", asyn
     { (el as HTMLDetailsElement).open = true; });
   await page.locator("#speech-wav-path").fill("/tmp/voice.wav");
   await page.getByRole("button", { name: "WAVを確認" }).click();
-  await expect(page.getByText("片方だけがあります", { exact: false })).toBeVisible();
+  await expect(page.getByText("同名のOTIOまたは特殊ファイルがある", { exact: false })).toBeVisible();
   await expect(page.getByRole("radio", { name: "上書きする" })).toHaveCount(0);
   await expect(page.locator("#speech-save-as")).toHaveValue("speech_001_002");
   await page.getByRole("button", { name: "別名で書き出す" }).click();
