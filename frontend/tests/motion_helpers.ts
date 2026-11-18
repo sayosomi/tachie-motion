@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 /** Open a character's existing PSD groups for mouth-shape authoring. */
 export async function openMotion(page: Page) {
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "動かすパーツ" }).click();
+    .getByRole("button", { name: "可動レイヤー" }).click();
 }
 
 export async function selectMouthGroup(page: Page, name: string, path: string) {
@@ -19,8 +19,8 @@ export async function assignOpenPair(page: Page,
   await openMotion(page);
   await selectMouthGroup(page, groupName, "0");
   // 開閉の初期編集対象は開いた口。旧「開き口」ボタンは廃止済み。
-  await page.getByRole("group", { name: "口パク方式" })
-    .getByRole("button", { name: "開閉" })
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "Open" })
     .getAttribute("aria-pressed").then((value) => {
       if (value !== "true") throw new Error("開閉が選択されていません");
     });

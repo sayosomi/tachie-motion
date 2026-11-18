@@ -34,16 +34,16 @@ test("preset-first list, detail ON/OFF, copy, reorder and refresh recovery", asy
   await expect(page).toHaveURL(/\?preset=/);
   await page.locator("#preset-name").fill("にっこり");
   await page.getByRole("button", { name: "名前を変更" }).click();
-  await page.getByRole("checkbox", { name: "目 [0/1] 基本" }).check();
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).toBeChecked();
+  await page.getByRole("checkbox", { name: "目 [0/1] 固定" }).check();
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 固定" })).toBeChecked();
   await expect.poll(() => previews.at(-1)?.layers.find((x) => x.path === "0/1")?.visible).toBe(true);
   expect(previews.at(-1)?.fingerprint).toBe("1000:2000");
   await expect(page.getByAltText("にっこり のプレビュー")).toBeVisible();
 
   await page.getByRole("button", { name: "顔 [0] を閉じる" }).click();
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 固定" })).toHaveCount(0);
   await page.getByRole("button", { name: "顔 [0] を開く" }).click();
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 固定" })).toBeChecked();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await expect(page.getByText("にっこり")).toBeVisible();
   await expect(page.locator("[data-preset-id]")).toHaveCount(2);
@@ -112,17 +112,17 @@ test("drafting a different PSD path cannot silently discard unsaved preset edits
   await page.locator("#preset-psd-path").fill("/tmp/original.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.getByRole("checkbox", { name: "目 [0/1] 基本" }).check();
+  await page.getByRole("checkbox", { name: "目 [0/1] 固定" }).check();
   await expect.poll(() => paths.length).toBeGreaterThan(0);
   await page.locator("#preset-psd-path-advanced").evaluate((el) => { (el as HTMLDetailsElement).open = true; });
   await page.locator("#preset-psd-path").fill("/tmp/other.psd");
   await expect(page.getByText("新しいPSDパスを入力中です。")).toBeVisible();
-  await page.getByRole("checkbox", { name: "目 [0/1] 基本" }).uncheck();
+  await page.getByRole("checkbox", { name: "目 [0/1] 固定" }).uncheck();
   await expect.poll(() => paths.length).toBeGreaterThan(1);
   expect(paths.every((path) => path === "/tmp/original.psd")).toBe(true);
   page.once("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 固定" })).not.toBeChecked();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await expect(page.locator("[data-preset-id]")).toHaveCount(1);
 });
@@ -156,11 +156,11 @@ test("a delayed PSD response cannot discard an edit made while it was loading", 
   });
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await expect(page.getByRole("button", { name: "読み込み中…" })).toBeDisabled();
-  await page.getByRole("checkbox", { name: "目 [0/0] 基本" }).uncheck();
+  await page.getByRole("checkbox", { name: "目 [0/0] 固定" }).uncheck();
   release();
 
   await expect(page.getByRole("alert")).toContainText("読み込み結果を破棄しました");
-  await expect(page.getByRole("checkbox", { name: "目 [0/0] 基本" })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "目 [0/0] 固定" })).not.toBeChecked();
   await expect(page.getByRole("note")).toContainText("このブラウザに自動保存");
   await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
 });
@@ -251,12 +251,12 @@ test("refresh restores an unfinished name edit and modified ON/OFF states", asyn
   await page.locator("#preset-psd-path").fill("/tmp/リロード.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.getByRole("checkbox", { name: "目 [0/1] 基本" }).check();
+  await page.getByRole("checkbox", { name: "目 [0/1] 固定" }).check();
   await page.locator("#preset-name").fill("編集中の名前");
   await page.reload();
   await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
   await expect(page.locator("#preset-name")).toHaveValue("編集中の名前");
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 固定" })).toBeChecked();
 });
 
 test("changed PSD fingerprint fails closed without erasing the stored draft", async ({ page }) => {
@@ -401,15 +401,8 @@ test("Open shapes preserve base visibility and group-scoped search with large PS
     .toBe(false);
   await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/1")?.visible)
     .toBe(true);
-  const shapeTabs = page.getByRole("group", { name: "編集する口形" });
-  await page.getByRole("button", { name: "閉じたときの口も設定" }).click();
-  await shapeTabs.getByRole("button", { name: "口を閉じたとき" }).click();
-  await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/0")?.visible)
-    .toBe(true);
-  await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/1")?.visible)
-    .toBe(false);
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "通常レイヤー" }).click();
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await expect(closed.getByRole("checkbox")).toBeChecked();
   await expect(opened.getByRole("checkbox")).not.toBeChecked();
 
@@ -533,8 +526,8 @@ test("tall PSD preview fits its whole canvas and supports mouth focus, pan and s
   expect(first).toMatch(/scale\(8\)/);
   expect(first).not.toContain("translate(0px, 0px)");
 
-  await expect(page.getByRole("group", { name: "口パク方式" })
-    .getByRole("button", { name: "開閉" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "Open" })).toHaveAttribute("aria-pressed", "true");
   await expect(image).toBeVisible();
   await expect(image).toHaveAttribute("style", first!);
   // The preset editor sits below the source picker and may be outside the

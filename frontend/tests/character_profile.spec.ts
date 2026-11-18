@@ -237,8 +237,8 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
   await openPsd(page);
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await assignOpenPair(page, "0/0", "0/1", "顔");
-  await page.getByRole("group", { name: "口パク方式" })
-      .getByRole("button", { name: "あいうえお" }).click();
+  await page.getByRole("group", { name: "口の方式" })
+      .getByRole("button", { name: "aiueo" }).click();
   await page.locator('.preset-layer[data-layer-path="0/0"]')
     .getByRole("checkbox", { name: "閉じ口 [0/0] あ" }).uncheck();
   await page.locator('.preset-layer[data-layer-path="0/1"]')
@@ -269,8 +269,8 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     await openMotion(fresh);
     await expect(fresh.locator('.preset-layer[data-layer-path="0/0"]'))
       .toHaveAttribute("data-open-role", "closed");
-    await fresh.getByRole("group", { name: "口パク方式" })
-      .getByRole("button", { name: "あいうえお" }).click();
+    await fresh.getByRole("group", { name: "口の方式" })
+      .getByRole("button", { name: "aiueo" }).click();
     await expect(fresh.locator('.preset-layer[data-layer-path="0/1"]'))
       .toHaveAttribute("data-aiueo-role", "show");
     await fresh.getByRole("group", { name: "編集する口形" })
@@ -281,8 +281,8 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     await fresh.reload();
     await fresh.getByRole("button", { name: "詳細を編集" }).click();
     await openMotion(fresh);
-    await fresh.getByRole("group", { name: "口パク方式" })
-      .getByRole("button", { name: "あいうえお" }).click();
+    await fresh.getByRole("group", { name: "口の方式" })
+      .getByRole("button", { name: "aiueo" }).click();
     await expect(fresh.locator('.preset-layer[data-layer-path="0/1"]'))
       .toHaveAttribute("data-aiueo-role", "show");
 
@@ -508,10 +508,10 @@ test("pending editing during async profile read prevents a stale import", async 
   });
   await importJson(page, saved);
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.getByRole("checkbox", { name: "開き口 [0/1] 基本" }).check();
+  await page.getByRole("checkbox", { name: "開き口 [0/1] 固定" }).check();
   unblock();
   await expect(page.getByRole("alert")).toContainText("読込み中に編集内容が変更");
-  await expect(page.getByRole("checkbox", { name: "開き口 [0/1] 基本" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "開き口 [0/1] 固定" })).toBeChecked();
 });
 
 test("character JSON validates real group paths and the preset mouth switch", async ({ page }) => {
@@ -519,8 +519,7 @@ test("character JSON validates real group paths and the preset mouth switch", as
   await openPsd(page);
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await assignOpenPair(page, "0/0", "0/1", "顔");
-  await page.getByRole("tabpanel", { name: "口パク" })
-    .getByRole("button", { name: "OFFにする" }).click();
+  await page.getByRole("checkbox", { name: "口 ON" }).uncheck();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const saved = await exportJson(page);
   expect(saved.version).toBe(1);

@@ -36,49 +36,27 @@ async function openEditor(page: Page, requests: State[][] = []) {
 
 async function chooseMouthGroups(page: Page) {
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "動かすパーツ" }).click();
+    .getByRole("button", { name: "可動レイヤー" }).click();
   await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口１ [0/0]" }).check();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口２ [0/1]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
-  await page.getByRole("button", { name: "閉じたときの口も設定" }).click();
-  await shape(page, "口を閉じたとき").click();
 }
 
-test("Open closed mouth inherits the base preview without needing a duplicate mouth assignment", async ({ page }) => {
+test("Open uses fixed layers for close and edits only the open pose", async ({ page }) => {
   const requests: State[][] = [];
   await openEditor(page, requests);
   const portrait = page.locator(".preset-image-viewport img");
-  await expect(portrait).toBeVisible();
   const baseSource = await portrait.getAttribute("src");
-  expect(baseSource).toBe(png);
-
-  await chooseMouthGroups(page); // Opens the closed-mouth editing state.
-  await expect(shape(page, "口を閉じたとき")).toHaveAttribute("aria-pressed", "true");
+  await chooseMouthGroups(page);
+  await expect(page.getByText("口のopenを指定してください")).toBeVisible();
   await expect(portrait).toHaveAttribute("src", baseSource!);
-  await expect(page.getByText("口形を指定してください")).toHaveCount(0);
-  await expect(page.locator(".preview-empty")).toHaveCount(0);
-  expect(requests).toHaveLength(0); // Inherited state needs no extra preview render.
-
-  await shape(page, "口を開けたとき").click();
-  await expect(page.getByText("開き口を指定してください")).toBeVisible();
-  await shape(page, "口を閉じたとき").click();
-  await expect(portrait).toHaveAttribute("src", baseSource!);
-  await expect(page.getByText("開き口を指定してください")).toHaveCount(0);
-
-  // Only the opened mouth is edited; the closed state is inherited and stored
-  // as the paired base values for the targeted layers when Open is configured.
-  await shape(page, "口を開けたとき").click();
   await checkbox(page, "0/0/0").uncheck();
   await checkbox(page, "0/1/0").check();
-  await shape(page, "口を閉じたとき").click();
-  await expect(checkbox(page, "0/0/0")).toBeChecked();
-  await expect(checkbox(page, "0/1/0")).not.toBeChecked();
-  await expect(portrait).toBeVisible();
-  await expect(page.locator(".preview-empty")).toHaveCount(0);
-
+  await expect.poll(() => requests.at(-1)?.find((x) => x.path === "0/1/0")?.visible)
+    .toBe(true);
   const saved = JSON.parse((await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v1")))!);
   expect(saved.collection.items[0].openMouth.closed).toEqual([
@@ -88,9 +66,10 @@ test("Open closed mouth inherits the base preview without needing a duplicate mo
     { path: "0/0/0", visible: false }, { path: "0/1/0", visible: true },
   ]);
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "通常レイヤー" }).click();
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await expect(checkbox(page, "0/0/0")).toBeChecked();
   await expect(checkbox(page, "0/1/0")).not.toBeChecked();
+  await expect(portrait).toHaveAttribute("src", baseSource!);
 });
 
 test("unconfigured Open and aiueo poses keep base preview and enable zoom before selection", async ({ page }) => {
@@ -102,9 +81,8 @@ test("unconfigured Open and aiueo poses keep base preview and enable zoom before
   const image = page.locator(".preset-image-viewport img");
   const mouthZoom = page.getByRole("button", { name: "口元へ" });
   const selectedZoom = page.getByRole("button", { name: "選択位置へ" });
-  await shape(page, "口を開けたとき").click();
   await expect(image).toHaveAttribute("src", png);
-  await expect(page.getByText("開き口を指定してください")).toBeVisible();
+  await expect(page.getByText("口のopenを指定してください")).toBeVisible();
   await expect(mouthZoom).toBeEnabled(); // group locations work before any Open targets
   await expect(selectedZoom).toBeDisabled(); // still needs a selected source layer
   const unconfiguredDraft = await page.evaluate(() =>
@@ -118,8 +96,8 @@ test("unconfigured Open and aiueo poses keep base preview and enable zoom before
   await selectedZoom.click();
   await expect(image).toHaveAttribute("style", /scale\(8\)/);
 
-  await page.getByRole("group", { name: "口パク方式" })
-    .getByRole("button", { name: "あいうえお" }).click();
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "aiueo" }).click();
   await expect(shape(page, "あ")).toHaveAttribute("aria-pressed", "true");
   await expect(image).toHaveAttribute("src", png);
   await expect(mouthZoom).toBeEnabled();
@@ -138,7 +116,6 @@ test("unconfigured Open and aiueo poses keep base preview and enable zoom before
 test("mouth focus falls back to source PSD groups if no shape is assigned or selected", async ({ page }) => {
   await openEditor(page);
   await chooseMouthGroups(page);
-  await shape(page, "口を開けたとき").click();
   await expect(page.locator(".preset-image-viewport img")).toBeVisible();
   await expect(page.getByRole("button", { name: "口元へ" })).toBeEnabled();
   await page.getByRole("button", { name: "口元へ" }).click();
@@ -158,17 +135,19 @@ test("mouth motion scopes original PSD groups and Open/aiueo each have independe
   await expect(checkbox(page, "0/0")).toHaveCount(0);
 
   // One Open action, but closed and open shapes can come from separate PSD groups.
-  await shape(page, "口を開けたとき").click();
   await checkbox(page, "0/0/0").uncheck();
   await checkbox(page, "0/1/0").check();
   await expect.poll(() => requests.at(-1)?.find((entry) => entry.path === "0/1/0")?.visible)
     .toBe(true);
-  await shape(page, "口を閉じたとき").click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await expect(checkbox(page, "0/0/0")).toBeChecked();
   await expect(checkbox(page, "0/1/0")).not.toBeChecked();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
 
-  await page.getByRole("group", { name: "口パク方式" })
-    .getByRole("button", { name: "あいうえお" }).click();
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "aiueo" }).click();
   for (const name of ["あ", "い", "う", "え", "お", "ん"]) {
     await shape(page, name).click();
     await checkbox(page, "0/0/0").uncheck();
@@ -177,7 +156,7 @@ test("mouth motion scopes original PSD groups and Open/aiueo each have independe
   }
 
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "通常レイヤー" }).click();
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await expect(layer(page, "0")).toBeVisible();
   await expect(layer(page, "0/2/0")).toBeVisible();
   // Normal/base visibility includes motion-target layers as well: the user
@@ -205,7 +184,7 @@ test("mouth motion scopes original PSD groups and Open/aiueo each have independe
   await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "動かすパーツ" }).click();
+    .getByRole("button", { name: "可動レイヤー" }).click();
   await expect(layer(page, "0/1/0")).toBeVisible();
   await expect(layer(page, "0/2/0")).toHaveCount(0);
 });
@@ -213,23 +192,22 @@ test("mouth motion scopes original PSD groups and Open/aiueo each have independe
 test("parent visibility remains authoritative, presets can disable mouth without deleting shapes", async ({ page }) => {
   await openEditor(page);
   await chooseMouthGroups(page);
-  await shape(page, "口を開けたとき").click();
   await checkbox(page, "0/0/0").uncheck();
   await checkbox(page, "0/1/0").check();
-  await page.getByRole("button", { name: "OFFにする" }).click();
+  await page.getByRole("checkbox", { name: "口 ON" }).uncheck();
   let saved = JSON.parse((await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v1")))!);
   expect(saved.collection.items[0].mouthMotionEnabled).toBe(false);
   expect(saved.collection.items[0].openMouth.opened).toHaveLength(2);
 
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "通常レイヤー" }).click();
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await checkbox(page, "0").uncheck();
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "動かすパーツ" }).click();
-  await expect(page.getByRole("button", { name: "ONにする" })).toBeVisible();
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await expect(page.getByRole("checkbox", { name: "口 ON" })).not.toBeChecked();
   await expect(page.locator(".preset-layer-list")).toHaveCount(0);
-  await page.getByRole("button", { name: "ONにする" }).click();
+  await page.getByRole("checkbox", { name: "口 ON" }).check();
   await expect(page.locator(".preset-editor [role=status]"))
     .toContainText("親グループが非表示");
   saved = JSON.parse((await page.evaluate(() =>
@@ -241,7 +219,6 @@ test("parent visibility remains authoritative, presets can disable mouth without
 test("configured group cannot be detached until its leaf targets are cleared", async ({ page }) => {
   await openEditor(page);
   await chooseMouthGroups(page);
-  await shape(page, "口を開けたとき").click();
   await checkbox(page, "0/1/0").check();
   await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
@@ -345,7 +322,7 @@ test("Open and aiueo have separate PSDTool sibling radio selections and a shared
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "動かすパーツ" }).click();
+    .getByRole("button", { name: "可動レイヤー" }).click();
   await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "!口 [0]" }).check();
@@ -359,20 +336,22 @@ test("Open and aiueo have separate PSDTool sibling radio selections and a shared
   await expect(page.locator(".preview-empty")).toHaveCount(0);
 
   // 開閉の初期編集対象は開いた口。詳細設定なしでは選択ボタンを出さない。
-  await expect(page.getByRole("group", { name: "口パク方式" })
-    .getByRole("button", { name: "開閉" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "Open" })).toHaveAttribute("aria-pressed", "true");
   await expect(shapes(page)).toHaveCount(0);
   await layer(page, "0/1").getByRole("radio").check();
   await expect(layer(page, "0/0").getByRole("radio")).not.toBeChecked();
   await expect(layer(page, "0/1").getByRole("radio")).toBeChecked();
   await expect(layer(page, "0/2").locator('input')).toHaveCount(0);
-  await page.getByRole("button", { name: "閉じたときの口も設定" }).click();
-  await shape(page, "口を閉じたとき").click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await expect(layer(page, "0/0").getByRole("radio")).toBeChecked();
   await expect(layer(page, "0/1").getByRole("radio")).not.toBeChecked();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
 
-  await page.getByRole("group", { name: "口パク方式" })
-    .getByRole("button", { name: "あいうえお" }).click();
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "aiueo" }).click();
   await shape(page, "あ").click();
   await layer(page, "0/1").getByRole("radio").check();
   await shape(page, "い").click();
