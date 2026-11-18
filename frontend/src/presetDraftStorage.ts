@@ -3,6 +3,7 @@ import type { Presets } from "./presetModel";
 import { AIUEO_KEYS } from "./presetModel";
 import { validMotionGroups } from "./motionGroups";
 import { validatePsdChoices } from "./psdChoice";
+import { validBlinkTiming } from "./blinkTiming";
 
 // Crash/reload recovery for this one browser and exact site origin only.
 // Not the versioned, portable character-profile format in PRODUCT_SPEC §7.
@@ -35,6 +36,9 @@ export function readPresetDraft(): PresetDraft | null {
     throw new Error("保存済みプリセットの形式が不正です");
   }
   const collection = value.collection as unknown as Presets;
+  if (collection.blinkTiming !== undefined && !validBlinkTiming(collection.blinkTiming)) {
+    throw new Error("保存済み瞬き時間設定が不正です");
+  }
   if (collection.motionGroups !== undefined) {
     const motion: unknown = collection.motionGroups;
     const validGroupPaths = (value: unknown) =>
