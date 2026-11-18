@@ -6,8 +6,7 @@ export type WavData = {
 };
 export type ExportData = {
   mov: string;
-  otio: string;
-  frames: number;
+   frames: number;
   sample_count: number;
   warning?: string;
 };
