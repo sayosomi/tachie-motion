@@ -52,3 +52,27 @@ def schedule_blink_frames(
         start += interval_frames + _jitter_offset(seed, event, jitter_frames)
         event += 1
     return tuple(closed)
+
+
+def compose_mouth_eye_indices(
+    mouth_indices: tuple[int, ...],
+    eye_closed: tuple[bool, ...],
+    *,
+    mouth_pose_count: int,
+) -> tuple[int, ...]:
+    """Map independent lip and blink frames to a two-pose-per-mouth PNG grid.
+
+    Each mouth pose has an open-eye image at even index and a closed-eye image
+    at the following odd index. The caller must render that exact ordering.
+    """
+    if type(mouth_pose_count) is not int or mouth_pose_count < 1:
+        raise ValueError("Invalid mouth pose count")
+    if len(mouth_indices) != len(eye_closed):
+        raise ValueError("Lip and blink frame counts disagree")
+    result = []
+    for mouth, closed in zip(mouth_indices, eye_closed):
+        if (type(mouth) is not int or not 0 <= mouth < mouth_pose_count
+                or type(closed) is not bool):
+            raise ValueError("Invalid lip or blink frame")
+        result.append(2 * mouth + int(closed))
+    return tuple(result)
