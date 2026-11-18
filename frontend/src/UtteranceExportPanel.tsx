@@ -9,6 +9,7 @@ export type ExportScope = "single" | "all";
 export type ExportDestination = {
   state: "available" | "complete" | "partial" | "unsafe" | "recovery_required";
   suggested_basename: string;
+  folder_recovery_required?: boolean;
 };
 export type BatchStatus = {
   running: boolean;
@@ -121,10 +122,12 @@ export default function UtteranceExportPanel({
           {info.state === "partial"
             ? "旧MOV・OTIOの一部が存在します。安全のため別名で保存してください。"
             : info.state === "unsafe"
-              ? "同名のOTIOまたは特殊ファイルがあるため、MOVだけの上書きはできません。別名で保存してください。"
-              : "前回の書き出しで復旧確認が必要なファイルが残っています。同名への書き出しは停止します。"}
+              ? "既存OTIOがこのMOVを参照している可能性、または特殊ファイルがあるため、MOVだけの上書きはできません。別名で保存してください。"
+              : info.folder_recovery_required
+                ? "前回の一括書き出しの復旧領域が残っています。このフォルダへの書き出しは停止します。復旧内容を確認するか別フォルダを選んでください。"
+                : "前回の書き出しで復旧確認が必要なファイルが残っています。同名への書き出しは停止します。"}
         </p>}
-      {requiresAlternate && <div className="output-save-as">
+      {requiresAlternate && !info?.folder_recovery_required && <div className="output-save-as">
         <label htmlFor="speech-save-as">別名のファイル名</label>
         <input id="speech-save-as" value={saveAsName} disabled={locked}
           onChange={(e) => onRevise(current.id, { saveAsName: e.target.value })} />
