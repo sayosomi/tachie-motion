@@ -31,7 +31,7 @@ test("PSD name selection uses unique paths without toggling base or Open roles",
   const previewRequestCount = await openDetail(page);
   const secondName = page.getByRole("button", { name: "目 [0/1] を選択" });
   const firstName = page.getByRole("button", { name: "目 [0/0] を選択" });
-  const secondCheckbox = page.getByRole("checkbox", { name: "目 [0/1] 基本" });
+  const secondCheckbox = page.getByRole("checkbox", { name: "目 [0/1] 固定" });
 
 
   await expect(page.getByRole("button", { name: "選択位置へ" })).toBeDisabled();

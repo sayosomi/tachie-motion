@@ -122,8 +122,8 @@ test("cancelled Finder picker keeps original PSD edit state", async ({ page }) =
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await expect(page.getByRole("button", { name: "詳細を編集" })).toBeVisible();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.getByRole("checkbox", { name: "mouth [0/0] 基本" }).uncheck();
-  await expect(page.getByRole("checkbox", { name: "mouth [0/0] 基本" })).not.toBeChecked();
+  await page.getByRole("checkbox", { name: "mouth [0/0] 固定" }).uncheck();
+  await expect(page.getByRole("checkbox", { name: "mouth [0/0] 固定" })).not.toBeChecked();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const originalDraft = await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v1"));
@@ -134,7 +134,7 @@ test("cancelled Finder picker keeps original PSD edit state", async ({ page }) =
   expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1")))
     .toBe(originalDraft);
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await expect(page.getByRole("checkbox", { name: "mouth [0/0] 基本" })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "mouth [0/0] 固定" })).not.toBeChecked();
 });
 
 test("Finder-selected replacement PSD rejected by confirm leaves original edit and path", async ({ page }) => {
@@ -170,7 +170,7 @@ test("Finder-selected replacement PSD rejected by confirm leaves original edit a
   await page.locator("#preset-psd-path").fill("/tmp/original.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.getByRole("checkbox", { name: "mouth [0/0] 基本" }).uncheck();
+  await page.getByRole("checkbox", { name: "mouth [0/0] 固定" }).uncheck();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const draftBefore = await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v1"));
@@ -185,7 +185,7 @@ test("Finder-selected replacement PSD rejected by confirm leaves original edit a
   expect(await page.evaluate(() => localStorage.getItem("tachie-motion.picker-dir.v1.psd")))
     .toBeNull();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await expect(page.getByRole("checkbox", { name: "mouth [0/0] 基本" })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "mouth [0/0] 固定" })).not.toBeChecked();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
 
   await Promise.all([

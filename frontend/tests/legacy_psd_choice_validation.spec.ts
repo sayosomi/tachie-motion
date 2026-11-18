@@ -46,7 +46,7 @@ const draft = (): PresetDraft => ({
   collection: structuredClone(validCollection), nameDrafts: {},
 });
 
-test("source PSD validation preserves valid old JSON but rejects legacy * / ! conflicts in every pose", () => {
+test("source PSD validates fixed and active shapes but preserves inert legacy close overrides", () => {
   const safe = profile();
   const parsed = parseCharacterProfile(JSON.stringify(safe));
   expect(() => validateCharacterProfileOpenTargets(parsed, layers)).not.toThrow();
@@ -66,9 +66,12 @@ test("source PSD validation preserves valid old JSON but rejects legacy * / ! co
   mandatoryDraft.collection.items[0].base[3].visible = false;
   expect(matchesSource(mandatoryDraft, fingerprint, layers)).toBe(false);
 
-  const invalidClosed = profile();
-  invalidClosed.collection.items[0].openMouth!.closed[1].visible = true;
-  expect(() => validateCharacterProfileOpenTargets(invalidClosed, layers)).toThrow("Open閉じ口");
+  const legacyClosed = profile();
+  legacyClosed.collection.items[0].openMouth!.closed[1].visible = true;
+  // Inert historical close cannot override or block the fixed-layer baseline.
+  expect(() => validateCharacterProfileOpenTargets(legacyClosed, layers)).not.toThrow();
+  const saved = JSON.stringify(legacyClosed);
+  expect(parseCharacterProfile(saved).collection.items[0].openMouth!.closed[1].visible).toBe(true);
 
   const invalidOpen = profile();
   invalidOpen.collection.items[0].openMouth!.opened[2] = { path: "0/2", visible: false };

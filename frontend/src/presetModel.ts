@@ -228,18 +228,19 @@ export function setOpenShapeVisibility(
   const preset = current.items.find((item) => item.id === id);
   const base = preset?.base.find((layer) => layer.path === path);
   if (!preset || !base) throw new Error("Unknown preset or layer");
-  const oldClosed = preset.openMouth?.closed.find((layer) => layer.path === path);
+  // The resting mouth always comes from base. A legacy closed override
+  // never prevents an edited active target from being removed.
   const oldOpened = preset.openMouth?.opened.find((layer) => layer.path === path);
-  const nextClosed = shape === "closed" ? visible : (oldClosed?.visible ?? base.visible);
   const nextOpened = shape === "opened" ? visible : (oldOpened?.visible ?? base.visible);
   const closedMap = new Map(preset.openMouth?.closed.map((layer) => [layer.path, layer.visible]));
   const openedMap = new Map(preset.openMouth?.opened.map((layer) => [layer.path, layer.visible]));
-  // Clearing both deviations removes the target altogether.
-  if (nextClosed === base.visible && nextOpened === base.visible) {
+  // An active open leaf matching base no longer needs a target; the
+  // paired legacy closed entry is cleared only for the leaf being edited.
+  if (nextOpened === base.visible) {
     closedMap.delete(path);
     openedMap.delete(path);
   } else {
-    closedMap.set(path, nextClosed);
+    closedMap.set(path, base.visible);
     openedMap.set(path, nextOpened);
   }
   const closed = preset.base.filter((layer) => closedMap.has(layer.path))

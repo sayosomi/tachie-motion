@@ -138,7 +138,9 @@ export default function PresetDetail({
       : previewState === "eyes-opened" || previewState === "eyes-closed"
         ? preset.eyes?.[eyePose]
         : preset.aiueoMouth?.[previewState.slice(6) as AiueoKey];
-  const unconfiguredOpened = previewState === "opened" && !shape?.length;
+  const unconfiguredOpened = previewState === "opened" &&
+    !preset.openMouth?.opened.some((layer) =>
+      baseByPath.has(layer.path) && baseByPath.get(layer.path) !== layer.visible);
   const shapeKey = JSON.stringify([sourcePath, fingerprint, sourceIdentity,
     preset.base, shape, previewState, preset.mouthMotionEnabled, preset.blinkEnabled]);
   useEffect(() => {
