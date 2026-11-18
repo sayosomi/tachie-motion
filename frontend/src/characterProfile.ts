@@ -66,7 +66,7 @@ function paired(value: unknown, keys: string[], allowed: Set<string>): Record<st
 }
 
 function preset(value: unknown, allowed: Set<string>): UnifiedPreset {
-  fields(value, ["id", "name", "base", "blinkEnabled"], ["openMouth", "aiueoMouth", "eyes", "mouthMotionEnabled"]);
+  fields(value, ["id", "name", "base", "blinkEnabled"], ["openMouth", "aiueoMouth", "eyes", "mouthMotionEnabled", "aiueoRestUsesBase"]);
   // Preset IDs are opaque stable identifiers, not necessarily UUIDs.
   // Reject Object.prototype property names because UI state indexes drafts
   // and previews by ID using ordinary JavaScript records.
@@ -90,8 +90,15 @@ function preset(value: unknown, allowed: Set<string>): UnifiedPreset {
       throw new Error("キャラクター設定JSONのOpen口形が不正です");
     }
   }
+  if (Object.hasOwn(value, "aiueoRestUsesBase") &&
+      typeof value.aiueoRestUsesBase !== "boolean") {
+    throw new Error("キャラクター設定JSONの固定口形継承が不正です");
+  }
   if (Object.hasOwn(value, "aiueoMouth")) {
-    paired(value.aiueoMouth, ["a", "i", "u", "e", "o", "n"], allowed);
+    const mouth = paired(value.aiueoMouth, ["a", "i", "u", "e", "o", "n"], allowed);
+    if (value.aiueoRestUsesBase === true && mouth.n.length) {
+      throw new Error("固定レイヤー継承と個別の「ん」口形は同時に指定できません");
+    }
   }
   if (Object.hasOwn(value, "eyes")) {
     paired(value.eyes, ["opened", "closed"], allowed);

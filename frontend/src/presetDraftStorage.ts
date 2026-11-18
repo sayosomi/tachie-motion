@@ -60,7 +60,8 @@ export function readPresetDraft(): PresetDraft | null {
       || Object.hasOwn(Object.prototype, item.id)
       || typeof item.name !== "string" || !item.name.trim()
       || !Array.isArray(item.base) || typeof item.blinkEnabled !== "boolean"
-      || (item.mouthMotionEnabled !== undefined && typeof item.mouthMotionEnabled !== "boolean")) {
+      || (item.mouthMotionEnabled !== undefined && typeof item.mouthMotionEnabled !== "boolean")
+      || (item.aiueoRestUsesBase !== undefined && typeof item.aiueoRestUsesBase !== "boolean")) {
       throw new Error("保存済みプリセットの内容が不正です");
     }
     const name = item.name.trim().normalize("NFC").toLocaleLowerCase();
@@ -113,6 +114,9 @@ export function readPresetDraft(): PresetDraft | null {
         throw new Error("保存済みaiueo口形設定が不正です");
       }
       for (const key of AIUEO_KEYS) parseShape(mouth[key]);
+      if (item.aiueoRestUsesBase === true && (mouth.n as unknown[]).length) {
+        throw new Error("保存済みの「ん」口形と固定レイヤー継承が競合しています");
+      }
     }
     if (item.eyes !== undefined) {
       const eyes: unknown = item.eyes;

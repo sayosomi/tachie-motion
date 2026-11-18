@@ -6,7 +6,7 @@ import { PreviewSourceChangedError, useBrowserPreview } from "./useBrowserPrevie
 import {
   appendPreset, availablePresetName, createPreset, duplicatePreset, movePreset,
   removeSessionPreset, renamePreset, reorderPresets,
-  setBaseLayerChoice, setAiueoPsdChoice, setOpenPsdChoice, setMouthMotionEnabled,
+  setBaseLayerChoice, setAiueoPsdChoice, setAiueoRestUsesBase, setOpenPsdChoice, setMouthMotionEnabled,
   setEyePsdChoice, setBlinkEnabled,
   type AiueoKey,
   type Presets, type UnifiedPreset,
@@ -517,6 +517,8 @@ export default function PresetWorkspace() {
         updatePresets(setOpenPsdChoice(collection, active.id, psd.layers, shape, path, visible))}
       onAiueoChoiceChange={(key: AiueoKey, path: string, visible: boolean) =>
         updatePresets(setAiueoPsdChoice(collection, active.id, psd.layers, key, path, visible))}
+      onAiueoRestBaseChange={(enabled) =>
+        updatePresets(setAiueoRestUsesBase(collection, active.id, enabled))}
       onDelete={() => remove(active.id)}
     /> : psd && <section className="panel preset-list-section">
       <div className="preset-list-header">

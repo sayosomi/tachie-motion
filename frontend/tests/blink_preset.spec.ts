@@ -62,7 +62,8 @@ test("eyes remain independent of mouth and restore their configured pose", async
   await expect(page.locator(".preset-image-viewport img")).toHaveAttribute("src", png);
   await expect(page.getByRole("heading", { name: "目を閉じたときの表示" })).toHaveCount(0);
 
-  await entry(page, "0/1/1").getByRole("radio").check();
+  await entry(page, "0/1/1").getByRole("button", { name: /を選択/ }).click();
+  await expect(entry(page, "0/1/1").getByRole("radio")).toBeChecked();
   await expect(entry(page, "0/1/0").getByRole("radio")).not.toBeChecked();
   await expect(entry(page, "0/1/1")).toHaveAttribute("data-eye-role", "show");
   await expect.poll(() => {

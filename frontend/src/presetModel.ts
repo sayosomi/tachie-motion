@@ -10,6 +10,8 @@ export type UnifiedPreset = {
   base: Visibility[];
   openMouth?: { closed: Shape; opened: Shape };
   aiueoMouth?: { a: Shape; i: Shape; u: Shape; e: Shape; o: Shape; n: Shape };
+  /** The user explicitly chose fixed layers for the silent "n" mouth. */
+  aiueoRestUsesBase?: boolean;
   eyes?: { opened: Shape; closed: Shape };
   blinkEnabled: boolean;
   /** Optional for backwards compatibility. Undefined means enabled. */
@@ -132,6 +134,20 @@ export type AiueoKey = typeof AIUEO_KEYS[number];
 export type AiueoLayerRole = "base" | "show" | "hide";
 export type AiueoMouth = NonNullable<UnifiedPreset["aiueoMouth"]>;
 
+/** Record the explicit base choice; the n renderer still receives an empty override. */
+export function setAiueoRestUsesBase(
+  current: Presets, id: string, enabled: boolean,
+): Presets {
+  return { ...current, items: current.items.map((item) => {
+    if (item.id !== id) return item;
+    const nextMouth = item.aiueoMouth
+      ? { ...item.aiueoMouth, n: enabled ? [] : item.aiueoMouth.n } : undefined;
+    const aiueoMouth = nextMouth && AIUEO_KEYS.some((key) => nextMouth[key].length)
+      ? nextMouth : undefined;
+    return { ...item, aiueoMouth, aiueoRestUsesBase: enabled ? true : undefined };
+  }) };
+}
+
 export function aiueoLayerRole(
   preset: UnifiedPreset, key: AiueoKey, path: string,
 ): AiueoLayerRole {
@@ -161,7 +177,8 @@ export function assignAiueoLayerRole(
   ])) as AiueoMouth;
   const aiueoMouth = AIUEO_KEYS.some((name) => next[name].length) ? next : undefined;
   return { ...current, items: current.items.map((item) =>
-    item.id === id ? { ...item, aiueoMouth } : item) };
+    item.id === id ? { ...item, aiueoMouth,
+      aiueoRestUsesBase: key === "n" ? undefined : item.aiueoRestUsesBase } : item) };
 }
 
 export type OpenMouth = NonNullable<UnifiedPreset["openMouth"]>;

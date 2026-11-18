@@ -36,6 +36,7 @@ type Props = {
   onEyeShapeChange: (pose: "opened" | "closed", path: string, visible: boolean) => void;
   onOpenShapeChange: (shape: "closed" | "opened", path: string, visible: boolean) => void;
   onAiueoChoiceChange: (key: AiueoKey, path: string, visible: boolean) => void;
+  onAiueoRestBaseChange: (enabled: boolean) => void;
   onDelete: () => void;
 };
 
@@ -49,7 +50,7 @@ export default function PresetDetail({
   sourcePath, fingerprint, canvasWidth, canvasHeight, nameDraft,
   onNameDraftChange, onBack, onRename, onToggle, mouthGroups, eyeGroups,
   onMouthGroupsChange, onEyeGroupsChange, onMouthMotionChange, onBlinkChange,
-  onEyeShapeChange, onOpenShapeChange, onAiueoChoiceChange, onDelete,
+  onEyeShapeChange, onOpenShapeChange, onAiueoChoiceChange, onAiueoRestBaseChange, onDelete,
 }: Props) {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -89,8 +90,10 @@ export default function PresetDetail({
   ).map((layer) => layer.path));
   const currentMotionShape = motionKind === "eyes" ? preset.eyes?.closed
     : roleMode === "open" ? preset.openMouth?.opened : preset.aiueoMouth?.[aiueoKey];
-  const hasConfiguredMotionShape = currentMotionShape?.some((entry) =>
-    eligible.has(entry.path) && baseByPath.get(entry.path) !== entry.visible) ?? false;
+  const hasConfiguredMotionShape = (motionKind === "mouth" && roleMode === "aiueo"
+      && aiueoKey === "n" && preset.aiueoRestUsesBase === true) ||
+    (currentMotionShape?.some((entry) =>
+      eligible.has(entry.path) && baseByPath.get(entry.path) !== entry.visible) ?? false);
   const queryText = query.trim().toLocaleLowerCase();
   const activeFilter = Boolean(queryText);
   const matches = new Set<string>();
@@ -340,7 +343,21 @@ export default function PresetDetail({
                 ? onMouthGroupsChange : onEyeGroupsChange} />
           </div>}
         </>}
-        {(area === "normal" || (motionEnabled && selectedGroups.length > 0)) && <>
+        {area === "motion" && motionEnabled && selectedGroups.length > 0 &&
+          motionKind === "mouth" && roleMode === "aiueo" && aiueoKey === "n" &&
+          <label className="preset-inherit-base">
+            <input type="checkbox" aria-label="固定レイヤーを引き継ぐ"
+              checked={preset.aiueoRestUsesBase === true}
+              onChange={(event) => onAiueoRestBaseChange(event.target.checked)} />
+            固定レイヤーを引き継ぐ
+          </label>}
+        {area === "motion" && motionEnabled && selectedGroups.length > 0
+          && motionKind === "mouth" && roleMode === "aiueo" && aiueoKey === "n"
+          && preset.aiueoRestUsesBase === true &&
+          <p className="preset-motion-instruction">② 「ん」の口形：固定レイヤーを使用中</p>}
+        {(area === "normal" || (motionEnabled && selectedGroups.length > 0
+          && !(motionKind === "mouth" && roleMode === "aiueo"
+            && aiueoKey === "n" && preset.aiueoRestUsesBase === true))) && <>
         {area === "motion" && <p className="preset-motion-instruction">
           {motionKind === "eyes" ? "② 閉じた目のレイヤー"
             : roleMode === "open" ? "② 開いた口のレイヤー"
@@ -369,6 +386,12 @@ export default function PresetDetail({
               previewState === "opened"
               ? preset.openMouth?.[previewState].find((item) => item.path === layer.path)?.visible ?? on
               : role === "base" ? on : role === "show";
+            const applyVisibility = (visible: boolean) => {
+              if (editingBase) onToggle(layer.path, visible);
+              else if (motionKind === "eyes") onEyeShapeChange(eyePose, layer.path, visible);
+              else if (roleMode === "open") onOpenShapeChange("opened", layer.path, visible);
+              else onAiueoChoiceChange(aiueoKey, layer.path, visible);
+            };
             return <div key={layer.path} data-layer-path={layer.path}
               data-aiueo-role={area === "motion" && motionKind === "mouth" &&
                 roleMode === "aiueo" && !isGroup && !editingBase ? role : undefined}
@@ -395,25 +418,23 @@ export default function PresetDetail({
                       + "-" + psdParentPath(layer.path) : undefined}
                   checked={editingBase ? on : effective}
                   onChange={(event) => {
-                    const selected = event.target.checked;
-                    if (editingBase) onToggle(layer.path, selected);
-                    else if (motionKind === "eyes") {
-                      onEyeShapeChange(eyePose, layer.path, selected);
-                    } else if (roleMode === "open") {
-                      onOpenShapeChange(previewState as "closed" | "opened", layer.path,
-                        selected);
-                    } else {
-                      onAiueoChoiceChange(aiueoKey, layer.path, selected);
-                    }
+                    applyVisibility(event.target.checked);
+                    setSelectedPath(layer.path);
                   }}
                   aria-label={layer.name + " [" + layer.path + "] " +
                     (editingBase ? "固定" : motionKind === "eyes" ? "close"
                       : roleMode === "open" ? "open" : AIUEO_LABELS[aiueoKey])} />}
                 <button type="button" className="preset-layer-select"
                   aria-pressed={selectedPath === layer.path}
-                  aria-label={layer.name + " [" + layer.path + "] を選択"}
-                  onClick={() => setSelectedPath((previous) =>
-                    previous === layer.path ? null : layer.path)}>
+                  aria-label={layer.name + " [" + layer.path + "] " +
+                    (area === "motion" && !isGroup && choice !== "fixed"
+                      ? "を選択・切替" : "を選択")}
+                  onClick={() => {
+                    if (area === "motion" && !isGroup && choice !== "fixed")
+                      applyVisibility(choice === "radio" ? true : !effective);
+                    setSelectedPath((previous) =>
+                      previous === layer.path ? null : layer.path);
+                  }}>
                   <span className="preset-layer-name">{layer.name}</span>
                 </button>
               </div>

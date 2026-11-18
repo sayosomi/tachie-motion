@@ -48,6 +48,43 @@ async function chooseMouthGroups(page: Page) {
   await expect(page.locator(".preset-layer-list")).toBeVisible();
 }
 
+test("movable row selection edits a mouth shape and explicit n rest survives reload", async ({ page }) => {
+  await openEditor(page);
+  await chooseMouthGroups(page);
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "aiueo" }).click();
+  await layer(page, "0/1/0").getByRole("button", { name: /を選択/ }).click();
+  await expect(checkbox(page, "0/1/0")).toBeChecked();
+  let saved = JSON.parse((await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+  expect(saved.collection.items[0].aiueoMouth.a).toEqual([
+    { path: "0/1/0", visible: true },
+  ]);
+
+  await shape(page, "ん").click();
+  await page.getByRole("checkbox", { name: "固定レイヤーを引き継ぐ" }).check();
+  await expect(page.locator(".preset-layer-list")).toHaveCount(0);
+  saved = JSON.parse((await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+  expect(saved.collection.items[0].aiueoRestUsesBase).toBe(true);
+  expect(saved.collection.items[0].aiueoMouth.n).toEqual([]);
+  await expect(page.locator(".preset-image-viewport img")).toBeVisible();
+
+  await page.reload();
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "aiueo" }).click();
+  await shape(page, "ん").click();
+  await expect(page.getByRole("checkbox", { name: "固定レイヤーを引き継ぐ" })).toBeChecked();
+  await page.getByRole("checkbox", { name: "固定レイヤーを引き継ぐ" }).uncheck();
+  await expect(page.locator(".preset-layer-list")).toBeVisible();
+  saved = JSON.parse((await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+  expect(saved.collection.items[0].aiueoRestUsesBase).toBeUndefined();
+});
+
 test("Open uses fixed layers for close and edits only the open pose", async ({ page }) => {
   const requests: State[][] = [];
   await openEditor(page, requests);

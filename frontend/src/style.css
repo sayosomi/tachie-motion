@@ -156,6 +156,10 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .preset-layout { display:grid; grid-template-columns:minmax(320px,1.15fr) minmax(295px,1fr); gap:20px; align-items:start; }
 .preset-editor { min-width:0; }
 .preset-preview h2 { margin-bottom:15px; }
+/* Keep the portrait in view while scrolling a long PSD layer list. */
+@media (min-width:881px) {
+  .preset-preview { position:sticky; top:12px; align-self:start; }
+}
 .preset-layer-list { max-height:570px; }
 .preset-layer { padding-top:5px; padding-bottom:5px; }
 .preset-expand { flex:0 0 27px; width:27px; }
@@ -171,6 +175,10 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   background:#25455b; box-shadow:inset 3px 0 #91dbcb;
 }
 .preset-layer-name { flex:1; min-width:0; overflow-wrap:anywhere; }
+.preset-inherit-base { display:flex; gap:9px; align-items:center; margin:10px 0 8px;
+  cursor:pointer; font-size:13px; font-weight:600; }
+.preset-inherit-base input { width:19px; height:19px; flex:0 0 19px;
+  accent-color:#86dbbe; cursor:pointer; }
 .visibility-state { font-size:11px; font-weight:800; color:#9bcbb9; }
 .preset-delete { margin-top:16px; }
 .preset-empty { margin-top:22px; }
