@@ -105,7 +105,7 @@ export default function UtteranceExportPanel({
         onChange={(e) => onRevise(current.id, { basename: e.target.value, saveAsName: null })} />
       {destinationError && <p className="hint warning" role="alert">{destinationError}</p>}
       {info?.state === "complete" && <>
-        <p className="hint">同名のMOV・OTIOがあります。</p>
+        <p className="hint">同名のMOVがあります。</p>
         <fieldset className="output-conflict-choice">
           <legend>保存方法</legend>
           <label><input type="radio" name="speech-conflict" value="overwrite"
@@ -119,19 +119,19 @@ export default function UtteranceExportPanel({
       {info && info.state !== "available" && info.state !== "complete" &&
         <p className="hint warning" role="status">
           {info.state === "partial"
-            ? "同名のMOV・OTIOの片方だけがあります。安全のため上書きできません。"
+            ? "旧MOV・OTIOの一部が存在します。安全のため別名で保存してください。"
             : info.state === "unsafe"
-              ? "同名の出力先が通常ファイルではありません。上書きできません。"
+              ? "同名のOTIOまたは特殊ファイルがあるため、MOVだけの上書きはできません。別名で保存してください。"
               : "前回の書き出しで復旧確認が必要なファイルが残っています。同名への書き出しは停止します。"}
         </p>}
       {requiresAlternate && <div className="output-save-as">
         <label htmlFor="speech-save-as">別名のファイル名</label>
         <input id="speech-save-as" value={saveAsName} disabled={locked}
           onChange={(e) => onRevise(current.id, { saveAsName: e.target.value })} />
-        <p className="hint">元のMOV・OTIOは残します。</p>
+        <p className="hint">元のMOVと既存OTIOは残します。</p>
       </div>}
       {info && <p className="hint" aria-label="出力予定ファイル">
-        出力予定：{outputBasename || "（未入力）"}.mov ／ {outputBasename || "（未入力）"}.otio
+        出力予定：{outputBasename || "（未入力）"}.mov
       </p>}
     </div> : scope === "single" ? <p className="hint">WAVを選択すると保存先・ファイル名を編集できます。</p> : null}
 
@@ -207,7 +207,7 @@ export default function UtteranceExportPanel({
           scope === "all" ? "全件を書き出す" :
           exportingId === current?.id ? "処理中…" :
           requiresAlternate ? "別名で書き出す" :
-          info?.state === "complete" ? "上書きして書き出す" : "MOVとOTIOを書き出す"}
+          info?.state === "complete" ? "上書きして書き出す" : "MOVを書き出す"}
       </button>
       <p className="hint">{scope === "all"
         ? "同じ出力先への重複は開始前に検出します。上書きは確認し、部分失敗も一覧に表示します。"
@@ -218,7 +218,6 @@ export default function UtteranceExportPanel({
       {scope === "single" && current?.result && <div className="success" role="status">
         <strong>書き出し完了・{current.result.frames}フレーム</strong>
         <p>MOV: <code>{current.result.mov}</code></p>
-        {current.result.otio && <p>OTIO: <code>{current.result.otio}</code></p>}
         {current.result.warning && <p className="hint warning" role="alert">{current.result.warning}</p>}
       </div>}
     </div>
