@@ -10,7 +10,7 @@ import {
   setBaseLayerChoice, setAiueoPsdChoice, setOpenPsdChoice, setMouthMotionEnabled,
   setEyePsdChoice, setBlinkEnabled, clearMotionSelection,
   type AiueoKey,
-  type Presets, type UnifiedPreset,
+  type Presets, type UnifiedPreset, withDefaultBlinkTiming,
 } from "./presetModel";
 import { matchesSource, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
@@ -44,6 +44,17 @@ function signature(preset: UnifiedPreset): string {
 }
 
 const empty: Presets = { items: [], defaultId: null };
+
+/** Upgrade an exact-source draft only after validation, committing before UI updates.
+ * This also handles existing v2 drafts that predate the approved defaults.
+ */
+function restoreBlinkTiming(draft: PresetDraft): PresetDraft {
+  const collection = withDefaultBlinkTiming(draft.collection);
+  if (collection === draft.collection) return draft;
+  const restored = { ...draft, collection };
+  writePresetDraft(restored);
+  return restored;
+}
 
 export default function PresetWorkspace() {
   const [psdPath, setPsdPath] = useState("");
@@ -105,10 +116,17 @@ export default function PresetWorkspace() {
               : "PSDのレイヤー構造、口形参照、または*・!の保存状態に不整合があります。保存データは変更せず、復元を中止しました。");
           return;
         }
+        // Never display the default as saved until its durable write succeeds.
+        let restored: PresetDraft;
+        try { restored = restoreBlinkTiming(recovery); }
+        catch {
+          setRestoreMessage("初期の瞬き時間を保存できないため復元を中止しました。保存済みデータは保持しています。");
+          return;
+        }
         setPsd(data);
-        setLoadedPath(recovery.path);
-        setCollection(recovery.collection);
-        setNameDrafts(recovery.nameDrafts);
+        setLoadedPath(restored.path);
+        setCollection(restored.collection);
+        setNameDrafts(restored.nameDrafts);
         setPreviews({});
         setDirty(true);
         savedRecovery.current = null;
@@ -187,11 +205,12 @@ export default function PresetWorkspace() {
               ? "保存済みの口・目の動作対象グループが競合、または不正です。保存データは保持しています。"
               : "PSDのレイヤー構造、口形参照、または*・!の保存状態が一致しません。保存データは保持しています。");
         }
+        const restored = restoreBlinkTiming(recovery);
         setPsd(data);
         setLoadedPath(requested);
         setPsdPath(requested);
-        setCollection(recovery.collection);
-        setNameDrafts(recovery.nameDrafts);
+        setCollection(restored.collection);
+        setNameDrafts(restored.nameDrafts);
         setPreviews({});
         setDirty(true);
         savedRecovery.current = null;
@@ -199,8 +218,8 @@ export default function PresetWorkspace() {
         return true;
       }
       const first = createPreset("通常", data.layers);
-      const next = appendPreset(empty, first);
-      persist(next, {}, requested, data.fingerprint);
+      const next = appendPreset(withDefaultBlinkTiming(empty), first);
+      if (!persist(next, {}, requested, data.fingerprint)) return false;
       setPsd(data);
       setLoadedPath(requested);
       setPsdPath(requested);
@@ -282,15 +301,16 @@ export default function PresetWorkspace() {
         throw new Error("読込み中に編集内容が変更されたため、JSONの反映を中止しました。");
       }
       // Durable recovery write first: on storage failure keep the current UI.
+      const importedCollection = withDefaultBlinkTiming(profile.collection);
       writePresetDraft({
         version: 2, path: profile.source.path, fingerprint: profile.source.fingerprint,
-        collection: profile.collection, nameDrafts: {},
+        collection: importedCollection, nameDrafts: {},
       });
       editVersion.current += 1;
       setPsd(data);
       setPsdPath(profile.source.path);
       setLoadedPath(profile.source.path);
-      setCollection(profile.collection);
+      setCollection(importedCollection);
       setNameDrafts({});
       setPreviews({});
       setDirty(false);
