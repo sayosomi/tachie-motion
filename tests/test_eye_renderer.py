@@ -110,6 +110,40 @@ class ClosedEyeTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.validate(**changes)
 
+    def test_starred_group_sibling_is_hidden_only_in_closed_eye(self):
+        psd = PSDImage.new(mode="RGB", size=(32, 32), depth=8)
+        eye = psd.create_group(name="eyes")
+        open_group = eye.create_group(name="*open group")
+        open_group.create_pixel_layer(
+            Image.new("RGBA", (4, 4), (30, 40, 50, 255)),
+            name="iris", left=2, top=2,
+        )
+        eye.create_pixel_layer(
+            Image.new("RGBA", (4, 4), (10, 20, 30, 255)),
+            name="*closed", left=2, top=2,
+        )
+        source = tuple(walk_layers(psd))
+        named = {item.name: item.index_path for item in source}
+        base = {
+            item.index_path: item.name != "*closed"
+            for item in source
+        }
+        before = {item.index_path: item.visible for item in source}
+        closed = validate_closed_eye(
+            psd=psd, base=base,
+            eyes={"opened": [], "closed": [
+                {"path": self.text(named["iris"]), "visible": False},
+                {"path": self.text(named["*closed"]), "visible": True},
+            ]},
+            eye_groups=[self.text(named["eyes"])],
+        )
+        self.assertTrue(base[named["*open group"]])
+        self.assertFalse(closed[named["*open group"]])
+        self.assertTrue(closed[named["*closed"]])
+        self.assertEqual(
+            {item.index_path: item.visible for item in walk_layers(psd)}, before
+        )
+
     def test_rejects_psdtool_conflicting_radio_or_mandatory_target(self):
         for eyes in (
             self.shape(self.open_path, self.closed_path),
