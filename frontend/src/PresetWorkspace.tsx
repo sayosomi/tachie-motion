@@ -12,7 +12,7 @@ import {
   type AiueoKey,
   type Presets, type UnifiedPreset, withDefaultBlinkTiming,
 } from "./presetModel";
-import { matchesSource, persistMissingBlinkTiming, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
+import { matchesSource, persistMissingBlinkTiming, PresetDraftChangedError, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
   MAX_PROFILE_SIZE, matchesCharacterProfileSource, parseCharacterProfile,
   serializeCharacterProfile, validateCharacterProfileOpenTargets,
@@ -107,9 +107,10 @@ export default function PresetWorkspace() {
         }
         // Never display the default as saved until its durable write succeeds.
         let restored: PresetDraft;
-        try { restored = persistMissingBlinkTiming(recovery); }
-        catch {
-          setRestoreMessage("初期の瞬き時間を保存できないため復元を中止しました。保存済みデータは保持しています。");
+        try { restored = persistMissingBlinkTiming(recovery, data.fingerprint, data.layers); }
+        catch (err) {
+          setRestoreMessage(err instanceof PresetDraftChangedError ? err.message :
+            "初期の瞬き時間を保存できないため復元を中止しました。保存済みデータは保持しています。");
           return;
         }
         setPsd(data);
@@ -194,7 +195,7 @@ export default function PresetWorkspace() {
               ? "保存済みの口・目の動作対象グループが競合、または不正です。保存データは保持しています。"
               : "PSDのレイヤー構造、口形参照、または*・!の保存状態が一致しません。保存データは保持しています。");
         }
-        const restored = persistMissingBlinkTiming(recovery);
+        const restored = persistMissingBlinkTiming(recovery, data.fingerprint, data.layers);
         setPsd(data);
         setLoadedPath(requested);
         setPsdPath(requested);
