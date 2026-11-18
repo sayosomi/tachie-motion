@@ -38,6 +38,26 @@ export function choiceChanges(layers: Layer[], path: string, visible: boolean): 
     .map((layer) => ({ path: layer.path, visible: layer.path === path }));
 }
 
+/**
+ * When an explicitly selected movable *leaf shares a PSDTool radio parent
+ * with a *group, the latter must be hidden in that pose as well. This is a
+ * derived radio consequence, not a separately saved/group-editable target.
+ * Never affect groups outside the explicitly assigned motion groups.
+ */
+export function derivedEyeRadioGroupHides(
+  layers: Layer[], closed: Visibility[] | undefined, eyeGroups: readonly string[],
+): Set<string> {
+  const selectedParents = new Set(closed?.filter(({ path, visible }) =>
+    visible && layers.some((layer) => layer.path === path &&
+      layer.kind !== "group" && psdChoiceKind(layer.name) === "radio"))
+    .map(({ path }) => psdParentPath(path)) ?? []);
+  return new Set(layers.filter((layer) =>
+    layer.kind === "group" && psdChoiceKind(layer.name) === "radio" &&
+    selectedParents.has(psdParentPath(layer.path)) &&
+    eyeGroups.some((group) => layer.path.startsWith(group + "/")))
+    .map((layer) => layer.path));
+}
+
 export function applyChoice(
   current: Visibility[], layers: Layer[], path: string, visible: boolean,
 ): Visibility[] {
@@ -98,8 +118,10 @@ export function validatePsdChoices(
       groups.some((group) => layer.path.startsWith(group + "/"))).map((layer) => layer.path));
     const mouthLeaves = groupLeaves(collection.motionGroups?.mouth);
     const eyeLeaves = groupLeaves(collection.motionGroups?.eyes);
-    const check = (label: string, overrides?: Visibility[], editable?: Set<string>) => {
+    const check = (label: string, overrides?: Visibility[], editable?: Set<string>,
+      derivedHiddenGroups: ReadonlySet<string> = new Set()) => {
       const changes = new Map(overrides?.map((entry) => [entry.path, entry.visible]) ?? []);
+      for (const path of derivedHiddenGroups) changes.set(path, false);
       const visible = (path: string) => changes.get(path) ??
         (editable?.has(path) ? false : base.get(path));
       for (const layer of mandatory) {
@@ -109,7 +131,12 @@ export function validatePsdChoices(
       }
       for (const [parent, paths] of siblingGroups) {
         if (paths.filter((path) => visible(path) === true).length > 1) {
-          throw new Error(`プリセット「${preset.name}」の${label}: グループ「${parent || "最上位"}」内で*排他レイヤーが複数ONです。${failureNote}`);
+          const onPaths = paths.filter((path) => visible(path) === true);
+          const details = onPaths.map((path) => {
+            const layer = layers.find((entry) => entry.path === path);
+            return `「${layer?.name ?? path}」[${path}]`;
+          }).join("、");
+          throw new Error(`プリセット「${preset.name}」の${label}: グループ「${parent || "最上位"}」内で*排他レイヤーが複数ONです（${details}）。動作対象グループに含まれない*レイヤーも確認してください。${failureNote}`);
         }
       }
     };
@@ -125,7 +152,8 @@ export function validatePsdChoices(
     }
     if (preset.eyes) {
       // Legacy opened values are inactive; base defines the resting eyes.
-      check("目 close", preset.eyes.closed, eyeLeaves);
+      check("目 close", preset.eyes.closed, eyeLeaves,
+        derivedEyeRadioGroupHides(layers, preset.eyes.closed, collection.motionGroups?.eyes ?? []));
     }
   }
 }
