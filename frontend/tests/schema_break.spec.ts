@@ -31,9 +31,14 @@ test("fixed-matching Open selection is valid; aiueo requires all six explicit se
       closed: [{ path: "0/0", visible: true }],
       opened: [{ path: "0/0", visible: true }],
     },
-    aiueoMouth: Object.fromEntries(["a", "i", "u", "e", "o", "n"]
-      .map((key) => [key, key === "n" ? [] : [{ path: "0/0", visible: true }]]))
-      as NonNullable<UnifiedPreset["aiueoMouth"]>,
+    aiueoMouth: {
+      a: [{ path: "0/0", visible: true }],
+      i: [{ path: "0/0", visible: true }],
+      u: [{ path: "0/0", visible: true }],
+      e: [{ path: "0/0", visible: true }],
+      o: [{ path: "0/0", visible: true }],
+      n: [],
+    },
   };
   expect(exportReady(preset, { mode: "open" } as UtteranceItem)).toBe(true);
   expect(aiueoMouthReady(preset)).toBe(false);
