@@ -1,5 +1,5 @@
 /** Character-wide blink timing, expressed in integer milliseconds.
- * No default is manufactured: a character must explicitly save these values.
+ * Suggested form values are not automatically saved or applied to video.
  */
 export type BlinkTiming = {
   intervalMs: number;
@@ -7,6 +7,11 @@ export type BlinkTiming = {
   jitterMs: number;
   phaseMs: number;
   seed: number;
+};
+
+/** Initial form suggestions, not a hidden output default or an auto-save. */
+export const SUGGESTED_BLINK_TIMING: BlinkTiming = {
+  intervalMs: 3000, closedMs: 120, jitterMs: 500, phaseMs: 700, seed: 0,
 };
 
 const KEYS = ["intervalMs", "closedMs", "jitterMs", "phaseMs", "seed"] as const;
