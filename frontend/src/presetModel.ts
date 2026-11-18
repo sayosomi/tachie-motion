@@ -342,7 +342,10 @@ export function setEyePsdChoice(
     item.id === id ? { ...item, eyes } : item) };
 }
 
-/** Clear only the active movable pose, retaining fixed layers and other poses. */
+/** Clear only the active movable pose, retaining fixed layers and other poses.
+ * Closed eyes are the only active eye pose. Drop unused opened data too:
+ * persisted eyes must never exist without an explicit closed selection.
+ */
 export function clearMotionSelection(
   current: Presets, id: string, selection: "open" | "eyes" | AiueoKey,
 ): Presets {
@@ -350,10 +353,7 @@ export function clearMotionSelection(
   return { ...current, items: current.items.map((item) => {
     if (item.id !== id) return item;
     if (selection === "open") return { ...item, openMouth: undefined };
-    if (selection === "eyes") {
-      const opened = item.eyes?.opened ?? [];
-      return { ...item, eyes: opened.length ? { opened: [...opened], closed: [] } : undefined };
-    }
+    if (selection === "eyes") return { ...item, eyes: undefined };
     const next = Object.fromEntries(AIUEO_KEYS.map((name) => [
       name, name === selection ? [] : [...(item.aiueoMouth?.[name] ?? [])],
     ])) as AiueoMouth;
