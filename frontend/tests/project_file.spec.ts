@@ -53,6 +53,9 @@ test("project JSON keeps duplicate WAV registrations, Unicode and exact settings
   expect(restored.selectedId).toBe("b");
   expect(restored.items[0].mode).toBe("open");
   expect(restored.items[0].wav.source_identity).toBe("1:2:3:4:5");
+  expect(projectPresetDraft(restored).collection.blinkTiming).toEqual({
+    intervalMs: 3000, closedMs: 120, jitterMs: 500, phaseMs: 700, seed: 0,
+  });
   expect(projectPresetDraft(restored).collection.items[0].openMouth)
     .toEqual(draft.collection.items[0].openMouth);
   expect(json).not.toContain("do-not-store");

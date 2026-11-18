@@ -28,7 +28,7 @@ type Props = {
   openMouthMissing: boolean;
   aiueoMouthMissing: boolean;
   labStatus?: LabInfo;
-  blinkUnsupported: boolean;
+  blinkMissing: boolean;
   info: ExportDestination | undefined;
   destinationError: string;
   requiresAlternate: boolean;
@@ -48,7 +48,7 @@ type Props = {
 };
 
 export default function UtteranceExportPanel({
-  items, current, draftAvailable, openMouthMissing, aiueoMouthMissing, labStatus, blinkUnsupported,
+  items, current, draftAvailable, openMouthMissing, aiueoMouthMissing, labStatus, blinkMissing,
   info, destinationError, requiresAlternate,
   saveAsName, outputBasename, canExport, exportingId, addingCount,
   scope, onScopeChange, onRevise, onSingleExport, batch, disabled, naming, onNamingChange,
@@ -86,8 +86,8 @@ export default function UtteranceExportPanel({
           : labStatus?.status === "unavailable" ? "LABの確認に失敗しました。"
           : "LABを確認しています。"}
       </p>}
-      {blinkUnsupported && <p className="hint warning">
-        このプリセットは瞬きが有効です。瞬きの書き出しは未実装です。
+      {blinkMissing && <p className="hint warning" role="note">
+        瞬きの閉じ目レイヤーとキャラクター共通の時間設定を確認してください。fpsに対して閉眼時間が短すぎる場合も書き出せません。
       </p>}
       <label htmlFor="speech-fps">フレームレート</label>
       <select id="speech-fps" value={current.fps}

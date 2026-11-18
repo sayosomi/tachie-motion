@@ -558,3 +558,60 @@ test("character JSON validates real group paths and the preset mouth switch", as
   expect(await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(before);
 });
+
+
+test("importing current-v2 character JSON with missing blink timing commits defaults without altering other fields", async ({ page }) => {
+  await mockPsd(page);
+  await openPsd(page);
+  const profile = await exportJson(page);
+  delete profile.collection.blinkTiming;
+  const originalBase = structuredClone(profile.collection.items[0].base);
+  page.on("dialog", (dialog) => { void dialog.accept(); });
+  await importJson(page, profile);
+  await expect(page.locator(".character-profile-actions [role=status]"))
+    .toContainText("キャラクター設定JSONを読み込みました");
+  const savedDraft = await page.evaluate(() => JSON.parse(
+    localStorage.getItem("tachie-motion.preset-draft.v2")!,
+  ));
+  expect(savedDraft.collection.blinkTiming).toEqual({
+    intervalMs: 3000, closedMs: 120, jitterMs: 500, phaseMs: 700, seed: 0,
+  });
+  expect(savedDraft.collection.items[0].base).toEqual(originalBase);
+  const exported = await exportJson(page);
+  expect(exported.collection.blinkTiming).toEqual(savedDraft.collection.blinkTiming);
+});
+
+test("explicit character blink timing round-trips through profile JSON", async ({ page }) => {
+  await mockPsd(page);
+  await openPsd(page);
+  const timing = {
+    intervalMs: 3200, closedMs: 125, jitterMs: 200,
+    phaseMs: 1500, seed: 24,
+  };
+  await page.evaluate((data) => {
+    const key = "tachie-motion.preset-draft.v2";
+    const current = JSON.parse(localStorage.getItem(key)!) as {
+      collection: Record<string, unknown>
+    };
+    current.collection.blinkTiming = data;
+    localStorage.setItem(key, JSON.stringify(current));
+  }, timing);
+  await page.reload();
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
+  const exported = await exportJson(page);
+  expect((exported.collection as Record<string, unknown>).blinkTiming).toEqual(timing);
+
+  page.on("dialog", (dialog) => { void dialog.accept(); });
+  await importJson(page, exported);
+  await expect(page.locator(".character-profile-actions [role=status]"))
+    .toContainText("キャラクター設定JSONを読み込みました");
+  const restored = await page.evaluate(() => JSON.parse(
+    localStorage.getItem("tachie-motion.preset-draft.v2")!
+  ));
+  expect(restored.collection.blinkTiming).toEqual(timing);
+
+  const invalid = structuredClone(exported);
+  invalid.collection.blinkTiming = { ...timing, jitterMs: 3400 };
+  await importJson(page, invalid);
+  await expect(page.getByRole("alert")).toContainText("瞬き時間設定が不正");
+});

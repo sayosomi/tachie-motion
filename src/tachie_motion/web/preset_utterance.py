@@ -1,18 +1,22 @@
 """One-WAV preset-snapshot export, initial none/open slice.
 
 Never use original PSD visibility in place of the chosen unified preset.
-Unsupported modes/blinking fail explicitly instead of exporting misleading media.
+Unsupported animation modes fail explicitly instead of exporting misleading media.
 """
 
 from pathlib import Path
 import tempfile
 
+from tachie_motion.animation.blink import (
+    schedule_blink_frames, compose_mouth_eye_indices,
+)
 from tachie_motion.audio.volume import analyze_wav
 from tachie_motion.web.aiueo_renderer import (
-    validate_aiueo_mouth, render_aiueo_states, inspect_export_lab,
+    AIUEO_KEYS, validate_aiueo_mouth, render_aiueo_states, inspect_export_lab,
     verify_export_lab, aiueo_indices, validate_psdtool_state,
 )
 from tachie_motion.presets import LayerState, LayerStateSet
+from tachie_motion.web.eye_renderer import validate_closed_eye, render_blink_states
 from tachie_motion.psd.crop import write_fixed_crop_png
 from tachie_motion.psd.tree import walk_layers
 from tachie_motion.psd.visibility import parse_index_path, resolve_layer
@@ -115,16 +119,28 @@ def export_preset_utterance(
     mov: Path, otio: Path | None, fps: int = 30, conflict_policy: str = "error",
     source_identity: str | None = None, aiueo_mouth: dict | None = None,
     mouth_groups: list[str] | None = None, lab_source_identity: str | None = None,
+    eyes: dict | None = None, eye_groups: list[str] | None = None,
+    blink_timing: dict | None = None,
 ):
     """Generate one preset-backed PCM-in-MOV and synchronized OTIO.
 
-    Supports none/open/aiueo; blink, timeline change points and multiple
-    character tracks are explicitly excluded.
+    Supports none/open/aiueo, optionally with deterministic blink settings.
+    Timeline change points and multiple character tracks remain excluded.
     """
     if mode not in ("none", "open", "aiueo"):
         raise ValueError("Lip mode is not implemented")
-    if type(blink_enabled) is not bool or blink_enabled:
-        raise ValueError("Blink export is not implemented")
+    if type(blink_enabled) is not bool:
+        raise ValueError("Blink setting must be a boolean")
+    if blink_enabled and (
+            type(blink_timing) is not dict or
+            set(blink_timing) != {
+                "interval_frames", "closed_frames", "jitter_frames",
+                "phase_frames", "seed",
+            }):
+        raise ValueError("Blink requires explicit frame timing and seed")
+    if blink_enabled and mode != "none" and (
+            type(mouth_groups) is not list or not mouth_groups):
+        raise ValueError("Blink with lip motion requires explicit mouth PSD groups")
     if fps not in (24, 30, 60):
         raise ValueError("Unsupported frame rate")
     if mov.suffix.lower() != ".mov" or (otio is not None and otio.suffix.lower() != ".otio"):
@@ -140,6 +156,8 @@ def export_preset_utterance(
              if otio is not None else initial_single_identity(mov, conflict_policy))
 
     psd, base = validated_snapshot(psd_path, fingerprint, layers)
+    closed_eye = (validate_closed_eye(psd, base, eyes, eye_groups, mouth_groups)
+                  if blink_enabled else None)
     shapes = validate_open_mouth(psd, base, mouth, mouth_groups) if mode == "open" else None
     six = (validate_aiueo_mouth(psd, base, aiueo_mouth, mouth_groups)
            if mode == "aiueo" else None)
@@ -166,12 +184,24 @@ def export_preset_utterance(
                         for frame in schedule.frames)
     if len(indices) != len(schedule.frames):
         raise ValueError("LAB video frame count disagrees with WAV timing")
+    if closed_eye is not None:
+        blink_frames = schedule_blink_frames(
+            frame_count=len(indices), **blink_timing,
+        )
     work = tempfile.TemporaryDirectory(prefix=".tachie-preset-", dir=mov.parent)
     committed = False
     cleanup_warning = None
     try:
         directory = Path(work.name)
-        if six is not None:
+        if closed_eye is not None:
+            mouth_poses = (tuple(six[key] for key in AIUEO_KEYS) if six is not None
+                           else ({}, shapes["opened"]) if shapes is not None
+                           else ({},))
+            pngs = render_blink_states(psd, base, closed_eye, mouth_poses, directory)
+            indices = compose_mouth_eye_indices(
+                indices, blink_frames, mouth_pose_count=len(mouth_poses),
+            )
+        elif six is not None:
             pngs = render_aiueo_states(psd, base, six, directory)
         else:
             pngs = []

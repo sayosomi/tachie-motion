@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
+import type { BlinkTiming } from "./blinkTiming";
+import BlinkTimingEditor from "./BlinkTimingEditor";
 import type { Layer } from "./LayerTree";
 import type { UnifiedPreset, AiueoKey } from "./presetModel";
 import { AIUEO_KEYS, AIUEO_LABELS, aiueoLayerRole, openLayerRole } from "./presetModel";
 import PresetImagePreview from "./PresetImagePreview";
 import MotionGroupSelector from "./MotionGroupSelector";
 import { isMouthLayer } from "./motionGroups";
-import { psdChoiceKind, psdParentPath } from "./psdChoice";
+import { psdChoiceKind, psdParentPath, derivedEyeRadioGroupHides } from "./psdChoice";
 import { PreviewSourceChangedError, type BrowserPreviewRenderer } from "./useBrowserPreview";
 
 type Props = {
@@ -33,6 +35,8 @@ type Props = {
   onEyeGroupsChange: (groups: string[]) => void;
   onMouthMotionChange: (enabled: boolean) => void;
   onBlinkChange: (enabled: boolean) => void;
+  blinkTiming?: BlinkTiming;
+  onBlinkTimingChange: (timing: BlinkTiming) => boolean;
   onEyeShapeChange: (pose: "opened" | "closed", path: string, visible: boolean) => void;
   onOpenShapeChange: (shape: "closed" | "opened", path: string, visible: boolean) => void;
   onAiueoChoiceChange: (key: AiueoKey, path: string, visible: boolean) => void;
@@ -51,6 +55,7 @@ export default function PresetDetail({
   onNameDraftChange, onBack, onRename, onToggle, mouthGroups, eyeGroups,
   onMouthGroupsChange, onEyeGroupsChange, onMouthMotionChange, onBlinkChange,
   onEyeShapeChange, onOpenShapeChange, onAiueoChoiceChange, onClearMotionShape, onDelete,
+  blinkTiming, onBlinkTimingChange,
 }: Props) {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -153,12 +158,15 @@ export default function PresetDetail({
         || sourceChanged || previewLoading) return;
     const abort = new AbortController();
     const overrides = new Map((shape ?? []).map((item) => [item.path, item.visible]));
+    const closedRadioGroups = motionKind === "eyes"
+      ? derivedEyeRadioGroupHides(layers, shape, selectedGroups) : new Set<string>();
     const editable = new Set(layers.filter((layer) => layer.kind !== "group"
       && !layer.name.startsWith("!")
       && isMouthLayer(layer.path, selectedGroups)).map((layer) => layer.path));
     const states = preset.base.map((layer) => ({
       path: layer.path,
-      visible: editable.has(layer.path) ? (overrides.get(layer.path) === true) : layer.visible,
+      visible: closedRadioGroups.has(layer.path) ? false
+        : editable.has(layer.path) ? (overrides.get(layer.path) === true) : layer.visible,
     }));
     const legacy = () => {
       void (async () => {
@@ -335,6 +343,8 @@ export default function PresetDetail({
                 </button>)}
               </div>}
             </>}
+            {motionKind === "eyes" && <BlinkTimingEditor timing={blinkTiming}
+              onSave={onBlinkTimingChange} />}
             <MotionGroupSelector groups={layers.filter((layer) => layer.kind === "group")}
               selected={selectedGroups} onChange={motionKind === "mouth"
                 ? onMouthGroupsChange : onEyeGroupsChange} />

@@ -3,6 +3,7 @@ import type { Presets, UnifiedPreset, Visibility } from "./presetModel";
 import { AIUEO_KEYS } from "./presetModel";
 import { validMotionGroups } from "./motionGroups";
 import { validatePsdChoices } from "./psdChoice";
+import { validBlinkTiming } from "./blinkTiming";
 
 // Portable, explicit character settings. Never a project snapshot or reload draft.
 export const CHARACTER_PROFILE_FORMAT = "tachie-motion-character-profile";
@@ -126,7 +127,11 @@ export function parseCharacterProfile(text: string): CharacterProfile {
   }
   const allPaths = paths(source.layerPaths, false);
   const allowed = new Set(allPaths);
-  fields(data.collection, ["items", "defaultId"], ["motionGroups"]);
+  fields(data.collection, ["items", "defaultId"], ["motionGroups", "blinkTiming"]);
+  if (Object.hasOwn(data.collection, "blinkTiming") &&
+      !validBlinkTiming(data.collection.blinkTiming)) {
+    throw new Error("キャラクター設定JSONの瞬き時間設定が不正です");
+  }
   const collection = data.collection;
   if (Object.hasOwn(collection, "motionGroups")) {
     fields(collection.motionGroups, ["mouth"], ["eyes"]);

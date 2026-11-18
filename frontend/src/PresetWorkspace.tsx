@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { BlinkTiming } from "./blinkTiming";
 import type { Layer } from "./LayerTree";
 import PresetDetail from "./PresetDetail";
 import NativeFilePicker from "./NativeFilePicker";
@@ -9,9 +10,9 @@ import {
   setBaseLayerChoice, setAiueoPsdChoice, setOpenPsdChoice, setMouthMotionEnabled,
   setEyePsdChoice, setBlinkEnabled, clearMotionSelection,
   type AiueoKey,
-  type Presets, type UnifiedPreset,
+  type Presets, type UnifiedPreset, withDefaultBlinkTiming,
 } from "./presetModel";
-import { matchesSource, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
+import { matchesSource, persistMissingBlinkTiming, PresetDraftChangedError, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
   MAX_PROFILE_SIZE, matchesCharacterProfileSource, parseCharacterProfile,
   serializeCharacterProfile, validateCharacterProfileOpenTargets,
@@ -104,10 +105,18 @@ export default function PresetWorkspace() {
               : "PSDのレイヤー構造、口形参照、または*・!の保存状態に不整合があります。保存データは変更せず、復元を中止しました。");
           return;
         }
+        // Never display the default as saved until its durable write succeeds.
+        let restored: PresetDraft;
+        try { restored = persistMissingBlinkTiming(recovery, data.fingerprint, data.layers); }
+        catch (err) {
+          setRestoreMessage(err instanceof PresetDraftChangedError ? err.message :
+            "初期の瞬き時間を保存できないため復元を中止しました。保存済みデータは保持しています。");
+          return;
+        }
         setPsd(data);
-        setLoadedPath(recovery.path);
-        setCollection(recovery.collection);
-        setNameDrafts(recovery.nameDrafts);
+        setLoadedPath(restored.path);
+        setCollection(restored.collection);
+        setNameDrafts(restored.nameDrafts);
         setPreviews({});
         setDirty(true);
         savedRecovery.current = null;
@@ -125,12 +134,14 @@ export default function PresetWorkspace() {
   }, []);
 
   function persist(next: Presets, drafts: Record<string, string> = nameDrafts,
-    path: string = loadedPath, fingerprint: string | undefined = psd?.fingerprint) {
-    if (!path || !fingerprint) return;
+    path: string = loadedPath, fingerprint: string | undefined = psd?.fingerprint): boolean {
+    if (!path || !fingerprint) return false;
     try {
       writePresetDraft({ version: 2, path, fingerprint, collection: next, nameDrafts: drafts });
+      return true;
     } catch {
       setError("ブラウザに自動保存できません。再読み込み前に空き容量・保存設定を確認してください。");
+      return false;
     }
   }
 
@@ -184,11 +195,12 @@ export default function PresetWorkspace() {
               ? "保存済みの口・目の動作対象グループが競合、または不正です。保存データは保持しています。"
               : "PSDのレイヤー構造、口形参照、または*・!の保存状態が一致しません。保存データは保持しています。");
         }
+        const restored = persistMissingBlinkTiming(recovery, data.fingerprint, data.layers);
         setPsd(data);
         setLoadedPath(requested);
         setPsdPath(requested);
-        setCollection(recovery.collection);
-        setNameDrafts(recovery.nameDrafts);
+        setCollection(restored.collection);
+        setNameDrafts(restored.nameDrafts);
         setPreviews({});
         setDirty(true);
         savedRecovery.current = null;
@@ -196,8 +208,8 @@ export default function PresetWorkspace() {
         return true;
       }
       const first = createPreset("通常", data.layers);
-      const next = appendPreset(empty, first);
-      persist(next, {}, requested, data.fingerprint);
+      const next = appendPreset(withDefaultBlinkTiming(empty), first);
+      if (!persist(next, {}, requested, data.fingerprint)) return false;
       setPsd(data);
       setLoadedPath(requested);
       setPsdPath(requested);
@@ -279,15 +291,16 @@ export default function PresetWorkspace() {
         throw new Error("読込み中に編集内容が変更されたため、JSONの反映を中止しました。");
       }
       // Durable recovery write first: on storage failure keep the current UI.
+      const importedCollection = withDefaultBlinkTiming(profile.collection);
       writePresetDraft({
         version: 2, path: profile.source.path, fingerprint: profile.source.fingerprint,
-        collection: profile.collection, nameDrafts: {},
+        collection: importedCollection, nameDrafts: {},
       });
       editVersion.current += 1;
       setPsd(data);
       setPsdPath(profile.source.path);
       setLoadedPath(profile.source.path);
-      setCollection(profile.collection);
+      setCollection(importedCollection);
       setNameDrafts({});
       setPreviews({});
       setDirty(false);
@@ -309,8 +322,12 @@ export default function PresetWorkspace() {
     setPsdPath(value);
   }
 
-  function updatePresets(next: Presets, drafts: Record<string, string> = nameDrafts) {
-    if (sourceChanged || next === collection) return;
+  function updatePresets(next: Presets, drafts: Record<string, string> = nameDrafts): boolean {
+    if (sourceChanged) {
+      setError("元PSDの変更が検出されたため、編集を保存できません。PSDを確認してください。");
+      return false;
+    }
+    if (next === collection) return true;
     // Validate the complete composed mouth/eye poses BEFORE writing the draft
     // or triggering a render. A base radio switch can conflict with an older
     // phoneme override that inherits the newly selected sibling.
@@ -319,14 +336,17 @@ export default function PresetWorkspace() {
         validatePsdChoices(next, psd.layers, "edit");
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
-        return; // Leave UI, original overrides and localStorage unchanged.
+        return false; // Leave UI, original overrides and localStorage unchanged.
       }
     }
+    // Persistence and in-memory state must commit together. In particular,
+    // failed blink saves must not leak into a later successful preset edit.
+    if (!persist(next, drafts)) return false;
     editVersion.current += 1;
-    persist(next, drafts);
     setCollection(next);
     setDirty(true);
     setError("");
+    return true;
   }
 
   function changeNameDraft(id: string, name: string) {
@@ -444,7 +464,11 @@ export default function PresetWorkspace() {
       type="button" className="secondary" onClick={() => { void loadPsd(true); }}>
       保存済みを破棄して新規
     </button>}
-    {error && <p className="notice error" role="alert">{error}</p>}
+    {error && <div className="notice error preset-error-toast" role="alert">
+      <span>{error}</span>
+      <button type="button" className="secondary" aria-label="エラーを閉じる"
+        onClick={() => setError("")}>閉じる</button>
+    </div>}
     {sourceChanged && <p className="notice error" role="alert">
       PSDの外部変更または同一性確認の失敗を検出しました。古いプレビューを停止しました。PSDを再読み込みしてください。
       編集内容は自動保存された状態のまま保持しています。
@@ -495,14 +519,16 @@ export default function PresetWorkspace() {
       onRename={(name) => { try {
         const nextDrafts = { ...nameDrafts };
         delete nextDrafts[active.id];
-        updatePresets(renamePreset(collection, active.id, name), nextDrafts);
+        if (!updatePresets(renamePreset(collection, active.id, name), nextDrafts)) return;
         setNameDrafts(nextDrafts);
-        setError("");
       } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }}
       onToggle={(path, visible) =>
         updatePresets(setBaseLayerChoice(collection, active.id, psd.layers, path, visible))}
       mouthGroups={effectiveMouthGroups(collection, psd.layers)}
       eyeGroups={effectiveEyeGroups(collection, psd.layers)}
+      blinkTiming={collection.blinkTiming}
+      onBlinkTimingChange={(timing: BlinkTiming) =>
+        updatePresets({ ...collection, blinkTiming: timing })}
       onMouthGroupsChange={(groups) =>
         updatePresets(setMouthGroups(collection, psd.layers, groups))}
       onEyeGroupsChange={(groups) =>
