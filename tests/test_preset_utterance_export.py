@@ -136,6 +136,18 @@ class PresetExportApiTests(unittest.TestCase):
         self.assertEqual(self.post().status_code, 400)
         self.assertEqual((self.root / "speech.mov").read_bytes(), b"preserve")
 
+    def test_orphan_legacy_otio_never_gets_deleted_or_reused(self):
+        legacy = self.root / "speech.otio"
+        legacy.write_bytes(b"EXISTING INDIVIDUAL OTIO")
+        probe = self.client.post("/api/preset-utterance-destination",
+                                 json={"output_dir": str(self.root), "basename": "speech"})
+        self.assertEqual(probe.status_code, 200, probe.text)
+        self.assertEqual(probe.json()["state"], "unsafe")
+        self.assertEqual(probe.json()["suggested_basename"], "speech_002")
+        self.assertEqual(self.post().status_code, 400)
+        self.assertEqual(legacy.read_bytes(), b"EXISTING INDIVIDUAL OTIO")
+        self.assertFalse((self.root / "speech.mov").exists())
+
     def test_invalid_mode_snapshot_and_destination_do_not_publish(self):
         for changes in (
             {"mode": "aiueo"},
