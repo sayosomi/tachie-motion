@@ -15,7 +15,7 @@ const layers = [
 ] as Layer[];
 const draft: PresetDraft = {
   version: 2, path: source, fingerprint: "1000:2000", nameDrafts: {},
-  collection: { defaultId: "p1", items: [{
+  collection: { defaultId: "p1", motionGroups: { mouth: ["0"] }, items: [{
     id: "p1", name: "通常", blinkEnabled: false,
     base: layers.map((l) => ({ path: l.path, visible: l.visible })),
     openMouth: {

@@ -108,7 +108,7 @@ class AiueoCoreTests(unittest.TestCase):
                 }, [closed.rsplit("/", 1)[0]])
             with self.assertRaisesRegex(ValueError, "Duplicate"):
                 validate_aiueo_mouth(psd, visibility, {
-                    **shapes, "a": [shapes["a"][0], shapes["a"][0]],
+                    **shapes, "a": [shapes["a"][1], shapes["a"][1]],
                 })
             with self.assertRaisesRegex(ValueError, "hidden parent"):
                 validate_aiueo_mouth(psd, {

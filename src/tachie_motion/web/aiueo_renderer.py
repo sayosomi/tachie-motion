@@ -80,6 +80,13 @@ def validate_aiueo_mouth(psd, base: dict, mouth: dict | None,
             siblings.setdefault(item.index_path[:-1], []).append(item.index_path)
         elif item.name.startswith("!"):
             fixed.append(item.index_path)
+    # The fixed pose is not an implicit mouth selection. Keep mandatory
+    # leaves, but explicitly switch every editable mouth leaf OFF unless
+    # selected in this phoneme.
+    hidden = {item.index_path: False for item in summaries
+              if item.kind != "group" and not item.name.startswith("!")
+              and any(item.index_path[:len(group)] == group
+                      and len(item.index_path) > len(group) for group in groups)}
     results = {}
     for key in AIUEO_KEYS:
         entries = mouth[key]
@@ -102,13 +109,13 @@ def validate_aiueo_mouth(psd, base: dict, mouth: dict | None,
             if any(base.get(path[:i]) is False for i in range(1, len(path))):
                 raise ValueError("aiueo mouth has a hidden parent; adjust preset visibility")
             overrides[path] = entry["visible"]
-        effective = {**base, **overrides}
+        effective = {**base, **hidden, **overrides}
         if any(effective.get(path) is not True for path in fixed):
             raise ValueError("aiueo mouth violates ! mandatory PSD layer")
         for paths in siblings.values():
             if sum(effective.get(path) is True for path in paths) > 1:
                 raise ValueError("aiueo mouth violates * exclusive PSD layer")
-        results[key] = overrides
+        results[key] = {**hidden, **overrides}
     return results
 
 

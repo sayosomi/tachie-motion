@@ -16,7 +16,7 @@ const layers: Layer[] = [
   { path: "0/2", name: "!共通", kind: "pixel", visible: false, effective_visible: false, bbox: [0, 0, 16, 16] },
 ];
 const collection = (): Presets => ({
-  defaultId: "p1",
+  defaultId: "p1", motionGroups: { mouth: ["0"] },
   items: [{
     id: "p1", name: "通常", blinkEnabled: false,
     base: [
@@ -64,63 +64,39 @@ function radio(page: Page, path: string) {
   return page.locator(`.preset-layer[data-layer-path="${path}"]`).getByRole("radio");
 }
 
-test("base * switch cannot invalidate inherited aiueo shape; resolving the pose permits it", async ({ page }) => {
+test("fixed * choice remains independent from the explicitly selected aiueo pose", async ({ page }) => {
   const rendered: Array<Array<{ path: string; visible: boolean }>> = [];
   await intercept(page, rendered);
-  const raw = await restore(page, draft());
+  await restore(page, draft());
   await expect(page.getByRole("status").filter({ hasText: "前回の編集を復元しました" })).toBeVisible();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "可動レイヤー" }).click();
-  await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "固定レイヤー" }).click();
-  await expect(radio(page, "0/0")).toBeChecked();
-  // This click is deliberately rejected, so Playwright's .check() (which
-  // requires the radio to end checked) would report a false test failure.
-  await radio(page, "0/1").click();
-  await expect(page.getByRole("alert")).toContainText("aiueo a");
-  await expect(page.getByRole("alert")).toContainText("変更は適用・保存していません");
-  await expect(radio(page, "0/0")).toBeChecked();
-  await expect(radio(page, "0/1")).not.toBeChecked();
-  expect(await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(raw);
-  // Any in-flight legitimate preview still receives the entire old base.
-  for (const state of rendered) {
-    expect(state.map(x => x.visible)).toEqual([true, true, false, true]);
-  }
-
-  // Explicitly resolve the existing 'あ' pose first; no old overrides are
-  // silently removed, and the previously rejected base edit then succeeds.
+  await radio(page, "0/1").check();
+  await expect(radio(page, "0/1")).toBeChecked();
+  await expect(radio(page, "0/0")).not.toBeChecked();
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "可動レイヤー" }).click();
   await page.getByRole("group", { name: "口の方式" })
     .getByRole("button", { name: "aiueo" }).click();
-  await radio(page, "0/1").check();
-  await expect(radio(page, "0/0")).not.toBeChecked();
-  await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "固定レイヤー" }).click();
-  await radio(page, "0/1").check();
-  await expect(radio(page, "0/1")).toBeChecked();
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(radio(page, "0/0")).toBeChecked();
+  await expect(radio(page, "0/1")).not.toBeChecked();
+  await expect.poll(() => rendered.at(-1)?.map((x) => x.visible))
+    .toEqual([true, true, false, true]);
   const saved = JSON.parse((await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   expect(saved.collection.items[0].base.map((x: { visible: boolean }) => x.visible))
     .toEqual([true, false, true, true]);
-  expect(saved.collection.items[0].aiueoMouth.a).toEqual([
-    { path: "0/0", visible: false }, { path: "0/1", visible: true },
-  ]);
+  expect(saved.collection.items[0].aiueoMouth.a).toEqual([{ path: "0/0", visible: true }]);
   expect(() => serializeCharacterProfile(source, fingerprint, layers, saved.collection))
     .not.toThrow();
   await page.reload();
   await expect(page.getByRole("status").filter({ hasText: "前回の編集を復元しました" })).toBeVisible();
-  expect(await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(JSON.stringify(saved));
 });
 
-test("direct character/project JSON export refuses base changes that violate saved phonemes", () => {
+test("character/project JSON export rejects conflicting explicit * selections", () => {
   const invalid = draft();
-  invalid.collection.items[0].base[1].visible = false;
-  invalid.collection.items[0].base[2].visible = true;
+  invalid.collection.items[0].aiueoMouth!.a = [
+    { path: "0/0", visible: true }, { path: "0/1", visible: true },
+  ];
   expect(() => serializeCharacterProfile(source, fingerprint, layers, invalid.collection))
     .toThrow("aiueo a");
   expect(() => serializeProjectFile(invalid, layers, [], null))
@@ -150,7 +126,7 @@ test("eyes recovery validates structure, duplicate/missing paths, and PSD leaf k
     opened: [{ path: "1/0", visible: true }],
     closed: [{ path: "1/0", visible: false }, { path: "1/1", visible: true }],
   };
-  // No motionGroups metadata: infer the two distinct source PSD groups.
+  valid.collection.motionGroups = { mouth: ["0"], eyes: ["1"] };
   expect(matchesSource(valid, fingerprint, eyeLayers)).toBe(true);
   expect(() => serializeCharacterProfile(source, fingerprint, eyeLayers, valid.collection))
     .not.toThrow();

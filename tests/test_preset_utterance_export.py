@@ -10,6 +10,7 @@ import unittest
 from tachie_motion.web.preset_utterance import (
     validated_snapshot, validate_open_mouth,
 )
+from tachie_motion.psd.visibility import parse_index_path
 from tachie_motion.web.service import describe_psd, describe_wav, describe_wav
 from tachie_motion.render.prores import read_rgba_states
 from test_web_api import fixture

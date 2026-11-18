@@ -1,5 +1,5 @@
 import type { Layer } from "./LayerTree";
-import type { Presets } from "./presetModel";
+import type { Presets, Shape } from "./presetModel";
 import { AIUEO_KEYS } from "./presetModel";
 
 /**
@@ -15,7 +15,7 @@ export function withinGroup(path: string, groupPath: string): boolean {
 export function assignedEyePaths(collection: Presets): Set<string> {
   const assigned = new Set<string>();
   for (const preset of collection.items) {
-    for (const layer of preset.eyes?.closed ?? []) assigned.add(layer.path);
+    for (const layer of preset.eyes?.closed ?? []) if (layer.visible) assigned.add(layer.path);
   }
   return assigned;
 }
@@ -23,55 +23,21 @@ export function assignedEyePaths(collection: Presets): Set<string> {
 export function assignedMouthPaths(collection: Presets): Set<string> {
   const assigned = new Set<string>();
   for (const preset of collection.items) {
-    for (const layer of preset.openMouth?.opened ?? []) assigned.add(layer.path);
+    for (const layer of preset.openMouth?.opened ?? []) if (layer.visible) assigned.add(layer.path);
     for (const key of AIUEO_KEYS) {
-      for (const layer of preset.aiueoMouth?.[key] ?? []) assigned.add(layer.path);
+      for (const layer of preset.aiueoMouth?.[key] ?? []) if (layer.visible) assigned.add(layer.path);
     }
   }
   return assigned;
 }
 
-/**
- * V1 profiles had no group binding. Infer only the nearest existing parent
- * PSD groups of explicitly assigned mouth layers; never guess from names.
- */
-export function effectiveMouthGroups(collection: Presets, layers: Layer[]): string[] {
-  if (collection.motionGroups) return collection.motionGroups.mouth;
-  const groupPaths = new Set(layers.filter((layer) => layer.kind === "group")
-    .map((layer) => layer.path));
-  const inferred = new Set<string>();
-  for (const path of assignedMouthPaths(collection)) {
-    const parts = path.split("/");
-    while (parts.length > 1) {
-      parts.pop();
-      const parent = parts.join("/");
-      if (groupPaths.has(parent)) {
-        inferred.add(parent);
-        break;
-      }
-    }
-  }
-  return layers.filter((layer) => inferred.has(layer.path)).map((layer) => layer.path);
+/** No inference from obsolete profiles: groups are manually assigned. */
+export function effectiveMouthGroups(collection: Presets, _layers: Layer[]): string[] {
+  return collection.motionGroups?.mouth ?? [];
 }
 
-/** Legacy eye shapes did not have group metadata; infer only from source paths. */
-export function effectiveEyeGroups(collection: Presets, layers: Layer[]): string[] {
-  if (collection.motionGroups?.eyes) return collection.motionGroups.eyes;
-  const groupPaths = new Set(layers.filter((layer) => layer.kind === "group")
-    .map((layer) => layer.path));
-  const inferred = new Set<string>();
-  for (const path of assignedEyePaths(collection)) {
-    const parts = path.split("/");
-    while (parts.length > 1) {
-      parts.pop();
-      const parent = parts.join("/");
-      if (groupPaths.has(parent)) {
-        inferred.add(parent);
-        break;
-      }
-    }
-  }
-  return layers.filter((layer) => inferred.has(layer.path)).map((layer) => layer.path);
+export function effectiveEyeGroups(collection: Presets, _layers: Layer[]): string[] {
+  return collection.motionGroups?.eyes ?? [];
 }
 
 function groupsOverlap(a: readonly string[], b: readonly string[]): boolean {
@@ -81,6 +47,18 @@ function groupsOverlap(a: readonly string[], b: readonly string[]): boolean {
 
 export function isMouthLayer(path: string, groupPaths: readonly string[]): boolean {
   return groupPaths.some((group) => withinGroup(path, group));
+}
+
+/** Rebuild complete true/false target visibility after a group is added or removed. */
+function rebuildSelection(
+  shape: Shape | undefined, layers: Layer[], groups: readonly string[],
+): Shape {
+  const selected = new Set(shape?.filter((entry) => entry.visible
+    && isMouthLayer(entry.path, groups)).map((entry) => entry.path) ?? []);
+  if (!selected.size) return [];
+  return layers.filter((layer) => layer.kind !== "group"
+    && !layer.name.startsWith("!") && isMouthLayer(layer.path, groups))
+    .map((layer) => ({ path: layer.path, visible: selected.has(layer.path) }));
 }
 
 /**
@@ -101,7 +79,21 @@ export function setMouthGroups(
   if (groupsOverlap(groups, effectiveEyeGroups(collection, layers))) {
     throw new Error("目の動作対象と重複するPSDグループは口形に割り当てられません。");
   }
-  return { ...collection, motionGroups: {
+  const items = collection.items.map((item) => {
+    const opened = rebuildSelection(item.openMouth?.opened, layers, groups);
+    const closed = opened.map((entry) => ({
+      path: entry.path,
+      visible: item.base.find((fixed) => fixed.path === entry.path)?.visible ?? false,
+    }));
+    const openMouth = opened.length ? { closed, opened } : undefined;
+    const aiueoMouth = item.aiueoMouth &&
+      Object.fromEntries(AIUEO_KEYS.map((key) =>
+        [key, rebuildSelection(item.aiueoMouth?.[key], layers, groups)])) as typeof item.aiueoMouth;
+    return { ...item, openMouth, aiueoMouth:
+      aiueoMouth && AIUEO_KEYS.some((key) => aiueoMouth[key].some((entry) => entry.visible))
+        ? aiueoMouth : undefined };
+  });
+  return { ...collection, items, motionGroups: {
     ...collection.motionGroups,
     mouth: layers.filter((layer) => groups.includes(layer.path)).map((layer) => layer.path),
   } };
@@ -123,18 +115,18 @@ export function setEyeGroups(
   if (groupsOverlap(groups, mouth)) {
     throw new Error("口の動作対象と重複するPSDグループは目に割り当てられません。");
   }
-  return { ...collection, motionGroups: {
+  const items = collection.items.map((item) => {
+    const closed = rebuildSelection(item.eyes?.closed, layers, groups);
+    return { ...item, eyes: closed.length ? { opened: [], closed } : undefined };
+  });
+  return { ...collection, items, motionGroups: {
     ...collection.motionGroups,
     mouth,
     eyes: layers.filter((layer) => groups.includes(layer.path)).map((layer) => layer.path),
   } };
 }
 
-/**
- * Validate restored motion bindings against the *actual* PSD group tree.
- * Legacy profiles may omit motionGroups or just motionGroups.eyes. The
- * omitted bindings are inferred for collision checks, never written back.
- */
+/** Validate explicit binding groups against the actual PSD tree; no migration. */
 export function validMotionGroups(collection: Presets, layers: Layer[]): boolean {
   const known = new Set(layers.filter((layer) => layer.kind === "group")
     .map((layer) => layer.path));
@@ -143,14 +135,8 @@ export function validMotionGroups(collection: Presets, layers: Layer[]): boolean
   const validGroups = (groups: readonly string[]) =>
     new Set(groups).size === groups.length && groups.every((path) => known.has(path));
 
-  // Explicit bindings must contain every assigned leaf. Older profiles
-  // without bindings retain their previous source-compatible semantics.
-  const explicitMouth = collection.motionGroups !== undefined;
-  const explicitEyes = collection.motionGroups?.eyes !== undefined;
   return validGroups(mouth) && validGroups(eyes)
-    && (!explicitMouth || [...assignedMouthPaths(collection)]
-      .every((path) => isMouthLayer(path, mouth)))
-    && (!explicitEyes || [...assignedEyePaths(collection)]
-      .every((path) => isMouthLayer(path, eyes)))
+    && [...assignedMouthPaths(collection)].every((path) => isMouthLayer(path, mouth))
+    && [...assignedEyePaths(collection)].every((path) => isMouthLayer(path, eyes))
     && !groupsOverlap(mouth, eyes);
 }

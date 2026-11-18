@@ -33,7 +33,7 @@ const openShape = {
   opened: [{ path: "0/0", visible: false }, { path: "0/1", visible: true }],
 };
 const validCollection: Presets = {
-  defaultId: "p1",
+  defaultId: "p1", motionGroups: { mouth: ["0"] },
   items: [{ id: "p1", name: "通常", base: validBase, blinkEnabled: false, openMouth: openShape }],
 };
 const profile = (): CharacterProfile => ({
@@ -91,14 +91,16 @@ test("source PSD validates fixed and active shapes but preserves inert legacy cl
   expect(() => validateCharacterProfileOpenTargets(hiddenParent, layers)).not.toThrow();
 });
 
-test("browser draft source matching rejects group-target Open, including legacy missing motionGroups", () => {
+test("browser draft refuses group-target Open and missing motion group bindings", () => {
   const malformed = draft();
   malformed.collection.items[0].openMouth = {
     closed: [{ path: "0", visible: true }],
     opened: [{ path: "0", visible: false }],
   };
-  expect(malformed.collection.motionGroups).toBeUndefined();
   expect(matchesSource(malformed, fingerprint, layers)).toBe(false);
+  const unbound = draft();
+  delete unbound.collection.motionGroups;
+  expect(matchesSource(unbound, fingerprint, layers)).toBe(false);
   expect(matchesSource(draft(), fingerprint, layers)).toBe(true);
 });
 
