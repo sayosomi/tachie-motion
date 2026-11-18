@@ -22,6 +22,7 @@ type PsdData = { fingerprint: string; layers: Layer[] };
 type Destination = {
   state: "available" | "complete" | "partial" | "unsafe" | "recovery_required";
   suggested_basename: string;
+  folder_recovery_required?: boolean;
 };
 type DestinationCheck = { key: string; info: Destination };
 
@@ -295,7 +296,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const allowed = !!current && exportReady(selected, current, labStatuses[current.id], draft?.collection);
   const canExport = !!draft && !!current && allowed && !editingLocked &&
     !singleExportLock.current && addingCount === 0 &&
-    !!info && !destinationError &&
+    !!info && !info.folder_recovery_required && !destinationError &&
     /^[A-Za-z0-9_-]{1,64}$/.test(outputBasename) &&
     (!requiresAlternate || outputBasename !== current.basename);
 
