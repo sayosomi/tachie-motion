@@ -329,12 +329,14 @@ export default function PresetWorkspace() {
         return false; // Leave UI, original overrides and localStorage unchanged.
       }
     }
+    // Persistence and in-memory state must commit together. In particular,
+    // failed blink saves must not leak into a later successful preset edit.
+    if (!persist(next, drafts)) return false;
     editVersion.current += 1;
-    const stored = persist(next, drafts);
     setCollection(next);
     setDirty(true);
-    if (stored) setError("");
-    return stored;
+    setError("");
+    return true;
   }
 
   function changeNameDraft(id: string, name: string) {
@@ -507,9 +509,8 @@ export default function PresetWorkspace() {
       onRename={(name) => { try {
         const nextDrafts = { ...nameDrafts };
         delete nextDrafts[active.id];
-        updatePresets(renamePreset(collection, active.id, name), nextDrafts);
+        if (!updatePresets(renamePreset(collection, active.id, name), nextDrafts)) return;
         setNameDrafts(nextDrafts);
-        setError("");
       } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }}
       onToggle={(path, visible) =>
         updatePresets(setBaseLayerChoice(collection, active.id, psd.layers, path, visible))}
