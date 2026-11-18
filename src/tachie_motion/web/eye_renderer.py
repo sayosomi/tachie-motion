@@ -4,8 +4,11 @@ The resting open-eye pose always comes from the preset's fixed visibility.
 Only the assigned eye groups can be overridden during a blink.
 """
 
+from pathlib import Path
+
+from tachie_motion.psd.crop import write_fixed_crop_png
 from tachie_motion.psd.tree import walk_layers
-from tachie_motion.psd.visibility import parse_index_path
+from tachie_motion.psd.visibility import parse_index_path, resolve_layer
 
 from tachie_motion.web.aiueo_renderer import validate_psdtool_state
 
@@ -78,3 +81,35 @@ def validate_closed_eye(
     closed = {**base, **dict.fromkeys(editable, False), **selected}
     validate_psdtool_state(summaries, closed, "eye closed pose")
     return closed
+
+
+def render_blink_states(
+    psd, base: dict, closed_eye: dict,
+    mouth_poses: tuple[dict, ...], directory: Path,
+) -> list[Path]:
+    """Render open/closed eye PNG for each mouth pose in stable index order.
+
+    The returned PNG list is indexed by mouth_pose * 2 + closed_bit.
+    Every state is independently composed from the full preset base.
+    """
+    if not mouth_poses:
+        raise ValueError("At least one mouth pose is required")
+    summaries = tuple(walk_layers(psd))
+    expected = {item.index_path for item in summaries}
+    if set(base) != expected or set(closed_eye) != expected:
+        raise ValueError("Blink poses do not cover the original PSD")
+    pngs = []
+    for mouth_index, overrides in enumerate(mouth_poses):
+        if type(overrides) is not dict or any(
+                path not in expected or type(visible) is not bool
+                for path, visible in overrides.items()):
+            raise ValueError("Invalid mouth override in combined blink")
+        for blink_closed in (False, True):
+            pose = {**(closed_eye if blink_closed else base), **overrides}
+            validate_psdtool_state(summaries, pose, "combined mouth/eye pose")
+            for path, visible in pose.items():
+                resolve_layer(psd, path).visible = visible
+            png = directory / f"mouth-{mouth_index}-eye-{int(blink_closed)}.png"
+            write_fixed_crop_png(psd, png, padding=16)
+            pngs.append(png)
+    return pngs
