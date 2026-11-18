@@ -1181,7 +1181,7 @@ test("aiueo requires valid LAB and all six preset shapes before export", async (
   await expect(page.locator('[data-lab-status="valid"]')).toBeVisible();
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("aiueo");
   await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toHaveValue("aiueo");
-  await expect(page.getByText("「ん」は基本表示を利用できます。", { exact: false })).toBeVisible();
+  await expect(page.getByText("6口形すべてを明示選択してください。", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
   await addWav(page, "/tmp/missing.wav");
   await expect(page.locator('[data-selected="true"] [data-lab-status="missing"]')).toBeVisible();
@@ -1204,7 +1204,7 @@ test("batch manifest and actual MOV requests agree for valid LAB none/open/aiueo
   // Supply a valid saved character setup with both open and all six aiueo
   // shapes; this exercises the real React hook, not two calls to exportPayload.
   await page.evaluate(() => {
-    const key = "tachie-motion.preset-draft.v1";
+    const key = "tachie-motion.preset-draft.v2";
     const value = localStorage.getItem(key);
     if (!value) throw new Error("Missing preset draft");
     const draft = JSON.parse(value) as {
@@ -1215,10 +1215,10 @@ test("batch manifest and actual MOV requests agree for valid LAB none/open/aiueo
     if (!preset) throw new Error("Missing default preset");
     preset.openMouth = {
       closed: [{ path: "0/0", visible: true }],
-      opened: [{ path: "0/0", visible: false }],
+      opened: [{ path: "0/0", visible: true }],
     };
     preset.aiueoMouth = Object.fromEntries(["a", "i", "u", "e", "o", "n"].map((name) =>
-      [name, [{ path: "0/0", visible: name !== "a" }]]));
+      [name, [{ path: "0/0", visible: true }]]));
     draft.collection.motionGroups = { mouth: ["0"] };
     draft.collection.items.push({ ...structuredClone(preset), id: "mouth-off",
       name: "口パクOFF", mouthMotionEnabled: false });

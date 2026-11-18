@@ -413,7 +413,7 @@ test("Open and aiueo have separate PSDTool sibling radio selections and a shared
   await expect(layer(page, "0/0").getByRole("radio")).toBeChecked();
   await shape(page, "あ").click();
   await expect(layer(page, "0/1").getByRole("radio")).toBeChecked();
-  await expect(layer(page, "0/3").getByRole("checkbox")).toBeChecked();
+  await expect(layer(page, "0/3").getByRole("checkbox")).not.toBeChecked();
 
   const saved = JSON.parse((await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v2")))!);
@@ -421,12 +421,18 @@ test("Open and aiueo have separate PSDTool sibling radio selections and a shared
   expect(preset.base.find((x: State) => x.path === "0/0")?.visible).toBe(true);
   expect(preset.openMouth.opened).toEqual([
     { path: "0/0", visible: false }, { path: "0/1", visible: true },
+    { path: "0/3", visible: false },
   ]);
   expect(preset.openMouth.closed).toEqual([
     { path: "0/0", visible: true }, { path: "0/1", visible: false },
+    { path: "0/3", visible: true },
   ]);
   expect(preset.aiueoMouth.a).toEqual([
     { path: "0/0", visible: false }, { path: "0/1", visible: true },
+    { path: "0/3", visible: false },
   ]);
-  expect(preset.aiueoMouth.i).toEqual([]);
+  expect(preset.aiueoMouth.i).toEqual([
+    { path: "0/0", visible: true }, { path: "0/1", visible: false },
+    { path: "0/3", visible: false },
+  ]);
 });

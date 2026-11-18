@@ -7,10 +7,10 @@ import type { UtteranceItem } from "./utteranceItems";
 export type ConflictPolicy = "error" | "overwrite";
 
 /** Both single and all-item exports must share the exact same render inputs. */
-/** Rest ('n') may inherit the preset base image without an explicit override. */
+/** All six phonemes require an explicitly selected visible mouth leaf. */
 export function aiueoMouthReady(preset?: UnifiedPreset): boolean {
   return Boolean(preset?.aiueoMouth &&
-    AIUEO_KEYS.every((key) => key === "n" || preset.aiueoMouth![key].length > 0));
+    AIUEO_KEYS.every((key) => preset.aiueoMouth![key].some((layer) => layer.visible)));
 }
 
 export function exportReady(
@@ -25,8 +25,7 @@ export function exportReady(
   const base = new Map(preset.base.map((layer) => [layer.path, layer.visible]));
   // The resting mouth is always the current fixed-layer visibility.
   // The active pose is explicitly selected, even if a selected leaf matches base.
-  return mouth.opened.some((layer) =>
-    base.has(layer.path) && base.get(layer.path) !== layer.visible);
+  return mouth.opened.some((layer) => base.has(layer.path) && layer.visible);
 }
 
 /** Only a LAB-driven, enabled aiueo movie may reserve a LAB identity. */

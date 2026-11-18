@@ -38,7 +38,7 @@ function openMouthReady(preset?: UnifiedPreset): boolean {
   const mouth = preset?.openMouth;
   return Boolean(mouth && mouth.closed.length > 0 &&
     mouth.closed.length === mouth.opened.length &&
-    JSON.stringify(mouth.closed) !== JSON.stringify(mouth.opened));
+    mouth.opened.some((layer) => layer.visible));
 }
 
 export default function UtteranceWorkspace({ active = true, onProjectBusyChange }: {

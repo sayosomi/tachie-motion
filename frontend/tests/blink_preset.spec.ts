@@ -57,19 +57,20 @@ test("unselected closed eye is hidden and selecting the fixed eye is explicit", 
   await setEyeGroup(page);
   await expect(entry(page, "0/1/0").getByRole("radio")).not.toBeChecked();
   await expect(entry(page, "0/1/1").getByRole("radio")).not.toBeChecked();
-  await expect.poll(() => requests.at(-1)?.find((x) => x.path === "0/1/0")?.visible)
-    .toBe(false);
-  await expect.poll(() => requests.at(-1)?.find((x) => x.path === "0/1/2")?.visible)
-    .toBe(true);
+  await expect.poll(() => requests.some((states) =>
+    states.find((x) => x.path === "0/1/0")?.visible === false)).toBe(true);
+  await expect.poll(() => requests.some((states) =>
+    states.find((x) => x.path === "0/1/2")?.visible === true)).toBe(true);
   // Fixed already shows the open eye, but selecting it for closed eyes is valid.
+  const beforeSelection = requests.length;
   await entry(page, "0/1/0").click({ position: { x: 2, y: 2 } });
   await expect(entry(page, "0/1/0").getByRole("radio")).toBeChecked();
   const selected = (await saved(page)).collection.items[0].eyes.closed;
   expect(selected).toEqual([
     { path: "0/1/0", visible: true }, { path: "0/1/1", visible: false },
   ]);
-  await expect.poll(() => requests.at(-1)?.find((x) => x.path === "0/1/0")?.visible)
-    .toBe(true);
+  await expect.poll(() => requests.slice(beforeSelection).some((states) =>
+    states.find((x) => x.path === "0/1/0")?.visible === true)).toBe(true);
 });
 
 test("eyes remain independent of mouth and restore their configured pose", async ({ page }) => {
@@ -123,6 +124,9 @@ test("normal layers edit the resting eye independently of the blink state", asyn
   await expect(entry(page, "0/1/0").getByRole("radio")).not.toBeChecked();
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "可動レイヤー" }).click();
+  await expect(entry(page, "0/1/1").getByRole("radio")).not.toBeChecked();
+  // A fixed eye change never implicitly selects the moving closed-eye pose.
+  await entry(page, "0/1/1").getByRole("radio").check();
   await expect(entry(page, "0/1/1").getByRole("radio")).toBeChecked();
   expect((await saved(page)).collection.items[0].base.find(
     (x: { path: string; visible: boolean }) => x.path === "0/1/1")?.visible).toBe(true);

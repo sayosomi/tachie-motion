@@ -144,7 +144,7 @@ test("project save, reload, restore preserves ordered WAV edits and character sn
   await page.getByRole("button", { name: "上へ: 2 別の音声.wav" }).click();
   const project = await saved(page);
   expect(project.format).toBe("tachie-motion-project");
-  expect(project.version).toBe(2);
+  expect(project.version).toBe(3);
   expect(project.items.map((item: any) => item.wavPath)).toEqual([otherWav, wavPath]);
   expect(project.items[1].mode).toBe("open");
   expect(project.items[1].basename).toBe("first");
@@ -222,18 +222,18 @@ test("invalid JSON and rejected replacement never overwrite existing edits", asy
   const savedProject = await saved(page);
   await addWav(page, otherWav);
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
-  const storage = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
+  const storage = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"));
   const modified = structuredClone(savedProject);
   modified.items[0].presetId = "__missing__";
   await importProject(page, modified);
   await expect(page.getByRole("alert")).toContainText("WAV順序またはプリセット参照");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(storage);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(storage);
   page.once("dialog", (dialog) => { void dialog.dismiss(); });
   await importProject(page, savedProject);
   await expect(page.getByRole("status")).toContainText("読み込みをキャンセル");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(storage);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(storage);
 });
 
 test("Save dialog cancel does not claim success; held writer locks conflicting edits", async ({ page }) => {
@@ -286,11 +286,11 @@ test("failed browser recovery write is non-destructive after user confirms", asy
   const project = await saved(page);
   await addWav(page, otherWav);
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
-  const before = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
+  const before = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"));
   await page.evaluate(() => {
     const original = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key: string, value: string) {
-      if (key === "tachie-motion.preset-draft.v1") throw new Error("容量不足");
+      if (key === "tachie-motion.preset-draft.v2") throw new Error("容量不足");
       return original.call(this, key, value);
     };
   });
@@ -298,11 +298,11 @@ test("failed browser recovery write is non-destructive after user confirms", asy
   await importProject(page, project);
   await expect(page.getByRole("alert")).toContainText("容量不足");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(before);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(before);
 });
 
 
-test("project JSON v2 saves and restores simple batch naming settings", async ({ page }) => {
+test("project JSON v3 saves and restores simple batch naming settings", async ({ page }) => {
   await mock(page);
   await openSpeech(page);
   await addWav(page, wavPath);
@@ -319,7 +319,7 @@ test("project JSON v2 saves and restores simple batch naming settings", async ({
   await expect(page.locator(".export-plan-items li").first())
     .toContainText("001_あんこもん_音声 e\u0301.mov");
   const project = await saved(page);
-  expect(project.version).toBe(2);
+  expect(project.version).toBe(3);
   expect(project.naming.projectName).toBe("ずんだもん動画");
   expect(project.naming.characterName).toBe("あんこもん");
   expect(project.naming.otioTemplate).toBe("{プロジェクト名}");

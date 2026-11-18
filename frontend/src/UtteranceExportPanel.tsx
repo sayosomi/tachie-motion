@@ -75,10 +75,10 @@ export default function UtteranceExportPanel({
       <p className="hint" title={current.wavPath}>選択中のWAV：{wavFilename(current.wavPath)}</p>
       <p className="hint">選択中のセリフの保存設定です。全件を選んでも、各WAVに指定した設定を使用します。</p>
       {openMouthMissing && <p className="hint warning">
-        このプリセットの「口パク（open）」で、異なる閉口・開口のレイヤー表示状態を設定してください。
+        このプリセットの「口パク（open）」で、開いた口のレイヤーを明示選択してください。
       </p>}
       {aiueoMouthMissing && <p className="hint warning" role="status">
-        このプリセットのaiueoで「あ・い・う・え・お」の口形を設定してください。「ん」は基本表示を利用できます。
+        このプリセットのaiueoで「あ・い・う・え・お・ん」の6口形すべてを明示選択してください。
       </p>}
       {current.mode === "aiueo" && labStatus?.status !== "valid" && <p className="hint warning" role="status">
         有効なLABが必要です。{labStatus?.status === "missing" ? "同名のLABが見つかりません。"

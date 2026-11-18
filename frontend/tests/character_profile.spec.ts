@@ -204,9 +204,11 @@ test("character JSON roundtrip keeps ordered preset IDs, Open roles, Unicode and
   expect(saved.collection.defaultId).toBe(saved.collection.items[0].id);
   expect(saved.collection.items[0].openMouth.closed).toEqual([
     { path: "0/0", visible: true }, { path: "0/1", visible: false },
+    { path: "0/2", visible: true },
   ]);
   expect(saved.collection.items[0].openMouth.opened).toEqual([
     { path: "0/0", visible: false }, { path: "0/1", visible: true },
+    { path: "0/2", visible: false },
   ]);
   expect(JSON.stringify(saved)).not.toContain("data:image");
   expect(JSON.stringify(saved)).not.toContain("nameDrafts");
@@ -232,7 +234,7 @@ test("character JSON roundtrip keeps ordered preset IDs, Open roles, Unicode and
   } finally { await other.close(); }
 });
 
-test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group targets", async ({ page, browser }) => {
+test("aiueo explicit selections in JSON v2 roundtrip and reject group targets", async ({ page, browser }) => {
   await mockPsd(page);
   await openPsd(page);
   await page.getByRole("button", { name: "詳細を編集" }).click();
@@ -246,15 +248,17 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
   await page.getByRole("group", { name: "編集する口形" })
     .getByRole("button", { name: "ん", exact: true }).click();
   await page.locator('.preset-layer[data-layer-path="0/2"]')
-    .getByRole("checkbox", { name: "差分 [0/2] ん" }).uncheck();
+    .getByRole("checkbox", { name: "差分 [0/2] ん" }).check();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const saved = await exportJson(page);
   expect(saved.version).toBe(2);
   expect(saved.source.path).toBe(source);
   expect(saved.collection.items[0].aiueoMouth).toEqual({
-    a: [{ path: "0/0", visible: false }, { path: "0/1", visible: true }],
+    a: [{ path: "0/0", visible: false }, { path: "0/1", visible: true },
+      { path: "0/2", visible: false }],
     i: [], u: [], e: [], o: [],
-    n: [{ path: "0/2", visible: false }],
+    n: [{ path: "0/0", visible: false }, { path: "0/1", visible: false },
+      { path: "0/2", visible: true }],
   });
   expect(saved.collection.items[0].openMouth.closed).toContainEqual({ path: "0/0", visible: true });
 
@@ -276,7 +280,7 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     await fresh.getByRole("group", { name: "編集する口形" })
       .getByRole("button", { name: "ん", exact: true }).click();
     await expect(fresh.locator('.preset-layer[data-layer-path="0/2"]'))
-      .toHaveAttribute("data-aiueo-role", "hide");
+      .toHaveAttribute("data-aiueo-role", "show");
     await fresh.getByRole("button", { name: "← 一覧へ" }).click();
     await fresh.reload();
     await fresh.getByRole("button", { name: "詳細を編集" }).click();
@@ -289,7 +293,7 @@ test("aiueo six-mouth JSON v1 roundtrip retains Open, Unicode and rejects group 
     const beforeStorage = await fresh.evaluate(() =>
       localStorage.getItem("tachie-motion.preset-draft.v2"));
     const invalid = structuredClone(saved);
-    invalid.collection.items[0].aiueoMouth.a = [{ path: "0", visible: false }];
+    invalid.collection.items[0].aiueoMouth.a = [{ path: "0", visible: true }];
     await importJson(fresh, invalid);
     await expect(fresh.getByRole("alert")).toContainText("aiueo口形");
     expect(await fresh.evaluate(() =>
@@ -362,7 +366,7 @@ test("group Open targets reject without replacing edits; custom leaf targets rem
   // Path "0" exists and passes the JSON path/set checks, but is a PSD group.
   invalid.collection.items[0].openMouth = {
     closed: [{ path: "0", visible: true }],
-    opened: [{ path: "0", visible: false }],
+    opened: [{ path: "0", visible: true }],
   };
   await importJson(page, invalid);
   await expect(page.getByRole("alert")).toContainText("グループ");
@@ -373,6 +377,7 @@ test("group Open targets reject without replacing edits; custom leaf targets rem
 
   // Both-on is an existing custom per-leaf assignment; do not prohibit it.
   const valid = structuredClone(saved);
+  valid.collection.motionGroups = { mouth: ["0"] };
   valid.collection.items[0].openMouth = {
     closed: [{ path: "0/0", visible: true }, { path: "0/1", visible: true }],
     opened: [{ path: "0/0", visible: true }, { path: "0/1", visible: false }],

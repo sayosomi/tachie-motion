@@ -139,15 +139,15 @@ test("eyes recovery validates structure, duplicate/missing paths, and PSD leaf k
     { name: "duplicate", eyes: { opened: [
       { path: "0/0", visible: true }, { path: "0/0", visible: false },
     ], closed: [] } },
-    { name: "group", eyes: { opened: [{ path: "0", visible: true }], closed: [] } },
+    { name: "group", eyes: { opened: [], closed: [{ path: "1", visible: true }] } },
     { name: "malformed", eyes: { opened: [], closed: [], extra: [] } },
     { name: "unknown entry field", eyes: { opened: [
       { path: "0/0", visible: true, unexpected: 123 },
     ], closed: [] } },
   ];
   for (const item of cases) {
-    const invalid = draft();
-    // Intentionally malformed legacy storage; preserve its exact original bytes.
+    const invalid = item.name === "group" ? structuredClone(valid) : draft();
+    // Invalid current-format storage must preserve its exact original bytes.
     (invalid.collection.items[0] as unknown as { eyes: unknown }).eyes = item.eyes;
     const raw = JSON.stringify(invalid);
     await page.evaluate((text) =>
@@ -161,7 +161,7 @@ test("eyes recovery validates structure, duplicate/missing paths, and PSD leaf k
     expect(rendered.length).toBe(before);
     if (item.name === "group") {
       expect(matchesSource(invalid, fingerprint, layers)).toBe(false);
-      expect(() => serializeCharacterProfile(source, fingerprint, layers, invalid.collection))
+      expect(() => serializeCharacterProfile(source, fingerprint, eyeLayers, invalid.collection))
         .toThrow("瞬き設定");
     }
     if (item.name === "unknown entry field") {

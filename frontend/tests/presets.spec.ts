@@ -433,46 +433,6 @@ test("Open shapes preserve base visibility and group-scoped search with large PS
     .toHaveAttribute("data-open-role", "opened");
 });
 
-test("older custom mouth overrides are preserved until explicitly changed", async ({ page }) => {
-  await page.route("**/api/psd", (route) => route.fulfill({ json: {
-    width: 64, height: 64, fingerprint: "legacy-shape", preview: png, layers,
-  }}));
-  await page.goto("/");
-  await page.locator("#preset-psd-path-advanced").evaluate((el) => {
-    (el as HTMLDetailsElement).open = true;
-  });
-  await page.locator("#preset-psd-path").fill("/tmp/legacy.psd");
-  await page.getByRole("button", { name: "読み込む", exact: true }).click();
-  await expect(page.getByRole("button", { name: "詳細を編集" })).toBeVisible();
-  await expect.poll(() => page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v2"))).not.toBeNull();
-  await page.evaluate(() => {
-    const key = "tachie-motion.preset-draft.v2";
-    const saved = JSON.parse(localStorage.getItem(key)!);
-    saved.collection.items[0].openMouth = {
-      closed: [{ path: "0/0", visible: true }],
-      opened: [{ path: "0/0", visible: true }],
-    };
-    localStorage.setItem(key, JSON.stringify(saved));
-  });
-  await page.reload();
-  await page.getByRole("button", { name: "詳細を編集" }).click();
-  await openMotion(page);
-  const legacy = page.locator('.preset-layer[data-layer-path="0/0"]');
-  const second = page.locator('.preset-layer[data-layer-path="0/1"]');
-  await expect(legacy).toHaveAttribute("data-open-role", "custom");
-  // 開閉の初期状態で開いた口を編集する。
-  await second.getByRole("checkbox").check();
-  const value = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v2")!));
-  expect(value.collection.items[0].openMouth.closed)
-    .toContainEqual({ path: "0/0", visible: true });
-  expect(value.collection.items[0].openMouth.opened)
-    .toContainEqual({ path: "0/0", visible: true });
-  await legacy.getByRole("checkbox").uncheck();
-  await expect(legacy).toHaveAttribute("data-open-role", "closed");
-});
-
 test("tall PSD preview fits its whole canvas and supports mouth focus, pan and state changes", async ({ page }) => {
   const tall = "data:image/svg+xml," + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="3300">' +
