@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { validBlinkTiming, SUGGESTED_BLINK_TIMING, type BlinkTiming } from "./blinkTiming";
+import { validBlinkTiming, type BlinkTiming } from "./blinkTiming";
 
 const FIELDS = [
   ["intervalMs", "間隔（秒）"],
@@ -11,17 +11,18 @@ const FIELDS = [
 type Inputs = Record<keyof BlinkTiming, string>;
 
 function toInputs(timing?: BlinkTiming): Inputs {
-  const example = timing ?? SUGGESTED_BLINK_TIMING;
+  // No saved timing must never masquerade as filled-in, usable values.
+  const example = timing;
   return {
-    intervalMs: String(example.intervalMs / 1000),
-    closedMs: String(example.closedMs / 1000),
-    jitterMs: String(example.jitterMs / 1000),
-    phaseMs: String(example.phaseMs / 1000),
-    seed: String(example.seed),
+    intervalMs: example ? String(example.intervalMs / 1000) : "",
+    closedMs: example ? String(example.closedMs / 1000) : "",
+    jitterMs: example ? String(example.jitterMs / 1000) : "",
+    phaseMs: example ? String(example.phaseMs / 1000) : "",
+    seed: example ? String(example.seed) : "",
   };
 }
 
-/** Form examples remain unsaved until the user explicitly saves them. */
+/** Saved initial values and later edits share the same source of truth. */
 export default function BlinkTimingEditor({
   timing, onSave,
 }: {
@@ -55,8 +56,9 @@ export default function BlinkTimingEditor({
   return <fieldset className="blink-timing-editor">
     <legend>瞬きの時間設定（キャラクター共通）</legend>
     <p className="hint">全プリセットで同じ時間設定を使い、ON/OFFだけをプリセット別に切り替えます。
-      {timing ? "保存済みの設定を表示しています。" : "目安として3秒間隔・閉眼0.12秒・揺らぎ±0.5秒・初回0.7秒を入力済みです。"}
-      保存ボタンを押すまで書き出しには反映されません。</p>
+      {timing ? "初期値または変更済みの保存設定を表示しています。編集した場合は保存してください。"
+        : "瞬き時間を読み込めません。PSDの読み込み状態を確認してください。"}
+      保存済みの値が書き出しに反映されます。</p>
     {FIELDS.map(([key, label]) => <label key={key}>
       {label}
       <input type="number" min="0" max="600" step="0.001"
