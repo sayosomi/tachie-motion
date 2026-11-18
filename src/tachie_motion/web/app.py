@@ -16,7 +16,7 @@ from tachie_motion.web.origin import configured_tailscale_origin
 from tachie_motion.web.browser_preview_assets import layer_preview_assets, preview_source_status
 from tachie_motion.web.preset_preview import preview_base_preset
 from tachie_motion.web.preset_utterance import export_preset_utterance
-from tachie_motion.web.output_destinations import destination_info, validate_basename
+from tachie_motion.web.output_destinations import validate_basename
 from tachie_motion.web.solo_output import validate_media_basename, single_destination, solo_destination_info
 from tachie_motion.web.combined_otio import create_combined_otio
 from tachie_motion.web.batch_session import BatchCoordinator, validate_names, has_foreign_otio
