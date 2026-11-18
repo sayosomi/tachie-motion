@@ -183,6 +183,8 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
             raise ValueError("Another OTIO appeared during publication; restoring original MOV")
         os.link(staged, target)  # exclusive; never clobber a competing file
         published = True
+        if protect_otio_references and _other_otio_may_reference(target):
+            raise ValueError("Another OTIO appeared as MOV was published; restoring original MOV")
     except BaseException:
         try:
             if published:
