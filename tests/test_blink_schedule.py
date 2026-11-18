@@ -2,7 +2,9 @@
 
 import unittest
 
-from tachie_motion.animation.blink import schedule_blink_frames
+from tachie_motion.animation.blink import (
+    schedule_blink_frames, compose_mouth_eye_indices,
+)
 
 
 class BlinkScheduleTests(unittest.TestCase):
@@ -65,6 +67,33 @@ class BlinkScheduleTests(unittest.TestCase):
             self.schedule(frame_count=8, phase_frames=7),
             (False,) * 7 + (True,),
         )
+
+    def test_combined_indices_cover_none_open_and_aiueo(self):
+        self.assertEqual(
+            compose_mouth_eye_indices((0, 0), (False, True),
+                                     mouth_pose_count=1), (0, 1),
+        )
+        self.assertEqual(
+            compose_mouth_eye_indices((0, 1, 1), (True, False, True),
+                                     mouth_pose_count=2), (1, 2, 3),
+        )
+        self.assertEqual(
+            compose_mouth_eye_indices((0, 1, 5, 5),
+                                     (False, True, False, True),
+                                     mouth_pose_count=6),
+            (0, 3, 10, 11),
+        )
+
+    def test_combined_indices_reject_wrong_length_and_bad_types(self):
+        for mouths, eyes, count in (
+            ((0,), (), 1), ((0,), (False,), 0),
+            ((1,), (True,), 1), ((0.0,), (True,), 1),
+            ((0,), (1,), 1), ((True,), (True,), 1),
+        ):
+            with self.subTest(mouths=mouths, eyes=eyes, count=count):
+                with self.assertRaises(ValueError):
+                    compose_mouth_eye_indices(mouths, eyes,
+                                             mouth_pose_count=count)
 
     def test_rejects_invalid_settings_instead_of_hanging_or_guessing(self):
         invalid = (
