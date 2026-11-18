@@ -226,7 +226,7 @@ class PresetExportApiTests(unittest.TestCase):
             self.assertEqual(codec, "pcm_s16le")
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), originals)
         self.assertEqual(self.post().status_code, 400)
-         replaced = self.post(conflict_policy="overwrite")
+        replaced = self.post(conflict_policy="overwrite")
         self.assertEqual(replaced.status_code, 200, replaced.text)
         self.assertEqual(replaced.json()["mov"], str((self.root / "speech.mov").resolve()))
         self.assertNotIn("otio", replaced.json())
