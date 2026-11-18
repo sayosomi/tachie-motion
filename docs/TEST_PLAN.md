@@ -2,12 +2,20 @@
 
 ## Test pyramid
 
-- Python unit tests: timeline change-point semantics, independent initial states, lip-disabled mode, LAB units, blink seed reproducibility, bounds computation.
+- Python unit tests: timeline change-point semantics, independent initial states, lip-disabled mode, LAB units, **pure blink scheduler reproducibility with explicit seed** (distinct from MOV export randomness), bounds computation.
 - Renderer golden tests: synthetic PSD with transparent shapes and duplicate layer names; layer order/visibility and alpha expectations.
 - Encoder integration: ffmpeg detection, prores_ks + profile 4444, alpha check after decode with ffprobe/ffmpeg.
 - OTIO: serialize/deserialize refs, track order, audio only once, gaps and rational timestamps.
 - Browser E2E: Playwright import/preview/toggle/change-point/save/export with deterministic fixtures.
 - CI: Linux unit jobs plus macOS/Windows where dependencies allow; manual Resolve import is a separate human gate.
+
+## Public Issue #36 — 発話・書き出しごとの瞬きランダム化
+
+- 決定論的な純粋スケジューラは、明示したseed・整数フレーム幅に対して同一フレーム列を返す。これはテスト制御用であり、実MOVの再書き出し時のタイミング再現性を要求しない。
+- MOV生成のたびに初回目安±揺らぎと後続の平均間隔±揺らぎを新しい乱数で決定する。初回時刻の下限は0、閉眼同士の重複はなく、少なくとも1フレームの開眼を確保する。揺らぎ0の明示設定は固定時刻となる。
+- Python単体テストでは乱数をモックして異なる位相と間隔の生成・不正なタイミングの拒否を検証し、合成PSD/WAV→API→ProRes MOV→FFmpeg復号では同一入力の2回の書き出しが異なる閉眼フレームを持つことを確認する。PCM、アルファ、OTIO、元PSD/WAV/LAB、出力先保護の既存検証を維持する。
+- ブラウザUIから再現用シード入力を撤去し、変更した間隔・閉眼・揺らぎ・初回目安の保存をPlaywrightで回帰する。既存JSONの非ゼロseedは保存/復元で保持するが、出力用乱数には使わない。旧値保持の直接テストは追加品質項目（監査LOW-02）。
+- Mac実PSDでの発話ごとの見た目はCIと独立したHuman評価とする。前Issue #34のMac/Resolve PASSを今回の結果に流用しない。
 
 ## Public Issue #16 — 制作プロジェクトJSON（単一キャラ・複数WAV）
 
