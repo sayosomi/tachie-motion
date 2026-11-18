@@ -25,12 +25,13 @@ jobs:
           node-version: "22"
       - name: Install media and Python test dependencies
         run: |
-          # Prefer runner binaries; keep bounded APT fallback when missing.
-          # Use the same non-Azure mirror, timeout and retry policy as the
-          # successful Python FFmpeg CI matrix. Keep the real media package.
+          # GitHub-hosted runners may provide slow EC2/Azure mirrors.
+          # The previous Azure-only exclusion still allowed EC2 APT stalls.
+          # Pin the official Ubuntu mirror observed in the passing CI run.
+          # Keep installing and exercising real FFmpeg; no test bypass.
           if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
-            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
-            test -s /etc/apt/apt-mirrors.txt
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            test "$(cat /etc/apt/apt-mirrors.txt)" = 'https://archive.ubuntu.com/ubuntu/'
             timeout 180s sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=1 update
             timeout 600s sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=1 install -y --no-install-recommends ffmpeg
           fi
