@@ -325,6 +325,26 @@ test("batch exports every WAV in list order and retains individual failures", as
   await expect(page.locator("[data-utterance-id]").nth(2)).not.toContainText("書き出し済み");
 });
 
+test("batch preflight identifies the offending WAV and the missing open shape", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/010_あんこもん.wav");
+  await addWav(page, "/tmp/011_あんこもん.wav");
+  await page.locator("[data-utterance-id]").nth(1)
+    .locator(".utterance-row-mode select").selectOption("open");
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  const alert = page.getByRole("alert").filter({ hasText: "一括書き出しを開始できません" });
+  await expect(alert).toContainText("2番 /tmp/011_あんこもん.wav");
+  await expect(alert).toContainText("open：プリセット「通常」の開いた口レイヤーが未設定です。");
+  await page.locator("[data-utterance-id]").nth(1)
+    .locator(".utterance-row-mode select").selectOption("none");
+  await expect(alert).toHaveCount(0);
+  await expect(page.getByText("書き出し予定を確認済み", { exact: false })).toBeVisible();
+});
+
 test("batch preflight blocks colliding output filenames before generating MOVs", async ({ page }) => {
   await page.route("**/api/wav", (route) => route.fulfill({
     json: { samples: 1000, sample_rate: 1000, duration_seconds: 1 },
