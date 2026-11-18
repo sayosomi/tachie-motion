@@ -268,6 +268,63 @@ class PresetExportApiTests(unittest.TestCase):
         self.assertEqual(old_otio.read_bytes(), b"OLD OTIO")
         self.assertFalse((self.root / "speech_002.mov").exists())
 
+    def test_foreign_combined_otio_blocks_existing_mov_overwrite_without_render(self):
+        mov = self.root / "speech.mov"
+        combined = self.root / "project.otio"
+        mov.write_bytes(b"OLD MOV")
+        combined.write_bytes(b"EXISTING PROJECT TIMELINE")
+        probe = self.client.post("/api/preset-utterance-destination",
+                                 json={"output_dir": str(self.root), "basename": "speech"})
+        self.assertEqual(probe.status_code, 200, probe.text)
+        self.assertEqual(probe.json()["state"], "unsafe")
+        self.assertEqual(probe.json()["suggested_basename"], "speech_002")
+        denied = self.post(conflict_policy="overwrite")
+        self.assertEqual(denied.status_code, 400, denied.text)
+        self.assertIn("Another OTIO", denied.text)
+        self.assertEqual(mov.read_bytes(), b"OLD MOV")
+        self.assertEqual(combined.read_bytes(), b"EXISTING PROJECT TIMELINE")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_combined_otio_added_after_render_stops_solo_mov_publish(self):
+        from unittest.mock import patch
+        from tachie_motion.render.pcm_mux import mux_verified_pcm
+
+        mov = self.root / "speech.mov"
+        combined = self.root / "project.otio"
+        mov.write_bytes(b"OLD MOV")
+
+        def add_otio_after_mux(*args, **kwargs):
+            report = mux_verified_pcm(*args, **kwargs)
+            combined.write_bytes(b"CREATED WHILE RENDERING")
+            return report
+
+        with patch("tachie_motion.web.preset_utterance.mux_verified_pcm",
+                   side_effect=add_otio_after_mux):
+            denied = self.post(conflict_policy="overwrite")
+        self.assertEqual(denied.status_code, 400, denied.text)
+        self.assertIn("Another OTIO", denied.text)
+        self.assertEqual(mov.read_bytes(), b"OLD MOV")
+        self.assertEqual(combined.read_bytes(), b"CREATED WHILE RENDERING")
+        self.assertFalse((self.root / ".speech.mov.single-backup").exists())
+
+    def test_batch_recovery_is_visible_and_blocks_solo_export(self):
+        recovery = self.root / ".tachie-batch-recovery-synthetic"
+        recovery.mkdir()
+        manifest = recovery / "manifest.json"
+        manifest.write_bytes(b"DO NOT DELETE")
+        probe = self.client.post("/api/preset-utterance-destination",
+                                 json={"output_dir": str(self.root), "basename": "speech"})
+        self.assertEqual(probe.status_code, 200, probe.text)
+        self.assertEqual(probe.json()["state"], "recovery_required")
+        self.assertEqual(probe.json()["suggested_basename"], "")
+        self.assertTrue(probe.json()["folder_recovery_required"])
+        denied = self.post()
+        self.assertEqual(denied.status_code, 400, denied.text)
+        self.assertIn("needs recovery", denied.text)
+        self.assertEqual(manifest.read_bytes(), b"DO NOT DELETE")
+        self.assertFalse((self.root / "speech.mov").exists())
+
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")
     def test_open_closed_frame_uses_base_even_with_legacy_opposite_override(self):
