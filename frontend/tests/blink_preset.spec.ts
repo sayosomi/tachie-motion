@@ -208,3 +208,35 @@ test("clearing starred closed eyes permits reassignment and restores blank state
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
   expect((await saved(page)).collection.motionGroups.eyes).toEqual([]);
 });
+
+
+test("blink timing requires explicit values, survives reload, and remains character-wide", async ({ page }) => {
+  await openEditor(page);
+  await setEyeGroup(page);
+  await page.getByRole("button", { name: "瞬き時間を保存" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "数値が不正" })).toBeVisible();
+  expect((await saved(page)).collection.blinkTiming).toBeUndefined();
+
+  await page.getByRole("spinbutton", { name: "間隔（秒）" }).fill("5");
+  await page.getByRole("spinbutton", { name: "閉眼時間（秒）" }).fill("0.1");
+  await page.getByRole("spinbutton", { name: "間隔の揺らぎ（±秒）" }).fill("6");
+  await page.getByRole("spinbutton", { name: "最初の瞬きまで（秒）" }).fill("1");
+  await page.getByRole("spinbutton", { name: "再現用シード（整数）" }).fill("1234");
+  await page.getByRole("button", { name: "瞬き時間を保存" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "数値が不正" })).toBeVisible();
+
+  await page.getByRole("spinbutton", { name: "間隔の揺らぎ（±秒）" }).fill("1");
+  await page.getByRole("button", { name: "瞬き時間を保存" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "保存しました" })).toBeVisible();
+  expect((await saved(page)).collection.blinkTiming).toEqual({
+    intervalMs: 5000, closedMs: 100, jitterMs: 1000, phaseMs: 1000, seed: 1234,
+  });
+
+  await page.reload();
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await selectEye(page);
+  await expect(page.getByRole("spinbutton", { name: "間隔（秒）" })).toHaveValue("5");
+  await expect(page.getByRole("spinbutton", { name: "再現用シード（整数）" })).toHaveValue("1234");
+});
