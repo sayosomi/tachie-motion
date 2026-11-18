@@ -1,5 +1,6 @@
 import type { PresetDraft } from "./presetDraftStorage";
-import type { UnifiedPreset } from "./presetModel";
+import type { UnifiedPreset, Presets } from "./presetModel";
+import { blinkFrames } from "./blinkTiming";
 import { AIUEO_KEYS } from "./presetModel";
 import type { LabInfo } from "./useLabStatus";
 import type { UtteranceItem } from "./utteranceItems";
@@ -15,8 +16,13 @@ export function aiueoMouthReady(preset?: UnifiedPreset): boolean {
 
 export function exportReady(
   preset: UnifiedPreset | undefined, item: UtteranceItem, lab?: LabInfo,
+  collection?: Presets,
 ): boolean {
-  if (!preset || preset.blinkEnabled) return false;
+  if (!preset) return false;
+  if (preset.blinkEnabled && (
+      !collection?.motionGroups?.eyes?.length ||
+      !preset.eyes?.closed.some((entry) => entry.visible) ||
+      !blinkFrames(collection.blinkTiming, item.fps))) return false;
   if (item.mode === "none" || preset.mouthMotionEnabled === false) return true;
   if (item.mode === "aiueo") return lab?.status === "valid" && !!lab.source_identity && aiueoMouthReady(preset);
   const mouth = preset.openMouth;
@@ -42,6 +48,13 @@ export function exportPayload(
   draft: PresetDraft, item: UtteranceItem, preset: UnifiedPreset,
   basename: string, conflictPolicy: ConflictPolicy, labSourceIdentity?: string | null,
 ) {
+  const timing = preset.blinkEnabled
+    ? blinkFrames(draft.collection.blinkTiming, item.fps) : null;
+  if (preset.blinkEnabled && (
+      !timing || !draft.collection.motionGroups?.eyes?.length ||
+      !preset.eyes?.closed.some((entry) => entry.visible))) {
+    throw new Error("瞬き時間・目のレイヤー設定が未完了です");
+  }
   return {
     psd: draft.path,
     wav: item.wavPath,
@@ -54,6 +67,9 @@ export function exportPayload(
     lab_source_identity: effectiveLabSourceIdentity(item, preset, labSourceIdentity),
     mode: preset.mouthMotionEnabled === false ? "none" : item.mode,
     blink_enabled: preset.blinkEnabled,
+    eyes: preset.blinkEnabled ? preset.eyes ?? null : null,
+    eye_groups: preset.blinkEnabled ? draft.collection.motionGroups?.eyes ?? null : null,
+    blink_timing: timing,
     output_dir: item.outputDir,
     basename,
     conflict_policy: conflictPolicy,
