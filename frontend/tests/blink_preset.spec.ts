@@ -240,3 +240,67 @@ test("blink timing requires explicit values, survives reload, and remains charac
   await expect(page.getByRole("spinbutton", { name: "間隔（秒）" })).toHaveValue("5");
   await expect(page.getByRole("spinbutton", { name: "再現用シード（整数）" })).toHaveValue("1234");
 });
+
+
+test("blink-disabled export becomes available only after explicit timing and eye selection", async ({ page }) => {
+  const submissions: Array<Record<string, unknown>> = [];
+  await page.route("**/api/health", (route) => route.fulfill({
+    json: { ok: true, default_output_dir: "/tmp/output" },
+  }));
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 1000, sample_rate: 1000,
+      duration_seconds: 1, source_identity: "1:2:3:4:5" },
+  }));
+  await page.route("**/api/preset-utterance-destination", (route) => route.fulfill({
+    json: { state: "available", suggested_basename: "blink_002" },
+  }));
+  await page.route("**/api/preset-utterance-export", (route) => {
+    submissions.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill({ json: {
+      mov: "/tmp/output/blink_001.mov",
+      otio: "/tmp/output/blink_001.otio",
+      frames: 30, sample_count: 1000,
+    } });
+  });
+  await openEditor(page);
+  await setEyeGroup(page);
+  await entry(page, "0/1/1").getByRole("radio").check();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await page.locator("#speech-wav-path-advanced").evaluate((node) => {
+    (node as HTMLDetailsElement).open = true;
+  });
+  await page.locator("#speech-wav-path").fill("/tmp/声 だんもん.wav");
+  await page.getByRole("button", { name: "WAVを確認" }).click();
+  await expect(page.getByText("瞬きの閉じ目レイヤーとキャラクター共通の時間設定")).toBeVisible();
+  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await selectEye(page);
+  await page.getByRole("spinbutton", { name: "間隔（秒）" }).fill("4");
+  await page.getByRole("spinbutton", { name: "閉眼時間（秒）" }).fill("0.1");
+  await page.getByRole("spinbutton", { name: "間隔の揺らぎ（±秒）" }).fill("0.5");
+  await page.getByRole("spinbutton", { name: "最初の瞬きまで（秒）" }).fill("1");
+  await page.getByRole("spinbutton", { name: "再現用シード（整数）" }).fill("123");
+  await page.getByRole("button", { name: "瞬き時間を保存" }).click();
+
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeEnabled();
+  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await expect.poll(() => submissions.length).toBe(1);
+  expect(submissions[0].blink_enabled).toBe(true);
+  expect(submissions[0].eye_groups).toEqual(["0/1"]);
+  expect(submissions[0].eyes).toMatchObject({
+    opened: [], closed: [
+      { path: "0/1/0", visible: false },
+      { path: "0/1/1", visible: true },
+    ],
+  });
+  expect(submissions[0].blink_timing).toEqual({
+    interval_frames: 120, closed_frames: 3,
+    jitter_frames: 15, phase_frames: 30, seed: 123,
+  });
+  expect(submissions[0].mode).toBe("none");
+});
