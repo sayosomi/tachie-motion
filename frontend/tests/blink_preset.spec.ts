@@ -51,6 +51,27 @@ async function setEyeGroup(page: Page) {
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
 }
 
+test("unselected closed eye is hidden and selecting the fixed eye is explicit", async ({ page }) => {
+  const requests: Array<{ path: string; visible: boolean }[]> = [];
+  await openEditor(page, requests);
+  await setEyeGroup(page);
+  await expect(entry(page, "0/1/0").getByRole("radio")).not.toBeChecked();
+  await expect(entry(page, "0/1/1").getByRole("radio")).not.toBeChecked();
+  await expect.poll(() => requests.at(-1)?.find((x) => x.path === "0/1/0")?.visible)
+    .toBe(false);
+  await expect.poll(() => requests.at(-1)?.find((x) => x.path === "0/1/2")?.visible)
+    .toBe(true);
+  // Fixed already shows the open eye, but selecting it for closed eyes is valid.
+  await entry(page, "0/1/0").click({ position: { x: 2, y: 2 } });
+  await expect(entry(page, "0/1/0").getByRole("radio")).toBeChecked();
+  const selected = (await saved(page)).collection.items[0].eyes.closed;
+  expect(selected).toEqual([
+    { path: "0/1/0", visible: true }, { path: "0/1/1", visible: false },
+  ]);
+  await expect.poll(() => requests.at(-1)?.find((x) => x.path === "0/1/0")?.visible)
+    .toBe(true);
+});
+
 test("eyes remain independent of mouth and restore their configured pose", async ({ page }) => {
   const requests: Array<{ path: string; visible: boolean }[]> = [];
   await openEditor(page, requests);

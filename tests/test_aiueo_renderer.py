@@ -143,7 +143,7 @@ class AiueoCoreTests(unittest.TestCase):
         validate_aiueo_mouth(psd, base, shapes, group_path)
         with self.assertRaisesRegex(ValueError, "exclusive"):
             validate_aiueo_mouth(psd, base, {
-                **shapes, "a": [entry(other, True)],
+                **shapes, "a": [entry(selected, True), entry(other, True)],
             }, group_path)
         with self.assertRaisesRegex(ValueError, "mandatory"):
             validate_aiueo_mouth(psd, base, {
