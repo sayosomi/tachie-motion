@@ -24,7 +24,7 @@ export function exportReady(
       mouth.closed.length !== mouth.opened.length) return false;
   const base = new Map(preset.base.map((layer) => [layer.path, layer.visible]));
   // The resting mouth is always the current fixed-layer visibility.
-  // Legacy closed-shape values are preserved in JSON but never drive playback.
+  // The active pose is explicitly selected, even if a selected leaf matches base.
   return mouth.opened.some((layer) =>
     base.has(layer.path) && base.get(layer.path) !== layer.visible);
 }

@@ -85,8 +85,8 @@ def validate_open_mouth(psd, base: dict, mouth: dict | None):
         raise ValueError("Both mouth shapes must target the same layers")
     # The legacy closed map stays structurally validated for JSON compatibility,
     # but the actual resting pose comes from the fixed-layer snapshot.
-    if not any(base[path] != visible for path, visible in states["opened"].items()):
-        raise ValueError("Open mouth shape matches fixed-layer visibility")
+    if not any(states["opened"].values()):
+        raise ValueError("Open mouth has no explicitly selected visible layer")
     return states
 
 

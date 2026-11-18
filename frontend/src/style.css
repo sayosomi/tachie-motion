@@ -179,10 +179,6 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .preset-editor .preset-layer:not(.group):not([data-selected="true"]):hover {
   background:#20384a;
 }
-.preset-inherit-base { display:flex; gap:9px; align-items:center; margin:10px 0 8px;
-  cursor:pointer; font-size:13px; font-weight:600; }
-.preset-inherit-base input { width:19px; height:19px; flex:0 0 19px;
-  accent-color:#86dbbe; cursor:pointer; }
 .visibility-state { font-size:11px; font-weight:800; color:#9bcbb9; }
 .preset-delete { margin-top:16px; }
 .preset-empty { margin-top:22px; }

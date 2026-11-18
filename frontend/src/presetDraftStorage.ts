@@ -6,10 +6,10 @@ import { validatePsdChoices } from "./psdChoice";
 
 // Crash/reload recovery for this one browser and exact site origin only.
 // Not the versioned, portable character-profile format in PRODUCT_SPEC §7.
-const KEY = "tachie-motion.preset-draft.v1";
+const KEY = "tachie-motion.preset-draft.v2";
 
 export type PresetDraft = {
-  version: 1;
+  version: 2;
   path: string;
   fingerprint: string;
   collection: Presets;
@@ -27,7 +27,7 @@ export function readPresetDraft(): PresetDraft | null {
   let value: unknown;
   try { value = JSON.parse(text); }
   catch { throw new Error("保存済みプリセットの形式が壊れています"); }
-  if (!object(value) || value.version !== 1
+  if (!object(value) || value.version !== 2
     || typeof value.path !== "string" || !value.path.trim()
     || typeof value.fingerprint !== "string" || !value.fingerprint
     || !object(value.collection) || !Array.isArray(value.collection.items)
@@ -61,7 +61,7 @@ export function readPresetDraft(): PresetDraft | null {
       || typeof item.name !== "string" || !item.name.trim()
       || !Array.isArray(item.base) || typeof item.blinkEnabled !== "boolean"
       || (item.mouthMotionEnabled !== undefined && typeof item.mouthMotionEnabled !== "boolean")
-      || (item.aiueoRestUsesBase !== undefined && typeof item.aiueoRestUsesBase !== "boolean")) {
+      || Object.hasOwn(item, "aiueoRestUsesBase")) {
       throw new Error("保存済みプリセットの内容が不正です");
     }
     const name = item.name.trim().normalize("NFC").toLocaleLowerCase();
@@ -114,9 +114,6 @@ export function readPresetDraft(): PresetDraft | null {
         throw new Error("保存済みaiueo口形設定が不正です");
       }
       for (const key of AIUEO_KEYS) parseShape(mouth[key]);
-      if (item.aiueoRestUsesBase === true && (mouth.n as unknown[]).length) {
-        throw new Error("保存済みの「ん」口形と固定レイヤー継承が競合しています");
-      }
     }
     if (item.eyes !== undefined) {
       const eyes: unknown = item.eyes;
@@ -167,7 +164,7 @@ export function matchesSource(draft: PresetDraft, fingerprint: string, layers: L
     validatePsdChoices(draft.collection, layers);
     return true;
   } catch {
-    // A corrupt/legacy draft stays in localStorage for explicit recovery;
+    // A corrupt draft stays in localStorage for explicit recovery;
     // never auto-normalize or render from conflicting saved layer states.
     return false;
   }

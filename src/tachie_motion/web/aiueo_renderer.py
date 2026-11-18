@@ -53,7 +53,7 @@ def verify_export_lab(wav: Path, source_identity: str,
 
 def validate_aiueo_mouth(psd, base: dict, mouth: dict | None,
                          mouth_groups: list[str] | None = None) -> dict:
-    """Require five vowel sets; rest ('n') may inherit the preset base image.
+    """Require all six explicit mouth shapes, including rest ('n').
 
     All six named entries must exist and remain subject to PSD visibility rules.
     """
@@ -84,7 +84,7 @@ def validate_aiueo_mouth(psd, base: dict, mouth: dict | None,
     for key in AIUEO_KEYS:
         entries = mouth[key]
         if (type(entries) is not list or len(entries) > 50_000
-                or (key != "n" and not entries)):
+                or not any(type(entry) is dict and entry.get("visible") is True for entry in entries)):
             raise ValueError("aiueo mouth " + key + " is not configured")
         overrides = {}
         for entry in entries:

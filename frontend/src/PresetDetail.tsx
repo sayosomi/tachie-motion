@@ -36,7 +36,6 @@ type Props = {
   onEyeShapeChange: (pose: "opened" | "closed", path: string, visible: boolean) => void;
   onOpenShapeChange: (shape: "closed" | "opened", path: string, visible: boolean) => void;
   onAiueoChoiceChange: (key: AiueoKey, path: string, visible: boolean) => void;
-  onAiueoRestBaseChange: (enabled: boolean) => void;
   onDelete: () => void;
 };
 
@@ -50,7 +49,7 @@ export default function PresetDetail({
   sourcePath, fingerprint, canvasWidth, canvasHeight, nameDraft,
   onNameDraftChange, onBack, onRename, onToggle, mouthGroups, eyeGroups,
   onMouthGroupsChange, onEyeGroupsChange, onMouthMotionChange, onBlinkChange,
-  onEyeShapeChange, onOpenShapeChange, onAiueoChoiceChange, onAiueoRestBaseChange, onDelete,
+  onEyeShapeChange, onOpenShapeChange, onAiueoChoiceChange, onDelete,
 }: Props) {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -90,10 +89,8 @@ export default function PresetDetail({
   ).map((layer) => layer.path));
   const currentMotionShape = motionKind === "eyes" ? preset.eyes?.closed
     : roleMode === "open" ? preset.openMouth?.opened : preset.aiueoMouth?.[aiueoKey];
-  const hasConfiguredMotionShape = (motionKind === "mouth" && roleMode === "aiueo"
-      && aiueoKey === "n" && preset.aiueoRestUsesBase === true) ||
-    (currentMotionShape?.some((entry) =>
-      eligible.has(entry.path) && baseByPath.get(entry.path) !== entry.visible) ?? false);
+  const hasConfiguredMotionShape = currentMotionShape?.some((entry) =>
+    eligible.has(entry.path) && entry.visible) ?? false;
   const queryText = query.trim().toLocaleLowerCase();
   const activeFilter = Boolean(queryText);
   const matches = new Set<string>();
@@ -146,19 +143,21 @@ export default function PresetDetail({
         ? preset.eyes?.[eyePose]
         : preset.aiueoMouth?.[previewState.slice(6) as AiueoKey];
   const unconfiguredOpened = previewState === "opened" &&
-    !preset.openMouth?.opened.some((layer) =>
-      baseByPath.has(layer.path) && baseByPath.get(layer.path) !== layer.visible);
+    !preset.openMouth?.opened.some((layer) => layer.visible);
   const shapeKey = JSON.stringify([sourcePath, fingerprint, sourceIdentity,
-    preset.base, shape, previewState, preset.mouthMotionEnabled, preset.blinkEnabled]);
+    preset.base, shape, previewState, selectedGroups, layers, preset.mouthMotionEnabled, preset.blinkEnabled]);
   useEffect(() => {
-    if (previewState === "base" || unconfiguredOpened
+    if (previewState === "base" || !selectedGroups.length
         || (area === "motion" && !motionEnabled)
         || sourceChanged || previewLoading) return;
-    if (!shape?.length) return; // The unconfigured phoneme inherits the base preview.
     const abort = new AbortController();
-    const overrides = new Map(shape.map((item) => [item.path, item.visible]));
+    const overrides = new Map((shape ?? []).map((item) => [item.path, item.visible]));
+    const editable = new Set(layers.filter((layer) => layer.kind !== "group"
+      && !layer.name.startsWith("!")
+      && isMouthLayer(layer.path, selectedGroups)).map((layer) => layer.path));
     const states = preset.base.map((layer) => ({
-      path: layer.path, visible: overrides.get(layer.path) ?? layer.visible,
+      path: layer.path,
+      visible: editable.has(layer.path) ? (overrides.get(layer.path) === true) : layer.visible,
     }));
     const legacy = () => {
       void (async () => {
@@ -199,12 +198,9 @@ export default function PresetDetail({
     preset.mouthMotionEnabled, unconfiguredOpened, motionKind,
     area, motionEnabled]);
 
-  const unconfiguredAiueo = previewState.startsWith("aiueo-") && !shape?.length;
-  const unconfiguredEyes = previewState.startsWith("eyes-") && !shape?.length;
-  // An OFF motion shows only the preset's resting appearance.
+  // Unselected editable mouth/eye leaves are hidden instead of inheriting base.
   const usingBasePreview = previewState === "base"
-    || unconfiguredOpened || unconfiguredAiueo || unconfiguredEyes
-    || (area === "motion" && !motionEnabled);
+    || !selectedGroups.length || (area === "motion" && !motionEnabled);
   const shownPreview = sourceChanged ? undefined :
     usingBasePreview ? preview : shapePreview?.key === shapeKey ? shapePreview.image : undefined;
   const shownError = sourceChanged ? "PSDが変更されました。再読み込みしてください。" :
@@ -343,21 +339,7 @@ export default function PresetDetail({
                 ? onMouthGroupsChange : onEyeGroupsChange} />
           </div>}
         </>}
-        {area === "motion" && motionEnabled && selectedGroups.length > 0 &&
-          motionKind === "mouth" && roleMode === "aiueo" && aiueoKey === "n" &&
-          <label className="preset-inherit-base">
-            <input type="checkbox" aria-label="固定レイヤーを引き継ぐ"
-              checked={preset.aiueoRestUsesBase === true}
-              onChange={(event) => onAiueoRestBaseChange(event.target.checked)} />
-            固定レイヤーを引き継ぐ
-          </label>}
-        {area === "motion" && motionEnabled && selectedGroups.length > 0
-          && motionKind === "mouth" && roleMode === "aiueo" && aiueoKey === "n"
-          && preset.aiueoRestUsesBase === true &&
-          <p className="preset-motion-instruction">② 「ん」の口形：固定レイヤーを使用中</p>}
-        {(area === "normal" || (motionEnabled && selectedGroups.length > 0
-          && !(motionKind === "mouth" && roleMode === "aiueo"
-            && aiueoKey === "n" && preset.aiueoRestUsesBase === true))) && <>
+        {(area === "normal" || (motionEnabled && selectedGroups.length > 0)) && <>
         {area === "motion" && <p className="preset-motion-instruction">
           {motionKind === "eyes" ? "② 閉じた目のレイヤー"
             : roleMode === "open" ? "② 開いた口のレイヤー"
@@ -382,10 +364,8 @@ export default function PresetDetail({
             const choice = psdChoiceKind(layer.name);
             const on = baseByPath.get(layer.path) ?? false;
             const role = roles.get(layer.path) ?? unsetRole;
-            const effective = motionKind === "mouth" &&
-              previewState === "opened"
-              ? preset.openMouth?.[previewState].find((item) => item.path === layer.path)?.visible ?? on
-              : role === "base" ? on : role === "show";
+            const effective = editingBase ? on :
+              currentMotionShape?.some((entry) => entry.path === layer.path && entry.visible) ?? false;
             const applyVisibility = (visible: boolean) => {
               if (editingBase) onToggle(layer.path, visible);
               else if (motionKind === "eyes") onEyeShapeChange(eyePose, layer.path, visible);

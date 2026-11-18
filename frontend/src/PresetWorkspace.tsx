@@ -128,7 +128,7 @@ export default function PresetWorkspace() {
     path: string = loadedPath, fingerprint: string | undefined = psd?.fingerprint) {
     if (!path || !fingerprint) return;
     try {
-      writePresetDraft({ version: 1, path, fingerprint, collection: next, nameDrafts: drafts });
+      writePresetDraft({ version: 2, path, fingerprint, collection: next, nameDrafts: drafts });
     } catch {
       setError("ブラウザに自動保存できません。再読み込み前に空き容量・保存設定を確認してください。");
     }
@@ -280,7 +280,7 @@ export default function PresetWorkspace() {
       }
       // Durable recovery write first: on storage failure keep the current UI.
       writePresetDraft({
-        version: 1, path: profile.source.path, fingerprint: profile.source.fingerprint,
+        version: 2, path: profile.source.path, fingerprint: profile.source.fingerprint,
         collection: profile.collection, nameDrafts: {},
       });
       editVersion.current += 1;

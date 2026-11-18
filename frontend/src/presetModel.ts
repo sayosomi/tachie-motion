@@ -10,8 +10,6 @@ export type UnifiedPreset = {
   base: Visibility[];
   openMouth?: { closed: Shape; opened: Shape };
   aiueoMouth?: { a: Shape; i: Shape; u: Shape; e: Shape; o: Shape; n: Shape };
-  /** The user explicitly chose fixed layers for the silent "n" mouth. */
-  aiueoRestUsesBase?: boolean;
   eyes?: { opened: Shape; closed: Shape };
   blinkEnabled: boolean;
   /** Optional for backwards compatibility. Undefined means enabled. */
@@ -134,20 +132,6 @@ export type AiueoKey = typeof AIUEO_KEYS[number];
 export type AiueoLayerRole = "base" | "show" | "hide";
 export type AiueoMouth = NonNullable<UnifiedPreset["aiueoMouth"]>;
 
-/** Record the explicit base choice; the n renderer still receives an empty override. */
-export function setAiueoRestUsesBase(
-  current: Presets, id: string, enabled: boolean,
-): Presets {
-  return { ...current, items: current.items.map((item) => {
-    if (item.id !== id) return item;
-    const nextMouth = item.aiueoMouth
-      ? { ...item.aiueoMouth, n: enabled ? [] : item.aiueoMouth.n } : undefined;
-    const aiueoMouth = nextMouth && AIUEO_KEYS.some((key) => nextMouth[key].length)
-      ? nextMouth : undefined;
-    return { ...item, aiueoMouth, aiueoRestUsesBase: enabled ? true : undefined };
-  }) };
-}
-
 export function aiueoLayerRole(
   preset: UnifiedPreset, key: AiueoKey, path: string,
 ): AiueoLayerRole {
@@ -177,8 +161,7 @@ export function assignAiueoLayerRole(
   ])) as AiueoMouth;
   const aiueoMouth = AIUEO_KEYS.some((name) => next[name].length) ? next : undefined;
   return { ...current, items: current.items.map((item) =>
-    item.id === id ? { ...item, aiueoMouth,
-      aiueoRestUsesBase: key === "n" ? undefined : item.aiueoRestUsesBase } : item) };
+    item.id === id ? { ...item, aiueoMouth } : item) };
 }
 
 export type OpenMouth = NonNullable<UnifiedPreset["openMouth"]>;
@@ -272,10 +255,37 @@ export function setOpenPsdChoice(
   current: Presets, id: string, layers: Layer[],
   shape: "closed" | "opened", path: string, visible: boolean,
 ): Presets {
-  return choiceChanges(layers, path, visible).reduce(
-    (next, entry) => setOpenShapeVisibility(next, id, shape, entry.path, entry.visible),
-    current,
-  );
+  if (shape !== "opened") throw new Error("固定レイヤーが閉口状態を定義します");
+  const preset = current.items.find((item) => item.id === id);
+  if (!preset) throw new Error("Unknown preset");
+  const opened = chooseMotionShape(preset.openMouth?.opened, layers,
+    current.motionGroups?.mouth ?? [], path, visible);
+  const closed = opened.map((entry) => ({
+    path: entry.path,
+    visible: preset.base.find((base) => base.path === entry.path)?.visible ?? false,
+  }));
+  return setOpenMouth(current, id, opened.some((entry) => entry.visible)
+    ? { closed, opened } : undefined);
+}
+
+/** Explicit motion selections. Empty means no selected leaf, never 'inherit base'. */
+function chooseMotionShape(
+  existing: Shape | undefined, layers: Layer[], groups: readonly string[],
+  path: string, visible: boolean,
+): Shape {
+  const allowed = layers.filter((layer) => layer.kind !== "group" &&
+    !layer.name.startsWith("!") &&
+    groups.some((group) => layer.path.startsWith(group + "/")));
+  if (!allowed.some((layer) => layer.path === path)) {
+    throw new Error("対象グループ内のレイヤーを選択してください");
+  }
+  const selected = new Set(existing?.filter((entry) => entry.visible).map((entry) => entry.path) ?? []);
+  for (const changed of choiceChanges(layers, path, visible)) {
+    if (changed.visible) selected.add(changed.path);
+    else selected.delete(changed.path);
+  }
+  if (!selected.size) return [];
+  return allowed.map((layer) => ({ path: layer.path, visible: selected.has(layer.path) }));
 }
 
 /** Sibling radio exclusion is local to the selected aiueo mouth shape. */
@@ -285,13 +295,14 @@ export function setAiueoPsdChoice(
 ): Presets {
   const preset = current.items.find((item) => item.id === id);
   if (!preset) throw new Error("Unknown preset");
-  const base = new Map(preset.base.map((entry) => [entry.path, entry.visible]));
-  return choiceChanges(layers, path, visible).reduce((next, entry) => {
-    const baseline = base.get(entry.path);
-    if (baseline === undefined) throw new Error("Unknown source layer path");
-    return assignAiueoLayerRole(next, id, key, entry.path,
-      entry.visible === baseline ? "base" : entry.visible ? "show" : "hide");
-  }, current);
+  const shape = chooseMotionShape(preset.aiueoMouth?.[key], layers,
+    current.motionGroups?.mouth ?? [], path, visible);
+  const next = Object.fromEntries(AIUEO_KEYS.map((name) =>
+    [name, name === key ? shape : [...(preset.aiueoMouth?.[name] ?? [])]])) as AiueoMouth;
+  const aiueoMouth = AIUEO_KEYS.some((name) => next[name].some((entry) => entry.visible))
+    ? next : undefined;
+  return { ...current, items: current.items.map((item) =>
+    item.id === id ? { ...item, aiueoMouth } : item) };
 }
 
 
@@ -321,10 +332,14 @@ export function setEyePsdChoice(
   current: Presets, id: string, layers: Layer[],
   pose: "opened" | "closed", path: string, visible: boolean,
 ): Presets {
-  return choiceChanges(layers, path, visible).reduce(
-    (next, entry) => setEyeShapeVisibility(next, id, pose, entry.path, entry.visible),
-    current,
-  );
+  if (pose !== "closed") throw new Error("固定レイヤーが開眼状態を定義します");
+  const preset = current.items.find((item) => item.id === id);
+  if (!preset) throw new Error("Unknown preset");
+  const closed = chooseMotionShape(preset.eyes?.closed, layers,
+    current.motionGroups?.eyes ?? [], path, visible);
+  const eyes = closed.some((entry) => entry.visible) ? { opened: [], closed } : undefined;
+  return { ...current, items: current.items.map((item) =>
+    item.id === id ? { ...item, eyes } : item) };
 }
 
 export function setBlinkEnabled(current: Presets, id: string, enabled: boolean): Presets {

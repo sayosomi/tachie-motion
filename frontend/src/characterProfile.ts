@@ -6,7 +6,7 @@ import { validatePsdChoices } from "./psdChoice";
 
 // Portable, explicit character settings. Never a project snapshot or reload draft.
 export const CHARACTER_PROFILE_FORMAT = "tachie-motion-character-profile";
-export const CHARACTER_PROFILE_VERSION = 1;
+export const CHARACTER_PROFILE_VERSION = 2;
 export const MAX_PROFILE_SIZE = 2_000_000;
 const MAX_LAYERS = 50_000;
 const MAX_PRESETS = 1_000;
@@ -66,7 +66,7 @@ function paired(value: unknown, keys: string[], allowed: Set<string>): Record<st
 }
 
 function preset(value: unknown, allowed: Set<string>): UnifiedPreset {
-  fields(value, ["id", "name", "base", "blinkEnabled"], ["openMouth", "aiueoMouth", "eyes", "mouthMotionEnabled", "aiueoRestUsesBase"]);
+  fields(value, ["id", "name", "base", "blinkEnabled"], ["openMouth", "aiueoMouth", "eyes", "mouthMotionEnabled"]);
   // Preset IDs are opaque stable identifiers, not necessarily UUIDs.
   // Reject Object.prototype property names because UI state indexes drafts
   // and previews by ID using ordinary JavaScript records.
@@ -90,15 +90,8 @@ function preset(value: unknown, allowed: Set<string>): UnifiedPreset {
       throw new Error("キャラクター設定JSONのOpen口形が不正です");
     }
   }
-  if (Object.hasOwn(value, "aiueoRestUsesBase") &&
-      typeof value.aiueoRestUsesBase !== "boolean") {
-    throw new Error("キャラクター設定JSONの固定口形継承が不正です");
-  }
   if (Object.hasOwn(value, "aiueoMouth")) {
-    const mouth = paired(value.aiueoMouth, ["a", "i", "u", "e", "o", "n"], allowed);
-    if (value.aiueoRestUsesBase === true && mouth.n.length) {
-      throw new Error("固定レイヤー継承と個別の「ん」口形は同時に指定できません");
-    }
+    paired(value.aiueoMouth, ["a", "i", "u", "e", "o", "n"], allowed);
   }
   if (Object.hasOwn(value, "eyes")) {
     paired(value.eyes, ["opened", "closed"], allowed);
@@ -201,7 +194,7 @@ export function validateCharacterProfileOpenTargets(profile: CharacterProfile, l
     }
   }
   // Checked only after /api/psd supplies the source layer names and kinds.
-  // Invalid legacy overrides must not become active UI/export state.
+  // Invalid saved selections must not become active UI/export state.
   validatePsdChoices(profile.collection, layers);
 }
 
