@@ -188,8 +188,8 @@ test("failed addition preserves selected export and the PCM MOV endpoint receive
   await expect(page.getByRole("alert").filter({ hasText: "WAVが見つかりません" })).toBeVisible();
   await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
   await expect(page.locator("[data-utterance-id]").first().locator("small").first()).toHaveText(path);
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeEnabled();
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeEnabled();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect(page.getByText("書き出し完了・30フレーム")).toBeVisible();
   expect(exports).toHaveLength(1);
   expect(exports[0].wav).toBe(path);
@@ -616,7 +616,7 @@ test("single export locks every WAV's edits and new additions when selection cha
   await addWav(page, "/tmp/b.wav");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
   await page.locator("[data-utterance-id]").first().locator(".utterance-item-select").click();
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect.poll(() => Boolean(release)).toBe(true);
   await page.locator("[data-utterance-id]").nth(1).locator(".utterance-item-select").click();
   await expect(page.locator('[data-selected="true"] .utterance-row-preset select')).toBeDisabled();
@@ -772,7 +772,7 @@ test("a drag started before single export cannot reorder after the export lock e
   });
   await expect(rows.first()).toHaveAttribute("data-drop-target", "true");
   await rows.first().locator(".utterance-item-select").click();
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect.poll(() => Boolean(releaseExport)).toBe(true);
   await expect(rows.nth(1).locator(".utterance-drag-handle")).toBeDisabled();
   await expect(rows.first()).toHaveAttribute("data-drop-target", "false");
@@ -998,7 +998,7 @@ test("preset verification failure is not displayed as a missing assigned preset"
   await expect(page.getByRole("alert")).toContainText("PSDが変更");
   await expect(preset.locator("option:checked")).toHaveText("プリセットを確認できません");
   await expect(preset).toBeDisabled();
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeDisabled();
 });
 
 
@@ -1042,7 +1042,7 @@ test("removing the selected-WAV panel retains row details, list bulk apply, and 
   await list.locator(".utterance-item").first().locator(".utterance-row-mode select")
     .selectOption("open");
   await expect(exportPanel.getByText("開いた口のレイヤーを明示選択", { exact: false })).toBeVisible();
-  await expect(exportPanel.getByRole("button", { name: "MOVとOTIOを書き出す" }))
+  await expect(exportPanel.getByRole("button", { name: "MOVを書き出す" }))
     .toBeDisabled();
 });
 
@@ -1202,7 +1202,7 @@ test("aiueo requires valid LAB and all six preset shapes before export", async (
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("aiueo");
   await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toHaveValue("aiueo");
   await expect(page.getByText("6口形すべてを明示選択してください。", { exact: false })).toBeVisible();
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeDisabled();
   await addWav(page, "/tmp/missing.wav");
   await expect(page.locator('[data-selected="true"] [data-lab-status="missing"]')).toBeVisible();
   await expect(page.locator('[data-selected="true"] .utterance-row-mode option[value="aiueo"]'))
