@@ -1021,7 +1021,7 @@ test("removing the selected-WAV panel retains row details, list bulk apply, and 
   // Mouth mappings are absent in this test fixture: warnings must still be visible.
   await list.locator(".utterance-item").first().locator(".utterance-row-mode select")
     .selectOption("open");
-  await expect(exportPanel.getByText("異なる閉口・開口", { exact: false })).toBeVisible();
+  await expect(exportPanel.getByText("開いた口のレイヤーを明示選択", { exact: false })).toBeVisible();
   await expect(exportPanel.getByRole("button", { name: "MOVとOTIOを書き出す" }))
     .toBeDisabled();
 });

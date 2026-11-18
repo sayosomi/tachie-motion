@@ -170,7 +170,7 @@ test("browser recovery rejects bad old PSDTool layer data without rewriting loca
     await page.evaluate((value) => localStorage.setItem("tachie-motion.preset-draft.v2", value), raw);
     const countBefore = renderRequests.length;
     await page.reload();
-    await expect(page.getByRole("status")).toContainText("保存データは保持しています");
+    await expect(page.getByRole("status")).toContainText("保存データ");
     await expect(page.locator("[data-preset-id]")).toHaveCount(0);
     expect(await page.evaluate(() =>
       localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(raw);

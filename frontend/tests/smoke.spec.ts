@@ -91,7 +91,7 @@ test("stale PSD and missing mouth mappings block export", async ({ page }) => {
   await page.getByRole("button", { name: "WAVを確認" }).click();
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
   await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
-  await expect(page.locator(".utterance-export-panel").getByText("異なる閉口・開口", { exact: false })).toBeVisible();
+  await expect(page.locator(".utterance-export-panel").getByText("開いた口のレイヤーを明示選択", { exact: false })).toBeVisible();
 
   await page.route("**/api/psd", (route) => route.fulfill({ json: {
     width: 64, height: 64, fingerprint: "source-changed", preview: png, layers,
