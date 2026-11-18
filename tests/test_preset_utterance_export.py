@@ -10,6 +10,7 @@ import unittest
 from tachie_motion.web.preset_utterance import (
     validated_snapshot, validate_open_mouth,
 )
+from tachie_motion.psd.visibility import parse_index_path
 from tachie_motion.web.service import describe_psd, describe_wav, describe_wav
 from tachie_motion.render.prores import read_rgba_states
 from test_web_api import fixture
@@ -57,11 +58,12 @@ class PresetSnapshotTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "complete"):
                 validate_open_mouth(image, visibility, None)
-            with self.assertRaisesRegex(ValueError, "identical"):
-                validate_open_mouth(image, visibility, {
-                    "closed": [{"path": closed, "visible": True}],
-                    "opened": [{"path": closed, "visible": True}],
-                })
+            # Explicit selection may match the fixed-layer pose exactly.
+            same = validate_open_mouth(image, visibility, {
+                "closed": [{"path": closed, "visible": True}],
+                "opened": [{"path": closed, "visible": True}],
+            })
+            self.assertTrue(same["opened"][parse_index_path(closed)])
             with self.assertRaisesRegex(ValueError, "same layers"):
                 validate_open_mouth(image, visibility, {
                     "closed": [{"path": closed, "visible": True}],
@@ -151,6 +153,53 @@ class PresetExportApiTests(unittest.TestCase):
                 self.assertEqual(set(self.root.iterdir()), {self.psd, self.wav})
         self.assertEqual(self.post(mode="aiueo", blink_enabled=True).status_code, 400)
 
+    def test_open_api_rejects_psdtool_conflicts_without_publishing(self):
+        from psd_tools import PSDImage
+
+        psd = PSDImage.new(mode="RGB", size=(32, 32), depth=8)
+        mouth = psd.create_group(name="mouth")
+        for name in ("*A", "*B", "!fixed"):
+            mouth.create_pixel_layer(
+                Image.new("RGBA", (4, 4), (120, 180, 200, 255)),
+                name=name, left=2, top=2,
+            )
+        source = self.root / "psdtool.psd"
+        psd.save(source)
+        meta = describe_psd(str(source))
+        base = [{"path": layer["path"], "visible": layer["name"] != "*B"}
+                for layer in meta["layers"]]
+        by_name = {layer["name"]: layer["path"] for layer in meta["layers"]}
+        a, b, mandatory = (by_name[name] for name in ("*A", "*B", "!fixed"))
+        parent = by_name["mouth"]
+        closed = [{"path": a, "visible": True},
+                  {"path": b, "visible": False}]
+        valid_open = [{"path": a, "visible": True},
+                      {"path": b, "visible": False}]
+        destination_mov = self.root / "speech.mov"
+        destination_otio = self.root / "speech.otio"
+        destination_mov.write_bytes(b"original MOV")
+        destination_otio.write_bytes(b"original OTIO")
+        original_psd = source.read_bytes()
+        cases = [
+            (base, [{"path": a, "visible": True}, {"path": b, "visible": True}]),
+            ([{**entry, "visible": False} if entry["path"] == mandatory else entry
+              for entry in base], valid_open),
+            ([{**entry, "visible": True} if entry["path"] == b else entry
+              for entry in base], valid_open),
+        ]
+        for fixed_layers, active in cases:
+            with self.subTest(active=active, base=fixed_layers):
+                response = self.post(
+                    mode="open", psd=str(source), fingerprint=meta["fingerprint"],
+                    layers=fixed_layers, mouth_groups=[parent],
+                    mouth={"closed": closed, "opened": active},
+                    conflict_policy="overwrite",
+                )
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertEqual(destination_mov.read_bytes(), b"original MOV")
+                self.assertEqual(destination_otio.read_bytes(), b"original OTIO")
+                self.assertEqual(source.read_bytes(), original_psd)
+
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")
     def test_none_and_open_produce_pcm_mov_with_embedded_audio_reference(self):
@@ -198,6 +247,36 @@ class PresetExportApiTests(unittest.TestCase):
         self.assertEqual(separate.status_code, 200, separate.text)
         self.assertEqual(snapshot, ((self.root / "speech.mov").read_bytes(),
                                     (self.root / "speech.otio").read_bytes()))
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_open_closed_frame_uses_base_even_with_legacy_opposite_override(self):
+        from unittest.mock import patch
+        from tachie_motion.psd.visibility import parse_index_path, resolve_layer
+        from tachie_motion.web.preset_utterance import write_fixed_crop_png
+
+        seen = []
+        closed = parse_index_path(self.closed)
+        opened = parse_index_path(self.opened)
+
+        def observe(psd, destination, **kwargs):
+            seen.append((resolve_layer(psd, closed).visible,
+                         resolve_layer(psd, opened).visible))
+            return write_fixed_crop_png(psd, destination, **kwargs)
+
+        # Legacy closed is deliberately opposite the current fixed state.
+        # It must stay in the payload for compatibility, not affect playback.
+        legacy = {
+            "closed": [{"path": self.closed, "visible": False},
+                       {"path": self.opened, "visible": True}],
+            "opened": [{"path": self.closed, "visible": False},
+                       {"path": self.opened, "visible": True}],
+        }
+        with patch("tachie_motion.web.preset_utterance.write_fixed_crop_png",
+                   side_effect=observe):
+            response = self.post(mode="open", mouth=legacy, basename="fixed_close")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(seen, [(True, False), (False, True)])
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")

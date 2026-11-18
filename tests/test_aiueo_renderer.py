@@ -60,7 +60,9 @@ class AiueoCoreTests(unittest.TestCase):
             from tachie_motion.psd.crop import write_fixed_crop_png
 
             mouth = six_shapes(closed, opened)
-            mouth["n"] = []  # Rest uses the preset's unmodified base state.
+            # n explicitly selects the same closed leaf as the resting pose.
+            mouth["n"] = [{"path": closed, "visible": True},
+                          {"path": opened, "visible": False}]
             shapes = validate_aiueo_mouth(
                 psd, visibility, mouth,
                 [closed.rsplit("/", 1)[0]],
@@ -85,11 +87,9 @@ class AiueoCoreTests(unittest.TestCase):
                     for entry in meta["layers"]]
             psd, visibility = validated_snapshot(psd_path, meta["fingerprint"], base)
             shapes = six_shapes(closed, opened)
-            self.assertEqual(
+            with self.assertRaisesRegex(ValueError, "configured"):
                 validate_aiueo_mouth(psd, visibility, {**shapes, "n": []},
-                                     [closed.rsplit("/", 1)[0]])["n"],
-                {},
-            )
+                                     [closed.rsplit("/", 1)[0]])
             with self.assertRaisesRegex(ValueError, "configured"):
                 validate_aiueo_mouth(psd, visibility, {**shapes, "a": []})
             with self.assertRaisesRegex(ValueError, "six-shape"):
@@ -108,7 +108,7 @@ class AiueoCoreTests(unittest.TestCase):
                 }, [closed.rsplit("/", 1)[0]])
             with self.assertRaisesRegex(ValueError, "Duplicate"):
                 validate_aiueo_mouth(psd, visibility, {
-                    **shapes, "a": [shapes["a"][0], shapes["a"][0]],
+                    **shapes, "a": [shapes["a"][1], shapes["a"][1]],
                 })
             with self.assertRaisesRegex(ValueError, "hidden parent"):
                 validate_aiueo_mouth(psd, {
@@ -143,11 +143,11 @@ class AiueoCoreTests(unittest.TestCase):
         validate_aiueo_mouth(psd, base, shapes, group_path)
         with self.assertRaisesRegex(ValueError, "exclusive"):
             validate_aiueo_mouth(psd, base, {
-                **shapes, "a": [entry(other, True)],
+                **shapes, "a": [entry(selected, True), entry(other, True)],
             }, group_path)
         with self.assertRaisesRegex(ValueError, "mandatory"):
             validate_aiueo_mouth(psd, base, {
-                **shapes, "i": [entry(fixed, False)],
+                **shapes, "i": [entry(selected, True), entry(fixed, False)],
             }, group_path)
 
 
@@ -187,7 +187,7 @@ class AiueoApiTests(unittest.TestCase):
                          "FFmpeg required")
     def test_real_pcm_mov_four_frames_aiueo_pose_diff_and_otio(self):
         original = (self.psd.read_bytes(), self.wav.read_bytes(), self.lab.read_bytes())
-        response = self.post(aiueo_mouth={**self.body["aiueo_mouth"], "n": []})
+        response = self.post()
         self.assertEqual(response.status_code, 200, response.text)
         result = response.json()
         self.assertEqual(result["frames"], 4)

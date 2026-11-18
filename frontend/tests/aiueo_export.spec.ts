@@ -7,7 +7,7 @@ import { aiueoMouthReady, effectiveLabSourceIdentity, exportPayload, exportReady
 const base = [{ path: "0", visible: true }, { path: "0/0", visible: true }];
 const keys = ["a", "i", "u", "e", "o", "n"] as const;
 const shapes = Object.fromEntries(keys.map((key) => [
-  key, [{ path: "0/0", visible: key !== "a" }],
+  key, [{ path: "0/0", visible: true }],
 ])) as NonNullable<UnifiedPreset["aiueoMouth"]>;
 const preset: UnifiedPreset = {
   id: "p1", name: "通常", base,
@@ -15,7 +15,7 @@ const preset: UnifiedPreset = {
   aiueoMouth: shapes,
 };
 const draft: PresetDraft = {
-  version: 1, path: "/tmp/portrait.psd", fingerprint: "1:2",
+  version: 2, path: "/tmp/portrait.psd", fingerprint: "1:2",
   nameDrafts: {}, collection: { defaultId: "p1", items: [preset],
     motionGroups: { mouth: ["0"] } },
 };
@@ -32,10 +32,10 @@ test("aiueo is gated by six shapes and actual LAB status; Open and none stay val
   expect(exportReady(preset, aiueo, { status: "invalid", reason: "bad" })).toBe(false);
   expect(exportReady(preset, aiueo, { status: "checking", reason: null })).toBe(false);
   expect(exportReady(preset, aiueo, { status: "valid", reason: null, source_identity: "1:2:3:4:5" })).toBe(true);
-  // A rest mouth with no override is deliberately identical to the preset base.
-  expect(aiueoMouthReady({ ...preset, aiueoMouth: { ...shapes, n: [] } })).toBe(true);
+  // The rest mouth requires its own explicit choice even when base already shows that leaf.
+  expect(aiueoMouthReady({ ...preset, aiueoMouth: { ...shapes, n: [] } })).toBe(false);
   expect(exportReady({ ...preset, aiueoMouth: { ...shapes, n: [] } },
-    aiueo, { status: "valid", reason: null, source_identity: "1:2:3:4:5" })).toBe(true);
+    aiueo, { status: "valid", reason: null, source_identity: "1:2:3:4:5" })).toBe(false);
   expect(aiueoMouthReady({ ...preset, aiueoMouth: { ...shapes, a: [] } })).toBe(false);
   expect(exportReady({ ...preset, aiueoMouth: { ...shapes, a: [] } },
     aiueo, { status: "valid", reason: null, source_identity: "1:2:3:4:5" })).toBe(false);

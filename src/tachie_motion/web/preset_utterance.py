@@ -10,7 +10,7 @@ import tempfile
 from tachie_motion.audio.volume import analyze_wav
 from tachie_motion.web.aiueo_renderer import (
     validate_aiueo_mouth, render_aiueo_states, inspect_export_lab,
-    verify_export_lab, aiueo_indices,
+    verify_export_lab, aiueo_indices, validate_psdtool_state,
 )
 from tachie_motion.presets import LayerState, LayerStateSet
 from tachie_motion.psd.crop import write_fixed_crop_png
@@ -58,9 +58,12 @@ def validated_snapshot(psd_path: Path, fingerprint: str, layers: list[dict]):
     return psd, {item.path: item.visible for item in mapping.layers}
 
 
-def validate_open_mouth(psd, base: dict, mouth: dict | None):
+def validate_open_mouth(psd, base: dict, mouth: dict | None,
+                        mouth_groups: list[str] | None = None):
     if type(mouth) is not dict or set(mouth) != {"closed", "opened"}:
         raise ValueError("This preset has no complete open mouth definition")
+    summaries = tuple(walk_layers(psd))
+    validate_psdtool_state(summaries, base, "Open base")
     states = {}
     for key in ("closed", "opened"):
         entries = mouth[key]
@@ -83,8 +86,26 @@ def validate_open_mouth(psd, base: dict, mouth: dict | None):
         states[key] = result
     if states["closed"].keys() != states["opened"].keys():
         raise ValueError("Both mouth shapes must target the same layers")
-    if states["closed"] == states["opened"]:
-        raise ValueError("Closed and opened mouth shapes are identical")
+    # The paired closed map is structural; resting frames always use base.
+    if not any(states["opened"].values()):
+        raise ValueError("Open mouth has no explicitly selected visible layer")
+    if mouth_groups is not None:
+        known = {item.index_path: item for item in summaries}
+        if (type(mouth_groups) is not list or not mouth_groups or
+                any(type(group) is not str for group in mouth_groups)):
+            raise ValueError("Invalid Open mouth groups")
+        groups = tuple(parse_index_path(group) for group in mouth_groups)
+        if len(set(groups)) != len(groups) or any(
+                path not in known or known[path].kind != "group" for path in groups):
+            raise ValueError("Invalid Open mouth groups")
+        hidden = {item.index_path: False for item in summaries
+                  if item.kind != "group" and not item.name.startswith("!")
+                  and any(item.index_path[:len(group)] == group
+                          and len(item.index_path) > len(group) for group in groups)}
+        if any(path not in hidden for path in states["opened"]):
+            raise ValueError("Open mouth target is outside assigned PSD groups")
+        states["opened"] = {**hidden, **states["opened"]}
+    validate_psdtool_state(summaries, {**base, **states["opened"]}, "Open opened")
     return states
 
 
@@ -119,7 +140,7 @@ def export_preset_utterance(
              if otio is not None else initial_single_identity(mov, conflict_policy))
 
     psd, base = validated_snapshot(psd_path, fingerprint, layers)
-    shapes = validate_open_mouth(psd, base, mouth) if mode == "open" else None
+    shapes = validate_open_mouth(psd, base, mouth, mouth_groups) if mode == "open" else None
     six = (validate_aiueo_mouth(psd, base, aiueo_mouth, mouth_groups)
            if mode == "aiueo" else None)
     schedule = analyze_wav(wav, fps=fps)
@@ -155,8 +176,12 @@ def export_preset_utterance(
         else:
             pngs = []
             for state in (("closed", "opened") if shapes else ("base",)):
-                if shapes:
-                    for path, visible in shapes[state].items():
+                # Each frame starts from the preset's current fixed visibility.
+                # Paired closed data never overrides the fixed resting pose.
+                for path, visible in base.items():
+                    resolve_layer(psd, path).visible = visible
+                if shapes and state == "opened":
+                    for path, visible in shapes["opened"].items():
                         resolve_layer(psd, path).visible = visible
                 png = directory / (state + ".png")
                 write_fixed_crop_png(psd, png, padding=16)

@@ -69,26 +69,27 @@ test("Canvas fast path respects the parent, rapid edits and Open shapes without 
     "data-preview-renderer", "canvas");
   expect(await pixel(page)).toEqual([255, 0, 0, 255]);
 
-  const opened = page.getByRole("checkbox", { name: "mouth-open [0/1] 基本" });
+  const opened = page.getByRole("checkbox", { name: "mouth-open [0/1] 固定" });
   await opened.check();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
   await opened.uncheck();
   await expect.poll(() => pixel(page)).toEqual([255, 0, 0, 255]);
 
-  await page.getByRole("checkbox", { name: "face [0] 基本" }).uncheck();
+  await page.getByRole("checkbox", { name: "face [0] 固定" }).uncheck();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 0, 0]);
-  await page.getByRole("checkbox", { name: "face [0] 基本" }).check();
+  await page.getByRole("checkbox", { name: "face [0] 固定" }).check();
   await expect.poll(() => pixel(page)).toEqual([255, 0, 0, 255]);
 
   await openMotion(page);
   await selectMouthGroup(page, "face", "0");
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "開き口" }).click();
+  // 開閉では開いた口が初期編集対象。選択ボタンは表示しない。
   await page.locator('.preset-layer[data-layer-path="0/0"]').getByRole("checkbox").uncheck();
   await page.locator('.preset-layer[data-layer-path="0/1"]').getByRole("checkbox").check();
-  await page.getByRole("button", { name: "開き口", exact: true }).click();
+  await expect(page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "Open" })).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
-  await page.getByRole("button", { name: "閉じ口", exact: true }).click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await expect.poll(() => pixel(page)).toEqual([255, 0, 0, 255]);
   expect(pythonRequests).toBe(0);
   expect(statusReads).toBeGreaterThanOrEqual(4);
@@ -112,24 +113,24 @@ test("aiueo Canvas preview renders independent overrides and hidden parents with
   await expect(page.locator("main.preset-workspace")).toHaveAttribute("data-preview-renderer", "canvas");
   await openMotion(page);
   await selectMouthGroup(page, "face", "0");
-  await page.getByRole("group", { name: "口パク方式" })
+  await page.getByRole("group", { name: "口の方式" })
     .getByRole("button", { name: "aiueo" }).click();
   await page.locator('.preset-layer[data-layer-path="0/0"]')
     .getByRole("checkbox", { name: "mouth-closed [0/0] あ" }).uncheck();
   await page.locator('.preset-layer[data-layer-path="0/1"]')
     .getByRole("checkbox", { name: "mouth-open [0/1] あ" }).check();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "基本", exact: true }).click();
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "基本" }).click();
-  await page.getByRole("checkbox", { name: "face [0] 基本" }).uncheck();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "固定レイヤー" }).click();
+  await page.getByRole("checkbox", { name: "face [0] 固定" }).uncheck();
+  await openMotion(page);
   await page.getByRole("group", { name: "編集する口形" })
     .getByRole("button", { name: "あ", exact: true }).click();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 0, 0]);
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "基本" }).click();
-  await page.getByRole("checkbox", { name: "face [0] 基本" }).check();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "固定レイヤー" }).click();
+  await page.getByRole("checkbox", { name: "face [0] 固定" }).check();
+  await openMotion(page);
   await page.getByRole("group", { name: "編集する口形" })
     .getByRole("button", { name: "あ", exact: true }).click();
   await page.getByRole("group", { name: "編集する口形" })
@@ -163,7 +164,7 @@ test("aiueo Python fallback receives the exact overlay without changing base or 
   await expect(page.locator("main.preset-workspace")).toHaveAttribute("data-preview-renderer", "python");
   await openMotion(page);
   await selectMouthGroup(page, "face", "0");
-  await page.getByRole("group", { name: "口パク方式" })
+  await page.getByRole("group", { name: "口の方式" })
     .getByRole("button", { name: "aiueo" }).click();
   await page.locator('.preset-layer[data-layer-path="0/0"]')
     .getByRole("checkbox", { name: "mouth-closed [0/0] あ" }).uncheck();
@@ -217,7 +218,7 @@ for (const mode of [
     await openDetails(page);
     await expect(page.locator("main.preset-workspace")).toHaveAttribute(
       "data-preview-renderer", "python");
-    await page.getByRole("checkbox", { name: "mouth-open [0/1] 基本" }).check();
+    await page.getByRole("checkbox", { name: "mouth-open [0/1] 固定" }).check();
     await expect.poll(() => pythonRequests).toBeGreaterThan(0);
     await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
   });
@@ -243,7 +244,7 @@ test("external save after Canvas preparation blocks old images and requires expl
   await openDetails(page);
   await expect(page.locator("main.preset-workspace")).toHaveAttribute(
     "data-preview-renderer", "canvas");
-  const opened = page.getByRole("checkbox", { name: "mouth-open [0/1] 基本" });
+  const opened = page.getByRole("checkbox", { name: "mouth-open [0/1] 固定" });
   await opened.check();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
   valid = false;  // Synthetic PSD changed on disk while browser still has old bitmaps.
@@ -285,7 +286,7 @@ test("valid off-canvas pixel layer without a PNG keeps Canvas active", async ({ 
   await openDetails(page);
   await expect(page.locator("main.preset-workspace")).toHaveAttribute(
     "data-preview-renderer", "canvas");
-  await page.getByRole("checkbox", { name: "mouth-open [0/1] 基本" }).check();
+  await page.getByRole("checkbox", { name: "mouth-open [0/1] 固定" }).check();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
   expect(pythonRequests).toBe(0);
 });
@@ -310,10 +311,10 @@ test("status API unavailable after Canvas readiness never applies stale index pa
   await openDetails(page);
   await expect(page.locator("main.preset-workspace")).toHaveAttribute(
     "data-preview-renderer", "canvas");
-  await page.getByRole("checkbox", { name: "mouth-open [0/1] 基本" }).check();
+  await page.getByRole("checkbox", { name: "mouth-open [0/1] 固定" }).check();
   await expect.poll(() => pixel(page)).toEqual([0, 0, 255, 255]);
   statusFailure = true;
-  await page.getByRole("checkbox", { name: "mouth-open [0/1] 基本" }).uncheck();
+  await page.getByRole("checkbox", { name: "mouth-open [0/1] 固定" }).uncheck();
   await expect(page.locator("main.preset-workspace")).toHaveAttribute(
     "data-preview-renderer", "stale");
   await expect(page.locator(".preset-image-viewport img")).toHaveCount(0);
@@ -345,7 +346,7 @@ test("source replacement during Canvas extraction fails closed before a Python r
   await requestArrived;
   await expect(page.locator("main.preset-workspace")).toHaveAttribute(
     "data-preview-renderer", "loading");
-  await page.getByRole("checkbox", { name: "mouth-open [0/1] 基本" }).check();
+  await page.getByRole("checkbox", { name: "mouth-open [0/1] 固定" }).check();
   expect(pythonRequests).toBe(0);
   release();
   await expect(page.locator("main.preset-workspace")).toHaveAttribute(
@@ -392,7 +393,7 @@ test("half-pixel rounding keeps a valid 900px asset on the Canvas fast path", as
   await openDetails(page);
   await expect(page.locator("main.preset-workspace")).toHaveAttribute(
     "data-preview-renderer", "canvas");
-  await page.getByRole("checkbox", { name: "boundary [0/0] 基本" }).uncheck();
+  await page.getByRole("checkbox", { name: "boundary [0/0] 固定" }).uncheck();
   await expect.poll(() => page.locator(".preset-image-viewport img")
     .getAttribute("src")).toMatch(/^data:image\/png/);
   expect(pythonRequests).toBe(0);

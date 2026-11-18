@@ -91,7 +91,7 @@ test("stale PSD and missing mouth mappings block export", async ({ page }) => {
   await page.getByRole("button", { name: "WAVを確認" }).click();
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
   await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
-  await expect(page.locator(".utterance-export-panel").getByText("異なる閉口・開口", { exact: false })).toBeVisible();
+  await expect(page.locator(".utterance-export-panel").getByText("開いた口のレイヤーを明示選択", { exact: false })).toBeVisible();
 
   await page.route("**/api/psd", (route) => route.fulfill({ json: {
     width: 64, height: 64, fingerprint: "source-changed", preview: png, layers,
@@ -282,9 +282,9 @@ test("a fixed-expression preset exports none even when the WAV row selects open"
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await assignOpenPair(page);
-  await page.getByRole("checkbox", { name: "口パク", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "口 ON" }).uncheck();
   const before = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   expect(before.collection.items[0].openMouth.closed).toHaveLength(2);
   expect(before.collection.items[0].mouthMotionEnabled).toBe(false);
   await page.getByRole("button", { name: "← 一覧へ" }).click();

@@ -6,10 +6,10 @@ import { validatePsdChoices } from "./psdChoice";
 
 // Crash/reload recovery for this one browser and exact site origin only.
 // Not the versioned, portable character-profile format in PRODUCT_SPEC §7.
-const KEY = "tachie-motion.preset-draft.v1";
+const KEY = "tachie-motion.preset-draft.v2";
 
 export type PresetDraft = {
-  version: 1;
+  version: 2;
   path: string;
   fingerprint: string;
   collection: Presets;
@@ -27,7 +27,7 @@ export function readPresetDraft(): PresetDraft | null {
   let value: unknown;
   try { value = JSON.parse(text); }
   catch { throw new Error("保存済みプリセットの形式が壊れています"); }
-  if (!object(value) || value.version !== 1
+  if (!object(value) || value.version !== 2
     || typeof value.path !== "string" || !value.path.trim()
     || typeof value.fingerprint !== "string" || !value.fingerprint
     || !object(value.collection) || !Array.isArray(value.collection.items)
@@ -37,12 +37,16 @@ export function readPresetDraft(): PresetDraft | null {
   const collection = value.collection as unknown as Presets;
   if (collection.motionGroups !== undefined) {
     const motion: unknown = collection.motionGroups;
-    if (!object(motion) || Object.keys(motion).length !== 1 ||
-        !Array.isArray(motion.mouth) || motion.mouth.length > 50_000 ||
-        new Set(motion.mouth).size !== motion.mouth.length ||
-        !motion.mouth.every((path: unknown) =>
-          typeof path === "string" && /^(0|[1-9][0-9]*)(\/(0|[1-9][0-9]*))*$/.test(path)
-          && path.length <= 256)) {
+    const validGroupPaths = (value: unknown) =>
+      Array.isArray(value) && value.length <= 50_000 &&
+      new Set(value).size === value.length &&
+      value.every((path: unknown) =>
+        typeof path === "string" && /^(0|[1-9][0-9]*)(\/(0|[1-9][0-9]*))*$/.test(path)
+        && path.length <= 256);
+    if (!object(motion) ||
+        Object.keys(motion).some((key) => key !== "mouth" && key !== "eyes") ||
+        !validGroupPaths(motion.mouth) ||
+        (Object.hasOwn(motion, "eyes") && !validGroupPaths(motion.eyes))) {
       throw new Error("保存済み動作対象グループが不正です");
     }
   }
@@ -56,7 +60,8 @@ export function readPresetDraft(): PresetDraft | null {
       || Object.hasOwn(Object.prototype, item.id)
       || typeof item.name !== "string" || !item.name.trim()
       || !Array.isArray(item.base) || typeof item.blinkEnabled !== "boolean"
-      || (item.mouthMotionEnabled !== undefined && typeof item.mouthMotionEnabled !== "boolean")) {
+      || (item.mouthMotionEnabled !== undefined && typeof item.mouthMotionEnabled !== "boolean")
+      || Object.hasOwn(item, "aiueoRestUsesBase")) {
       throw new Error("保存済みプリセットの内容が不正です");
     }
     const name = item.name.trim().normalize("NFC").toLocaleLowerCase();
@@ -98,8 +103,9 @@ export function readPresetDraft(): PresetDraft | null {
       const closed = parseShape(mouth.closed);
       const opened = parseShape(mouth.opened);
       if (!closed.size || closed.size !== opened.size ||
-          [...closed].some((path) => !opened.has(path))) {
-        throw new Error("保存済み口形の対象レイヤーが一致しません");
+          [...closed].some((path) => !opened.has(path)) ||
+          !(mouth.opened as { visible: boolean }[]).some((entry) => entry.visible)) {
+        throw new Error("保存済み口形の対象レイヤーまたは明示選択が不正です");
       }
     }
     if (item.aiueoMouth !== undefined) {
@@ -108,7 +114,16 @@ export function readPresetDraft(): PresetDraft | null {
           AIUEO_KEYS.some((key) => !Object.hasOwn(mouth, key))) {
         throw new Error("保存済みaiueo口形設定が不正です");
       }
-      for (const key of AIUEO_KEYS) parseShape(mouth[key]);
+      let selected = false;
+      for (const key of AIUEO_KEYS) {
+        parseShape(mouth[key]);
+        const entries = mouth[key] as { visible: boolean }[];
+        if (entries.length && !entries.some((entry) => entry.visible)) {
+          throw new Error("保存済み口形に明示選択がありません");
+        }
+        selected ||= entries.some((entry) => entry.visible);
+      }
+      if (!selected) throw new Error("保存済み口形に明示選択がありません");
     }
     if (item.eyes !== undefined) {
       const eyes: unknown = item.eyes;
@@ -118,6 +133,9 @@ export function readPresetDraft(): PresetDraft | null {
       }
       parseShape(eyes.opened);
       parseShape(eyes.closed);
+      if (!(eyes.closed as { visible: boolean }[]).some((entry) => entry.visible)) {
+        throw new Error("保存済み閉じ目に明示選択がありません");
+      }
     }
   }
   if (collection.defaultId !== null && !ids.has(collection.defaultId)) {
@@ -159,7 +177,7 @@ export function matchesSource(draft: PresetDraft, fingerprint: string, layers: L
     validatePsdChoices(draft.collection, layers);
     return true;
   } catch {
-    // A corrupt/legacy draft stays in localStorage for explicit recovery;
+    // A corrupt draft stays in localStorage for explicit recovery;
     // never auto-normalize or render from conflicting saved layer states.
     return false;
   }

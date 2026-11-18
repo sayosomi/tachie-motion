@@ -36,61 +36,92 @@ async function openEditor(page: Page, requests: State[][] = []) {
 
 async function chooseMouthGroups(page: Page) {
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "動かすパーツ" }).click();
-  await page.getByRole("button", { name: "変更", exact: true }).click();
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await expect(page.locator(".preset-layer-list")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "レイヤー検索" })).toHaveCount(0);
+  await page.getByRole("button", { name: "グループを選択", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口１ [0/0]" }).check();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "口２ [0/1]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
+  await expect(page.locator(".preset-layer-list")).toBeVisible();
 }
 
-test("Open closed mouth inherits the base preview without needing a duplicate mouth assignment", async ({ page }) => {
+test("selected n can match the fixed leaf and remains explicit after reload", async ({ page }) => {
+  await openEditor(page);
+  await chooseMouthGroups(page);
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "aiueo" }).click();
+  await expect(checkbox(page, "0/0/0")).not.toBeChecked();
+  await expect(checkbox(page, "0/1/0")).not.toBeChecked();
+  await layer(page, "0/1/0").click({ position: { x: 2, y: 2 } });
+  await expect(checkbox(page, "0/1/0")).toBeChecked();
+  await checkbox(page, "0/1/0").uncheck();
+  await expect(checkbox(page, "0/1/0")).not.toBeChecked();
+  await layer(page, "0/1/0").getByRole("button", { name: /を選択/ }).click();
+  await expect(checkbox(page, "0/1/0")).toBeChecked();
+  let saved = JSON.parse((await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
+  expect(saved.collection.items[0].aiueoMouth.a).toEqual([
+    { path: "0/0/0", visible: false }, { path: "0/1/0", visible: true },
+  ]);
+
+  await shape(page, "ん").click();
+  await expect(checkbox(page, "0/0/0")).not.toBeChecked();
+  await expect(checkbox(page, "0/1/0")).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "固定レイヤーを引き継ぐ" })).toHaveCount(0);
+  await checkbox(page, "0/0/0").check();
+  await expect(checkbox(page, "0/0/0")).toBeChecked();
+  saved = JSON.parse((await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
+  expect(saved.collection.items[0].aiueoMouth.n).toEqual([
+    { path: "0/0/0", visible: true }, { path: "0/1/0", visible: false },
+  ]);
+  expect(saved.collection.items[0]).not.toHaveProperty("aiueoRestUsesBase");
+  await page.reload();
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "aiueo" }).click();
+  await shape(page, "ん").click();
+  await expect(checkbox(page, "0/0/0")).toBeChecked();
+  await checkbox(page, "0/0/0").uncheck();
+  await expect(checkbox(page, "0/0/0")).not.toBeChecked();
+  saved = JSON.parse((await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
+  expect(saved.collection.items[0].aiueoMouth.n).toEqual([]);
+});
+
+test("Open uses fixed layers for close and edits only the open pose", async ({ page }) => {
   const requests: State[][] = [];
   await openEditor(page, requests);
   const portrait = page.locator(".preset-image-viewport img");
-  await expect(portrait).toBeVisible();
   const baseSource = await portrait.getAttribute("src");
-  expect(baseSource).toBe(png);
-
-  await chooseMouthGroups(page); // Opens the closed-mouth editing state.
-  await expect(shape(page, "閉じ口")).toHaveAttribute("aria-pressed", "true");
+  await chooseMouthGroups(page);
+  await expect(page.getByText("口のopenを指定してください")).toBeVisible();
   await expect(portrait).toHaveAttribute("src", baseSource!);
-  await expect(page.getByText("口形を指定してください")).toHaveCount(0);
-  await expect(page.locator(".preview-empty")).toHaveCount(0);
-  expect(requests).toHaveLength(0); // Inherited state needs no extra preview render.
-
-  await shape(page, "開き口").click();
-  await expect(page.getByText("開き口を指定してください")).toBeVisible();
-  await shape(page, "閉じ口").click();
-  await expect(portrait).toHaveAttribute("src", baseSource!);
-  await expect(page.getByText("開き口を指定してください")).toHaveCount(0);
-
-  // Only the opened mouth is edited; the closed state is inherited and stored
-  // as the paired base values for the targeted layers when Open is configured.
-  await shape(page, "開き口").click();
-  await checkbox(page, "0/0/0").uncheck();
+  await expect(checkbox(page, "0/0/0")).not.toBeChecked();
   await checkbox(page, "0/1/0").check();
-  await shape(page, "閉じ口").click();
-  await expect(checkbox(page, "0/0/0")).toBeChecked();
-  await expect(checkbox(page, "0/1/0")).not.toBeChecked();
-  await expect(portrait).toBeVisible();
-  await expect(page.locator(".preview-empty")).toHaveCount(0);
-
+  await expect.poll(() => requests.at(-1)?.find((x) => x.path === "0/1/0")?.visible)
+    .toBe(true);
   const saved = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   expect(saved.collection.items[0].openMouth.closed).toEqual([
     { path: "0/0/0", visible: true }, { path: "0/1/0", visible: false },
   ]);
   expect(saved.collection.items[0].openMouth.opened).toEqual([
     { path: "0/0/0", visible: false }, { path: "0/1/0", visible: true },
   ]);
-  await shape(page, "基本").click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await expect(checkbox(page, "0/0/0")).toBeChecked();
   await expect(checkbox(page, "0/1/0")).not.toBeChecked();
+  await expect(portrait).toHaveAttribute("src", baseSource!);
 });
 
-test("unconfigured Open and aiueo poses keep base preview and enable zoom before selection", async ({ page }) => {
+test("unconfigured Open and aiueo hide editable leaves before selection", async ({ page }) => {
   const requests: State[][] = [];
   await openEditor(page, requests);
   await expect(page.getByRole("button", { name: "口元へ" })).toBeDisabled();
@@ -99,23 +130,23 @@ test("unconfigured Open and aiueo poses keep base preview and enable zoom before
   const image = page.locator(".preset-image-viewport img");
   const mouthZoom = page.getByRole("button", { name: "口元へ" });
   const selectedZoom = page.getByRole("button", { name: "選択位置へ" });
-  await shape(page, "開き口").click();
   await expect(image).toHaveAttribute("src", png);
-  await expect(page.getByText("開き口を指定してください")).toBeVisible();
+  await expect(page.getByText("口のopenを指定してください")).toBeVisible();
   await expect(mouthZoom).toBeEnabled(); // group locations work before any Open targets
   await expect(selectedZoom).toBeDisabled(); // still needs a selected source layer
   const unconfiguredDraft = await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"));
+    localStorage.getItem("tachie-motion.preset-draft.v2"));
   await mouthZoom.click();
   await expect(page.locator('output[aria-label="プレビュー倍率"]')).toHaveText("8×");
 
   await page.getByRole("button", { name: "全体表示" }).click();
-  await layer(page, "0/1/0").getByRole("button", { name: /を選択/ }).click();
+  // Group-name selection still previews location without changing mouth state.
+  await layer(page, "0/1").getByRole("button", { name: /を選択/ }).click();
   await expect(selectedZoom).toBeEnabled();
   await selectedZoom.click();
   await expect(image).toHaveAttribute("style", /scale\(8\)/);
 
-  await page.getByRole("group", { name: "口パク方式" })
+  await page.getByRole("group", { name: "口の方式" })
     .getByRole("button", { name: "aiueo" }).click();
   await expect(shape(page, "あ")).toHaveAttribute("aria-pressed", "true");
   await expect(image).toHaveAttribute("src", png);
@@ -127,15 +158,17 @@ test("unconfigured Open and aiueo poses keep base preview and enable zoom before
   await shape(page, "え").click();
   await expect(image).toHaveAttribute("src", png);
   await expect(selectedZoom).toBeEnabled();
-  expect(requests).toHaveLength(0); // no new PSD renders for unconfigured poses
+  expect(requests.length).toBeGreaterThan(0);
+  expect(requests.at(-1)?.find((x) => x.path === "0/0/0")?.visible).toBe(false);
+  expect(requests.at(-1)?.find((x) => x.path === "0/1/0")?.visible).toBe(false);
+  expect(requests.at(-1)?.find((x) => x.path === "0/2/0")?.visible).toBe(true);
   expect(await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(unconfiguredDraft);
+    localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(unconfiguredDraft);
 });
 
 test("mouth focus falls back to source PSD groups if no shape is assigned or selected", async ({ page }) => {
   await openEditor(page);
   await chooseMouthGroups(page);
-  await shape(page, "開き口").click();
   await expect(page.locator(".preset-image-viewport img")).toBeVisible();
   await expect(page.getByRole("button", { name: "口元へ" })).toBeEnabled();
   await page.getByRole("button", { name: "口元へ" }).click();
@@ -155,16 +188,18 @@ test("mouth motion scopes original PSD groups and Open/aiueo each have independe
   await expect(checkbox(page, "0/0")).toHaveCount(0);
 
   // One Open action, but closed and open shapes can come from separate PSD groups.
-  await shape(page, "開き口").click();
   await checkbox(page, "0/0/0").uncheck();
   await checkbox(page, "0/1/0").check();
   await expect.poll(() => requests.at(-1)?.find((entry) => entry.path === "0/1/0")?.visible)
     .toBe(true);
-  await shape(page, "閉じ口").click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await expect(checkbox(page, "0/0/0")).toBeChecked();
   await expect(checkbox(page, "0/1/0")).not.toBeChecked();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
 
-  await page.getByRole("group", { name: "口パク方式" })
+  await page.getByRole("group", { name: "口の方式" })
     .getByRole("button", { name: "aiueo" }).click();
   for (const name of ["あ", "い", "う", "え", "お", "ん"]) {
     await shape(page, name).click();
@@ -174,14 +209,16 @@ test("mouth motion scopes original PSD groups and Open/aiueo each have independe
   }
 
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "通常レイヤー" }).click();
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await expect(layer(page, "0")).toBeVisible();
   await expect(layer(page, "0/2/0")).toBeVisible();
-  await expect(layer(page, "0/0")).toHaveCount(0);
-  await expect(layer(page, "0/1/0")).toHaveCount(0);
+  // Normal/base visibility includes motion-target layers as well: the user
+  // must be able to configure the resting mouth after assigning a group.
+  await expect(layer(page, "0/0")).toBeVisible();
+  await expect(layer(page, "0/1/0")).toBeVisible();
 
   const saved = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   expect(saved.collection.motionGroups.mouth).toEqual(["0/0", "0/1"]);
   expect(saved.collection.items[0].openMouth.closed).toEqual([
     { path: "0/0/0", visible: true }, { path: "0/1/0", visible: false },
@@ -200,7 +237,7 @@ test("mouth motion scopes original PSD groups and Open/aiueo each have independe
   await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "動かすパーツ" }).click();
+    .getByRole("button", { name: "可動レイヤー" }).click();
   await expect(layer(page, "0/1/0")).toBeVisible();
   await expect(layer(page, "0/2/0")).toHaveCount(0);
 });
@@ -208,25 +245,26 @@ test("mouth motion scopes original PSD groups and Open/aiueo each have independe
 test("parent visibility remains authoritative, presets can disable mouth without deleting shapes", async ({ page }) => {
   await openEditor(page);
   await chooseMouthGroups(page);
-  await shape(page, "開き口").click();
   await checkbox(page, "0/0/0").uncheck();
   await checkbox(page, "0/1/0").check();
-  await page.getByRole("checkbox", { name: "口パク", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "口 ON" }).uncheck();
   let saved = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   expect(saved.collection.items[0].mouthMotionEnabled).toBe(false);
   expect(saved.collection.items[0].openMouth.opened).toHaveLength(2);
 
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "通常レイヤー" }).click();
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await checkbox(page, "0").uncheck();
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "動かすパーツ" }).click();
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await expect(page.getByRole("checkbox", { name: "口 ON" })).not.toBeChecked();
+  await expect(page.locator(".preset-layer-list")).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "口 ON" }).check();
   await expect(page.locator(".preset-editor [role=status]"))
     .toContainText("親グループが非表示");
-  await page.getByRole("checkbox", { name: "口パク", exact: true }).check();
   saved = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   expect(saved.collection.items[0].mouthMotionEnabled).toBe(true);
   expect(saved.collection.items[0].openMouth.opened).toHaveLength(2);
 });
@@ -234,7 +272,6 @@ test("parent visibility remains authoritative, presets can disable mouth without
 test("configured group cannot be detached until its leaf targets are cleared", async ({ page }) => {
   await openEditor(page);
   await chooseMouthGroups(page);
-  await shape(page, "開き口").click();
   await checkbox(page, "0/1/0").check();
   await page.getByRole("button", { name: "変更", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
@@ -311,7 +348,7 @@ test("PSDTool * radios are exclusive only among immediate siblings, ! is not edi
   await expect.poll(() => rendered.at(-1)?.find(x => x.path === "0/0/2")?.visible)
     .toBe(true); // exclamation item was hidden in the source PSD
   const saved = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   expect(saved.collection.items[0].base.find((x: State) => x.path === "0/0/0").visible).toBe(false);
   expect(saved.collection.items[0].base.find((x: State) => x.path === "0/0/1").visible).toBe(true);
   expect(saved.collection.items[0].base.find((x: State) => x.path === "0/0/2").visible).toBe(true);
@@ -338,50 +375,98 @@ test("Open and aiueo have separate PSDTool sibling radio selections and a shared
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "動かすパーツ" }).click();
-  await page.getByRole("button", { name: "変更", exact: true }).click();
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await page.getByRole("button", { name: "グループを選択", exact: true }).click();
   await page.getByRole("group", { name: "PSDグループ" })
     .getByRole("checkbox", { name: "!口 [0]" }).check();
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
 
-  // Repro: the selected '*あ' matches the base pose. The empty Open closed
-  // overrides must render the base portrait rather than the missing-shape UI.
-  await expect(layer(page, "0/0").getByRole("radio")).toBeChecked();
+  // Before choosing Open, none of its radios inherit the fixed selection.
+  await expect(layer(page, "0/0").getByRole("radio")).not.toBeChecked();
   await expect(page.locator(".preset-image-viewport img")).toBeVisible();
   await expect(page.getByText("口形を指定してください")).toHaveCount(0);
   await expect(page.locator(".preview-empty")).toHaveCount(0);
 
-  await shape(page, "開き口").click();
+  // 開閉の初期編集対象は開いた口。詳細設定なしでは選択ボタンを出さない。
+  await expect(page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "Open" })).toHaveAttribute("aria-pressed", "true");
+  await expect(shapes(page)).toHaveCount(0);
   await layer(page, "0/1").getByRole("radio").check();
   await expect(layer(page, "0/0").getByRole("radio")).not.toBeChecked();
   await expect(layer(page, "0/1").getByRole("radio")).toBeChecked();
   await expect(layer(page, "0/2").locator('input')).toHaveCount(0);
-  await shape(page, "閉じ口").click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await expect(layer(page, "0/0").getByRole("radio")).toBeChecked();
   await expect(layer(page, "0/1").getByRole("radio")).not.toBeChecked();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
 
-  await page.getByRole("group", { name: "口パク方式" })
+  await page.getByRole("group", { name: "口の方式" })
     .getByRole("button", { name: "aiueo" }).click();
   await shape(page, "あ").click();
   await layer(page, "0/1").getByRole("radio").check();
   await shape(page, "い").click();
+  await expect(layer(page, "0/0").getByRole("radio")).not.toBeChecked();
+  // Explicitly choose the same '*あ' as fixed; it must remain selected.
+  await layer(page, "0/0").getByRole("radio").check();
   await expect(layer(page, "0/0").getByRole("radio")).toBeChecked();
   await shape(page, "あ").click();
   await expect(layer(page, "0/1").getByRole("radio")).toBeChecked();
-  await expect(layer(page, "0/3").getByRole("checkbox")).toBeChecked();
+  await expect(layer(page, "0/3").getByRole("checkbox")).not.toBeChecked();
 
   const saved = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   const preset = saved.collection.items[0];
   expect(preset.base.find((x: State) => x.path === "0/0")?.visible).toBe(true);
   expect(preset.openMouth.opened).toEqual([
     { path: "0/0", visible: false }, { path: "0/1", visible: true },
+    { path: "0/3", visible: false },
   ]);
   expect(preset.openMouth.closed).toEqual([
     { path: "0/0", visible: true }, { path: "0/1", visible: false },
+    { path: "0/3", visible: true },
   ]);
   expect(preset.aiueoMouth.a).toEqual([
     { path: "0/0", visible: false }, { path: "0/1", visible: true },
+    { path: "0/3", visible: false },
   ]);
-  expect(preset.aiueoMouth.i).toEqual([]);
+  expect(preset.aiueoMouth.i).toEqual([
+    { path: "0/0", visible: true }, { path: "0/1", visible: false },
+    { path: "0/3", visible: false },
+  ]);
+});
+
+test("clear resets only one Open or aiueo selection and persists after reload", async ({ page }) => {
+  await openEditor(page);
+  await chooseMouthGroups(page);
+  await checkbox(page, "0/1/0").check();
+  await expect(page.getByRole("button", { name: "Openの選択を解除" })).toBeVisible();
+  await page.getByRole("button", { name: "Openの選択を解除" }).click();
+  await expect(checkbox(page, "0/1/0")).not.toBeChecked();
+  expect((await page.evaluate(() => JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v2")!)))
+    .collection.items[0].openMouth).toBeUndefined();
+
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "aiueo" }).click();
+  await shape(page, "あ").click();
+  await checkbox(page, "0/0/0").check();
+  await shape(page, "い").click();
+  await checkbox(page, "0/1/0").check();
+  await shape(page, "あ").click();
+  await page.getByRole("button", { name: "「あ」の選択を解除" }).click();
+  await expect(checkbox(page, "0/0/0")).not.toBeChecked();
+  await shape(page, "い").click();
+  await expect(checkbox(page, "0/1/0")).toBeChecked();
+
+  await page.reload();
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "aiueo" }).click();
+  await shape(page, "あ").click();
+  await expect(checkbox(page, "0/0/0")).not.toBeChecked();
+  await shape(page, "い").click();
+  await expect(checkbox(page, "0/1/0")).toBeChecked();
 });

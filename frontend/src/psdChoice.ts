@@ -93,9 +93,15 @@ export function validatePsdChoices(
 
   for (const preset of collection.items) {
     const base = new Map(preset.base.map((entry) => [entry.path, entry.visible]));
-    const check = (label: string, overrides?: Visibility[]) => {
+    const groupLeaves = (groups: string[] = []) => new Set(layers.filter((layer) =>
+      layer.kind !== "group" && psdChoiceKind(layer.name) !== "fixed" &&
+      groups.some((group) => layer.path.startsWith(group + "/"))).map((layer) => layer.path));
+    const mouthLeaves = groupLeaves(collection.motionGroups?.mouth);
+    const eyeLeaves = groupLeaves(collection.motionGroups?.eyes);
+    const check = (label: string, overrides?: Visibility[], editable?: Set<string>) => {
       const changes = new Map(overrides?.map((entry) => [entry.path, entry.visible]) ?? []);
-      const visible = (path: string) => changes.get(path) ?? base.get(path);
+      const visible = (path: string) => changes.get(path) ??
+        (editable?.has(path) ? false : base.get(path));
       for (const layer of mandatory) {
         if (visible(layer.path) !== true) {
           throw new Error(`プリセット「${preset.name}」の${label}: !強制表示レイヤー「${layer.name}」がOFFです。${failureNote}`);
@@ -109,17 +115,17 @@ export function validatePsdChoices(
     };
     check("基本");
     if (preset.openMouth) {
-      check("Open閉じ口", preset.openMouth.closed);
-      check("Open開き口", preset.openMouth.opened);
+      // Legacy closed values are inactive; base defines the resting mouth.
+      check("Open open", preset.openMouth.opened, mouthLeaves);
     }
     if (preset.aiueoMouth) {
       for (const key of ["a", "i", "u", "e", "o", "n"] as const) {
-        check(`aiueo ${key}`, preset.aiueoMouth[key]);
+        check(`aiueo ${key}`, preset.aiueoMouth[key], mouthLeaves);
       }
     }
     if (preset.eyes) {
-      check("瞬き開いた目", preset.eyes.opened);
-      check("瞬き閉じた目", preset.eyes.closed);
+      // Legacy opened values are inactive; base defines the resting eyes.
+      check("目 close", preset.eyes.closed, eyeLeaves);
     }
   }
 }

@@ -7,6 +7,7 @@ import {
   appendPreset, availablePresetName, createPreset, duplicatePreset, movePreset,
   removeSessionPreset, renamePreset, reorderPresets,
   setBaseLayerChoice, setAiueoPsdChoice, setOpenPsdChoice, setMouthMotionEnabled,
+  setEyePsdChoice, setBlinkEnabled, clearMotionSelection,
   type AiueoKey,
   type Presets, type UnifiedPreset,
 } from "./presetModel";
@@ -16,7 +17,8 @@ import {
   serializeCharacterProfile, validateCharacterProfileOpenTargets,
 } from "./characterProfile";
 import { saveCharacterProfileFile } from "./characterProfileSave";
-import { effectiveMouthGroups, setMouthGroups } from "./motionGroups";
+import { effectiveMouthGroups, effectiveEyeGroups, setMouthGroups, setEyeGroups,
+  validMotionGroups } from "./motionGroups";
 import { validatePsdChoices } from "./psdChoice";
 
 type PsdData = {
@@ -97,7 +99,9 @@ export default function PresetWorkspace() {
         if (!matchesSource(recovery, data.fingerprint, data.layers)) {
           setRestoreMessage(data.fingerprint !== recovery.fingerprint
             ? "PSDが変更されています。保存済みの編集内容は保持していますが、復元はしていません。"
-            : "PSDのレイヤー構造、口形参照、または*・!の保存状態に不整合があります。保存データは変更せず、復元を中止しました。");
+            : !validMotionGroups(recovery.collection, data.layers)
+              ? "保存済みの口・目の動作対象グループが競合、または不正です。保存データは変更せず、復元を中止しました。"
+              : "PSDのレイヤー構造、口形参照、または*・!の保存状態に不整合があります。保存データは変更せず、復元を中止しました。");
           return;
         }
         setPsd(data);
@@ -124,7 +128,7 @@ export default function PresetWorkspace() {
     path: string = loadedPath, fingerprint: string | undefined = psd?.fingerprint) {
     if (!path || !fingerprint) return;
     try {
-      writePresetDraft({ version: 1, path, fingerprint, collection: next, nameDrafts: drafts });
+      writePresetDraft({ version: 2, path, fingerprint, collection: next, nameDrafts: drafts });
     } catch {
       setError("ブラウザに自動保存できません。再読み込み前に空き容量・保存設定を確認してください。");
     }
@@ -176,7 +180,9 @@ export default function PresetWorkspace() {
         if (!matchesSource(recovery, data.fingerprint, data.layers)) {
           throw new Error(data.fingerprint !== recovery.fingerprint
             ? "元PSDが変更されているため復元できません。保存済みデータは保持しています。"
-            : "PSDのレイヤー構造、口形参照、または*・!の保存状態が一致しません。保存データは保持しています。");
+            : !validMotionGroups(recovery.collection, data.layers)
+              ? "保存済みの口・目の動作対象グループが競合、または不正です。保存データは保持しています。"
+              : "PSDのレイヤー構造、口形参照、または*・!の保存状態が一致しません。保存データは保持しています。");
         }
         setPsd(data);
         setLoadedPath(requested);
@@ -274,7 +280,7 @@ export default function PresetWorkspace() {
       }
       // Durable recovery write first: on storage failure keep the current UI.
       writePresetDraft({
-        version: 1, path: profile.source.path, fingerprint: profile.source.fingerprint,
+        version: 2, path: profile.source.path, fingerprint: profile.source.fingerprint,
         collection: profile.collection, nameDrafts: {},
       });
       editVersion.current += 1;
@@ -496,15 +502,24 @@ export default function PresetWorkspace() {
       onToggle={(path, visible) =>
         updatePresets(setBaseLayerChoice(collection, active.id, psd.layers, path, visible))}
       mouthGroups={effectiveMouthGroups(collection, psd.layers)}
+      eyeGroups={effectiveEyeGroups(collection, psd.layers)}
       onMouthGroupsChange={(groups) =>
         updatePresets(setMouthGroups(collection, psd.layers, groups))}
+      onEyeGroupsChange={(groups) =>
+        updatePresets(setEyeGroups(collection, psd.layers, groups))}
       onMouthMotionChange={(enabled) =>
         updatePresets(setMouthMotionEnabled(collection, active.id, enabled))}
+      onBlinkChange={(enabled) =>
+        updatePresets(setBlinkEnabled(collection, active.id, enabled))}
+      onEyeShapeChange={(pose, path, visible) =>
+        updatePresets(setEyePsdChoice(collection, active.id, psd.layers, pose, path, visible))}
       onOpenShapeChange={(shape, path, visible) =>
         updatePresets(setOpenPsdChoice(collection, active.id, psd.layers, shape, path, visible))}
       onAiueoChoiceChange={(key: AiueoKey, path: string, visible: boolean) =>
         updatePresets(setAiueoPsdChoice(collection, active.id, psd.layers, key, path, visible))}
-      onDelete={() => remove(active.id)}
+      onClearMotionShape={(selection) =>
+         updatePresets(clearMotionSelection(collection, active.id, selection))}
+       onDelete={() => remove(active.id)}
     /> : psd && <section className="panel preset-list-section">
       <div className="preset-list-header">
         <h2>一覧</h2>

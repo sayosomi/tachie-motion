@@ -34,16 +34,16 @@ test("preset-first list, detail ON/OFF, copy, reorder and refresh recovery", asy
   await expect(page).toHaveURL(/\?preset=/);
   await page.locator("#preset-name").fill("にっこり");
   await page.getByRole("button", { name: "名前を変更" }).click();
-  await page.getByRole("checkbox", { name: "目 [0/1] 基本" }).check();
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).toBeChecked();
+  await page.getByRole("checkbox", { name: "目 [0/1] 固定" }).check();
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 固定" })).toBeChecked();
   await expect.poll(() => previews.at(-1)?.layers.find((x) => x.path === "0/1")?.visible).toBe(true);
   expect(previews.at(-1)?.fingerprint).toBe("1000:2000");
   await expect(page.getByAltText("にっこり のプレビュー")).toBeVisible();
 
   await page.getByRole("button", { name: "顔 [0] を閉じる" }).click();
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 固定" })).toHaveCount(0);
   await page.getByRole("button", { name: "顔 [0] を開く" }).click();
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 固定" })).toBeChecked();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await expect(page.getByText("にっこり")).toBeVisible();
   await expect(page.locator("[data-preset-id]")).toHaveCount(2);
@@ -112,17 +112,17 @@ test("drafting a different PSD path cannot silently discard unsaved preset edits
   await page.locator("#preset-psd-path").fill("/tmp/original.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.getByRole("checkbox", { name: "目 [0/1] 基本" }).check();
+  await page.getByRole("checkbox", { name: "目 [0/1] 固定" }).check();
   await expect.poll(() => paths.length).toBeGreaterThan(0);
   await page.locator("#preset-psd-path-advanced").evaluate((el) => { (el as HTMLDetailsElement).open = true; });
   await page.locator("#preset-psd-path").fill("/tmp/other.psd");
   await expect(page.getByText("新しいPSDパスを入力中です。")).toBeVisible();
-  await page.getByRole("checkbox", { name: "目 [0/1] 基本" }).uncheck();
+  await page.getByRole("checkbox", { name: "目 [0/1] 固定" }).uncheck();
   await expect.poll(() => paths.length).toBeGreaterThan(1);
   expect(paths.every((path) => path === "/tmp/original.psd")).toBe(true);
   page.once("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 固定" })).not.toBeChecked();
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await expect(page.locator("[data-preset-id]")).toHaveCount(1);
 });
@@ -156,11 +156,11 @@ test("a delayed PSD response cannot discard an edit made while it was loading", 
   });
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await expect(page.getByRole("button", { name: "読み込み中…" })).toBeDisabled();
-  await page.getByRole("checkbox", { name: "目 [0/0] 基本" }).uncheck();
+  await page.getByRole("checkbox", { name: "目 [0/0] 固定" }).uncheck();
   release();
 
   await expect(page.getByRole("alert")).toContainText("読み込み結果を破棄しました");
-  await expect(page.getByRole("checkbox", { name: "目 [0/0] 基本" })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "目 [0/0] 固定" })).not.toBeChecked();
   await expect(page.getByRole("note")).toContainText("このブラウザに自動保存");
   await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
 });
@@ -251,12 +251,12 @@ test("refresh restores an unfinished name edit and modified ON/OFF states", asyn
   await page.locator("#preset-psd-path").fill("/tmp/リロード.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.getByRole("checkbox", { name: "目 [0/1] 基本" }).check();
+  await page.getByRole("checkbox", { name: "目 [0/1] 固定" }).check();
   await page.locator("#preset-name").fill("編集中の名前");
   await page.reload();
   await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
   await expect(page.locator("#preset-name")).toHaveValue("編集中の名前");
-  await expect(page.getByRole("checkbox", { name: "目 [0/1] 基本" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "目 [0/1] 固定" })).toBeChecked();
 });
 
 test("changed PSD fingerprint fails closed without erasing the stored draft", async ({ page }) => {
@@ -269,17 +269,17 @@ test("changed PSD fingerprint fails closed without erasing the stored draft", as
   await page.locator("#preset-psd-path").fill("/tmp/changed.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "＋ 作成" }).click();
-  const stored = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
+  const stored = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"));
   expect(stored).toContain("source-A");
   fingerprint = "source-B";
   await page.reload();
   await expect(page.getByRole("status")).toContainText("PSDが変更されています");
   await expect(page.locator("[data-preset-id]")).toHaveCount(0);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(stored);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(stored);
   await expect(page.getByRole("button", { name: "保存済みを破棄して新規" })).toBeVisible();
   page.once("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("button", { name: "保存済みを破棄して新規" }).click();
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(stored);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(stored);
 });
 
 test("invalid cached draft cannot be silently replaced by reading PSD", async ({ page }) => {
@@ -287,18 +287,18 @@ test("invalid cached draft cannot be silently replaced by reading PSD", async ({
     width: 64, height: 64, fingerprint: "source-A", preview: png, layers,
   } }));
   await page.goto("/");
-  await page.evaluate(() => localStorage.setItem("tachie-motion.preset-draft.v1", "{broken"));
+  await page.evaluate(() => localStorage.setItem("tachie-motion.preset-draft.v2", "{broken"));
   await page.reload();
   await expect(page.getByRole("status")).toContainText("形式が壊れています");
   await page.locator("#preset-psd-path-advanced").evaluate((el) => { (el as HTMLDetailsElement).open = true; });
   await page.locator("#preset-psd-path").fill("/tmp/recovery.psd");
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("上書きしません");
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe("{broken");
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe("{broken");
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "保存済みを破棄して新規" }).click();
   await expect(page.locator("[data-preset-id]")).toHaveCount(1);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toContain("source-A");
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toContain("source-A");
 });
 
 test("the reorder target is visible and arrow move works without a touch drag", async ({ page }) => {
@@ -401,13 +401,8 @@ test("Open shapes preserve base visibility and group-scoped search with large PS
     .toBe(false);
   await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/1")?.visible)
     .toBe(true);
-  const shapeTabs = page.getByRole("group", { name: "編集する口形" });
-  await shapeTabs.getByRole("button", { name: "閉じ口" }).click();
-  await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/0")?.visible)
-    .toBe(true);
-  await expect.poll(() => previews.at(-1)?.layers.find(item => item.path === "0/1")?.visible)
-    .toBe(false);
-  await shapeTabs.getByRole("button", { name: "基本" }).click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "固定レイヤー" }).click();
   await expect(closed.getByRole("checkbox")).toBeChecked();
   await expect(opened.getByRole("checkbox")).not.toBeChecked();
 
@@ -436,47 +431,6 @@ test("Open shapes preserve base visibility and group-scoped search with large PS
     .toHaveAttribute("data-open-role", "closed");
   await expect(page.locator('.preset-layer[data-layer-path="0/1"]'))
     .toHaveAttribute("data-open-role", "opened");
-});
-
-test("older custom mouth overrides are preserved until explicitly changed", async ({ page }) => {
-  await page.route("**/api/psd", (route) => route.fulfill({ json: {
-    width: 64, height: 64, fingerprint: "legacy-shape", preview: png, layers,
-  }}));
-  await page.goto("/");
-  await page.locator("#preset-psd-path-advanced").evaluate((el) => {
-    (el as HTMLDetailsElement).open = true;
-  });
-  await page.locator("#preset-psd-path").fill("/tmp/legacy.psd");
-  await page.getByRole("button", { name: "読み込む", exact: true }).click();
-  await expect(page.getByRole("button", { name: "詳細を編集" })).toBeVisible();
-  await expect.poll(() => page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"))).not.toBeNull();
-  await page.evaluate(() => {
-    const key = "tachie-motion.preset-draft.v1";
-    const saved = JSON.parse(localStorage.getItem(key)!);
-    saved.collection.items[0].openMouth = {
-      closed: [{ path: "0/0", visible: true }],
-      opened: [{ path: "0/0", visible: true }],
-    };
-    localStorage.setItem(key, JSON.stringify(saved));
-  });
-  await page.reload();
-  await page.getByRole("button", { name: "詳細を編集" }).click();
-  await openMotion(page);
-  const legacy = page.locator('.preset-layer[data-layer-path="0/0"]');
-  const second = page.locator('.preset-layer[data-layer-path="0/1"]');
-  await expect(legacy).toHaveAttribute("data-open-role", "custom");
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "開き口" }).click();
-  await second.getByRole("checkbox").check();
-  const value = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v1")!));
-  expect(value.collection.items[0].openMouth.closed)
-    .toContainEqual({ path: "0/0", visible: true });
-  expect(value.collection.items[0].openMouth.opened)
-    .toContainEqual({ path: "0/0", visible: true });
-  await legacy.getByRole("checkbox").uncheck();
-  await expect(legacy).toHaveAttribute("data-open-role", "closed");
 });
 
 test("tall PSD preview fits its whole canvas and supports mouth focus, pan and state changes", async ({ page }) => {
@@ -532,7 +486,8 @@ test("tall PSD preview fits its whole canvas and supports mouth focus, pan and s
   expect(first).toMatch(/scale\(8\)/);
   expect(first).not.toContain("translate(0px, 0px)");
 
-  await page.getByRole("button", { name: "開き口", exact: true }).click();
+  await expect(page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "Open" })).toHaveAttribute("aria-pressed", "true");
   await expect(image).toBeVisible();
   await expect(image).toHaveAttribute("style", first!);
   // The preset editor sits below the source picker and may be outside the

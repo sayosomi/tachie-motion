@@ -7,13 +7,14 @@ type Props = {
   alt: string;
   error?: string;
   focus?: Point;
+  focusLabel?: string;
   selectedFocus?: Point;
 };
 
 const LEVELS = [1, 1.5, 2, 3, 4, 6, 8];
 
 export default function PresetImagePreview({
-  image, alt, error, focus, selectedFocus,
+  image, alt, error, focus, focusLabel = "口元へ", selectedFocus,
 }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const img = useRef<HTMLImageElement>(null);
@@ -119,8 +120,8 @@ export default function PresetImagePreview({
         onClick={() => changeZoom(1)}
         disabled={!image || level === LEVELS.length - 1}>＋</button>
       <button type="button" className="secondary" onClick={() => focusAt(focus)}
-        disabled={!image || !focus} title={!focus ? "口形の役割を割り当てると使用できます" : undefined}>
-        口元へ
+        disabled={!image || !focus} title={!focus ? "動作対象グループを指定すると使用できます" : undefined}>
+        {focusLabel}
       </button>
       <button type="button" className="secondary" onClick={() => focusAt(selectedFocus)}
         disabled={!image || !selectedFocus}>選択位置へ</button>

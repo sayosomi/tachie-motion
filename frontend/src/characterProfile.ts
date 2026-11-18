@@ -6,7 +6,7 @@ import { validatePsdChoices } from "./psdChoice";
 
 // Portable, explicit character settings. Never a project snapshot or reload draft.
 export const CHARACTER_PROFILE_FORMAT = "tachie-motion-character-profile";
-export const CHARACTER_PROFILE_VERSION = 1;
+export const CHARACTER_PROFILE_VERSION = 2;
 export const MAX_PROFILE_SIZE = 2_000_000;
 const MAX_LAYERS = 50_000;
 const MAX_PRESETS = 1_000;
@@ -86,15 +86,25 @@ function preset(value: unknown, allowed: Set<string>): UnifiedPreset {
     const closed = new Set(mouth.closed.map((x) => x.path));
     const opened = new Set(mouth.opened.map((x) => x.path));
     if (!closed.size || closed.size !== opened.size ||
-        [...closed].some((path) => !opened.has(path))) {
+        [...closed].some((path) => !opened.has(path)) ||
+        !mouth.opened.some((entry) => entry.visible)) {
       throw new Error("キャラクター設定JSONのOpen口形が不正です");
     }
   }
   if (Object.hasOwn(value, "aiueoMouth")) {
-    paired(value.aiueoMouth, ["a", "i", "u", "e", "o", "n"], allowed);
+    const mouth = paired(value.aiueoMouth, ["a", "i", "u", "e", "o", "n"], allowed);
+    const active = ["a", "i", "u", "e", "o", "n"];
+    if (!active.some((key) => mouth[key].some((entry) => entry.visible)) ||
+        active.some((key) => mouth[key].length > 0 &&
+          !mouth[key].some((entry) => entry.visible))) {
+      throw new Error("キャラクター設定JSONの口形に明示選択がありません");
+    }
   }
   if (Object.hasOwn(value, "eyes")) {
-    paired(value.eyes, ["opened", "closed"], allowed);
+    const eyes = paired(value.eyes, ["opened", "closed"], allowed);
+    if (!eyes.closed.some((entry) => entry.visible)) {
+      throw new Error("キャラクター設定JSONの閉じ目に明示選択がありません");
+    }
   }
   return value as unknown as UnifiedPreset;
 }
@@ -119,8 +129,11 @@ export function parseCharacterProfile(text: string): CharacterProfile {
   fields(data.collection, ["items", "defaultId"], ["motionGroups"]);
   const collection = data.collection;
   if (Object.hasOwn(collection, "motionGroups")) {
-    fields(collection.motionGroups, ["mouth"]);
+    fields(collection.motionGroups, ["mouth"], ["eyes"]);
     paths(collection.motionGroups.mouth, true);
+    if (Object.hasOwn(collection.motionGroups, "eyes")) {
+      paths(collection.motionGroups.eyes, true);
+    }
   }
   if (!Array.isArray(collection.items) || collection.items.length > MAX_PRESETS) {
     throw new Error("キャラクター設定JSONのプリセット数が不正です");
@@ -191,7 +204,7 @@ export function validateCharacterProfileOpenTargets(profile: CharacterProfile, l
     }
   }
   // Checked only after /api/psd supplies the source layer names and kinds.
-  // Invalid legacy overrides must not become active UI/export state.
+  // Invalid saved selections must not become active UI/export state.
   validatePsdChoices(profile.collection, layers);
 }
 

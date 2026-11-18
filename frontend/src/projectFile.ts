@@ -7,7 +7,7 @@ import type { PresetDraft } from "./presetDraftStorage";
 import type { UtteranceItem, WavData } from "./utteranceItems";
 
 export const PROJECT_FORMAT = "tachie-motion-project";
-export const PROJECT_VERSION = 2;
+export const PROJECT_VERSION = 3;
 export const MAX_PROJECT_BYTES = 4_000_000;
 const MAX_UTTERANCES = 2000;
 const MAX_PATH_LENGTH = 8192;
@@ -85,11 +85,8 @@ export function parseProjectFile(text: string): ProjectFile {
   try { value = JSON.parse(text) as unknown; }
   catch { throw new Error("制作プロジェクトJSONを解析できません"); }
   if (!record(value)) throw new Error("制作プロジェクトJSONの項目が不正です");
-  const isLegacy = value.version === 1;
-  fields(value, isLegacy
-    ? ["format", "version", "character", "items", "selectedId"]
-    : ["format", "version", "character", "items", "selectedId", "naming"]);
-  if (value.format !== PROJECT_FORMAT || (!isLegacy && value.version !== PROJECT_VERSION)) {
+  fields(value, ["format", "version", "character", "items", "selectedId", "naming"]);
+  if (value.format !== PROJECT_FORMAT || value.version !== PROJECT_VERSION) {
     throw new Error("未対応の制作プロジェクトJSON形式・バージョンです");
   }
   const character = parseCharacterProfile(JSON.stringify(value.character));
@@ -111,8 +108,7 @@ export function parseProjectFile(text: string): ProjectFile {
     (typeof value.selectedId !== "string" || !ids.has(value.selectedId))) {
     throw new Error("制作プロジェクトJSONの選択項目が不正です");
   }
-  const legacyNaming = initialNaming(character.source.path, items[0]?.outputDir ?? "");
-  const naming = isLegacy ? legacyNaming : validateBatchNaming(value.naming);
+  const naming = validateBatchNaming(value.naming);
   return { format: PROJECT_FORMAT, version: PROJECT_VERSION, character, items,
     selectedId: value.selectedId as string | null, naming };
 }
@@ -145,7 +141,7 @@ export function serializeProjectFile(
 
 export function projectPresetDraft(project: ProjectFile, psdPath = project.character.source.path): PresetDraft {
   return {
-    version: 1, path: psdPath,
+    version: 2, path: psdPath,
     fingerprint: project.character.source.fingerprint,
     collection: structuredClone(project.character.collection),
     nameDrafts: {},

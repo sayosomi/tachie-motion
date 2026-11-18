@@ -144,7 +144,7 @@ test("project save, reload, restore preserves ordered WAV edits and character sn
   await page.getByRole("button", { name: "上へ: 2 別の音声.wav" }).click();
   const project = await saved(page);
   expect(project.format).toBe("tachie-motion-project");
-  expect(project.version).toBe(2);
+  expect(project.version).toBe(3);
   expect(project.items.map((item: any) => item.wavPath)).toEqual([otherWav, wavPath]);
   expect(project.items[1].mode).toBe("open");
   expect(project.items[1].basename).toBe("first");
@@ -167,6 +167,71 @@ test("project save, reload, restore preserves ordered WAV edits and character sn
   await page.getByRole("button", { name: "プリセット", exact: true }).click();
   await expect(page.locator("[data-preset-id]")).toHaveAttribute("data-preset-id",
     project.character.collection.items[0].id);
+});
+
+test("clearing eyes with stored opened pose roundtrips draft, character v2 and project v3", async ({ page }) => {
+  await mock(page);
+  await openSpeech(page);
+  // Valid current-v2 data may contain a historical opened array. The UI
+  // uses fixed base for open eyes, but import still accepts this field.
+  await page.evaluate(() => {
+    const key = "tachie-motion.preset-draft.v2";
+    const draft = JSON.parse(localStorage.getItem(key)!);
+    draft.collection.motionGroups = { mouth: [], eyes: ["0"] };
+    draft.collection.items[0].eyes = {
+      opened: [{ path: "0/0", visible: true }],
+      closed: [{ path: "0/0", visible: true }],
+    };
+    localStorage.setItem(key, JSON.stringify(draft));
+  });
+  await page.reload();
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await page.getByRole("tablist", { name: "パーツ" })
+    .getByRole("tab", { name: "目" }).click();
+  await page.getByRole("checkbox", { name: "目 ON" }).check();
+  await expect(page.getByRole("button", { name: "閉じ目の選択を解除" })).toBeVisible();
+  await page.getByRole("button", { name: "閉じ目の選択を解除" }).click();
+  const afterClear = JSON.parse((await page.evaluate(() =>
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
+  expect(afterClear.collection.items[0].eyes).toBeUndefined();
+  expect(afterClear.collection.items[0].base.find(
+    (entry: { path: string; visible: boolean }) => entry.path === "0/0")?.visible).toBe(true);
+
+  await page.reload();
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
+  // The ?preset=<id> route restores the detail page, not the preset list.
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  await expect(page.locator("[data-preset-id]")).toHaveCount(1);
+  await page.getByRole("button", { name: "JSONを保存", exact: true }).click();
+  await expect(page.locator(".profile-status")).toContainText("JSONを保存しました");
+  const profile = await page.evaluate(() => JSON.parse(
+    (window as Window & { __projectProbe: Probe }).__projectProbe.saved.at(-1)!));
+  expect(profile.version).toBe(2);
+  expect(profile.collection.items[0].eyes).toBeUndefined();
+  const confirmation = page.waitForEvent("dialog").then(dialog => dialog.accept());
+  await page.locator("#character-profile-file").setInputFiles({
+    name: "character.json", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(profile)),
+  });
+  await confirmation;
+  await expect(page.locator(".profile-status")).toContainText("JSONを読み込みました");
+
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await addWav(page, wavPath);
+  const project = await saved(page);
+  expect(project.version).toBe(3);
+  expect(project.character.collection.items[0].eyes).toBeUndefined();
+  await page.reload();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  page.once("dialog", dialog => { void dialog.accept(); });
+  await importProject(page, project);
+  await expect(page.getByRole("status")).toContainText("制作プロジェクトを読み込みました");
+  const roundtrip = await saved(page);
+  expect(roundtrip.character.collection.items[0].eyes).toBeUndefined();
+  expect(roundtrip.character.collection.motionGroups.eyes).toEqual(["0"]);
 });
 
 test("missing WAV retains current list, permits explicit re-link and then commits", async ({ page }) => {
@@ -222,18 +287,18 @@ test("invalid JSON and rejected replacement never overwrite existing edits", asy
   const savedProject = await saved(page);
   await addWav(page, otherWav);
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
-  const storage = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
+  const storage = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"));
   const modified = structuredClone(savedProject);
   modified.items[0].presetId = "__missing__";
   await importProject(page, modified);
   await expect(page.getByRole("alert")).toContainText("WAV順序またはプリセット参照");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(storage);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(storage);
   page.once("dialog", (dialog) => { void dialog.dismiss(); });
   await importProject(page, savedProject);
   await expect(page.getByRole("status")).toContainText("読み込みをキャンセル");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(storage);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(storage);
 });
 
 test("Save dialog cancel does not claim success; held writer locks conflicting edits", async ({ page }) => {
@@ -286,11 +351,11 @@ test("failed browser recovery write is non-destructive after user confirms", asy
   const project = await saved(page);
   await addWav(page, otherWav);
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
-  const before = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
+  const before = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"));
   await page.evaluate(() => {
     const original = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key: string, value: string) {
-      if (key === "tachie-motion.preset-draft.v1") throw new Error("容量不足");
+      if (key === "tachie-motion.preset-draft.v2") throw new Error("容量不足");
       return original.call(this, key, value);
     };
   });
@@ -298,11 +363,11 @@ test("failed browser recovery write is non-destructive after user confirms", asy
   await importProject(page, project);
   await expect(page.getByRole("alert")).toContainText("容量不足");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(before);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(before);
 });
 
 
-test("project JSON v2 saves and restores simple batch naming settings", async ({ page }) => {
+test("project JSON v3 saves and restores simple batch naming settings", async ({ page }) => {
   await mock(page);
   await openSpeech(page);
   await addWav(page, wavPath);
@@ -319,7 +384,7 @@ test("project JSON v2 saves and restores simple batch naming settings", async ({
   await expect(page.locator(".export-plan-items li").first())
     .toContainText("001_あんこもん_音声 e\u0301.mov");
   const project = await saved(page);
-  expect(project.version).toBe(2);
+  expect(project.version).toBe(3);
   expect(project.naming.projectName).toBe("ずんだもん動画");
   expect(project.naming.characterName).toBe("あんこもん");
   expect(project.naming.otioTemplate).toBe("{プロジェクト名}");

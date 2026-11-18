@@ -16,7 +16,7 @@ const layers: Layer[] = [
   { path: "0/2", name: "!共通", kind: "pixel", visible: false, effective_visible: false, bbox: [0, 0, 16, 16] },
 ];
 const collection = (): Presets => ({
-  defaultId: "p1",
+  defaultId: "p1", motionGroups: { mouth: ["0"] },
   items: [{
     id: "p1", name: "通常", blinkEnabled: false,
     base: [
@@ -34,13 +34,16 @@ const collection = (): Presets => ({
   }],
 });
 const draft = (): PresetDraft => ({
-  version: 1, path: source, fingerprint,
+  version: 2, path: source, fingerprint,
   collection: collection(), nameDrafts: {},
 });
 
-async function intercept(page: Page, rendered: Array<Array<{ path: string; visible: boolean }>>) {
+async function intercept(
+  page: Page, rendered: Array<Array<{ path: string; visible: boolean }>>,
+  psdLayers: Layer[] = layers,
+) {
   await page.route("**/api/psd", route => route.fulfill({ json: {
-    width: 64, height: 64, preview: image, fingerprint, layers,
+    width: 64, height: 64, preview: image, fingerprint, layers: psdLayers,
   } }));
   await page.route("**/api/preset-preview", route => {
     rendered.push(route.request().postDataJSON().layers);
@@ -52,7 +55,7 @@ async function restore(page: Page, value: PresetDraft) {
   await page.goto("/");
   const raw = JSON.stringify(value);
   await page.evaluate((text) =>
-    localStorage.setItem("tachie-motion.preset-draft.v1", text), raw);
+    localStorage.setItem("tachie-motion.preset-draft.v2", text), raw);
   await page.reload();
   return raw;
 }
@@ -61,61 +64,39 @@ function radio(page: Page, path: string) {
   return page.locator(`.preset-layer[data-layer-path="${path}"]`).getByRole("radio");
 }
 
-test("base * switch cannot invalidate inherited aiueo shape; resolving the pose permits it", async ({ page }) => {
+test("fixed * choice remains independent from the explicitly selected aiueo pose", async ({ page }) => {
   const rendered: Array<Array<{ path: string; visible: boolean }>> = [];
   await intercept(page, rendered);
-  const raw = await restore(page, draft());
+  await restore(page, draft());
   await expect(page.getByRole("status").filter({ hasText: "前回の編集を復元しました" })).toBeVisible();
   await page.getByRole("button", { name: "詳細を編集" }).click();
-  await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "動かすパーツ" }).click();
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "基本" }).click();
-  await expect(radio(page, "0/0")).toBeChecked();
-  // This click is deliberately rejected, so Playwright's .check() (which
-  // requires the radio to end checked) would report a false test failure.
-  await radio(page, "0/1").click();
-  await expect(page.getByRole("alert")).toContainText("aiueo a");
-  await expect(page.getByRole("alert")).toContainText("変更は適用・保存していません");
-  await expect(radio(page, "0/0")).toBeChecked();
-  await expect(radio(page, "0/1")).not.toBeChecked();
-  expect(await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(raw);
-  // Any in-flight legitimate preview still receives the entire old base.
-  for (const state of rendered) {
-    expect(state.map(x => x.visible)).toEqual([true, true, false, true]);
-  }
-
-  // Explicitly resolve the existing 'あ' pose first; no old overrides are
-  // silently removed, and the previously rejected base edit then succeeds.
-  await page.getByRole("group", { name: "口パク方式" })
-    .getByRole("button", { name: "aiueo" }).click();
-  await radio(page, "0/1").check();
-  await expect(radio(page, "0/0")).not.toBeChecked();
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "基本" }).click();
   await radio(page, "0/1").check();
   await expect(radio(page, "0/1")).toBeChecked();
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(radio(page, "0/0")).not.toBeChecked();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "aiueo" }).click();
+  await expect(radio(page, "0/0")).toBeChecked();
+  await expect(radio(page, "0/1")).not.toBeChecked();
+  await expect.poll(() => rendered.at(-1)?.map((x) => x.visible))
+    .toEqual([true, true, false, true]);
   const saved = JSON.parse((await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1")))!);
+    localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   expect(saved.collection.items[0].base.map((x: { visible: boolean }) => x.visible))
     .toEqual([true, false, true, true]);
-  expect(saved.collection.items[0].aiueoMouth.a).toEqual([
-    { path: "0/0", visible: false }, { path: "0/1", visible: true },
-  ]);
+  expect(saved.collection.items[0].aiueoMouth.a).toEqual([{ path: "0/0", visible: true }]);
   expect(() => serializeCharacterProfile(source, fingerprint, layers, saved.collection))
     .not.toThrow();
   await page.reload();
   await expect(page.getByRole("status").filter({ hasText: "前回の編集を復元しました" })).toBeVisible();
-  expect(await page.evaluate(() =>
-    localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(JSON.stringify(saved));
 });
 
-test("direct character/project JSON export refuses base changes that violate saved phonemes", () => {
+test("character/project JSON export rejects conflicting explicit * selections", () => {
   const invalid = draft();
-  invalid.collection.items[0].base[1].visible = false;
-  invalid.collection.items[0].base[2].visible = true;
+  invalid.collection.items[0].aiueoMouth!.a = [
+    { path: "0/0", visible: true }, { path: "0/1", visible: true },
+  ];
   expect(() => serializeCharacterProfile(source, fingerprint, layers, invalid.collection))
     .toThrow("aiueo a");
   expect(() => serializeProjectFile(invalid, layers, [], null))
@@ -124,14 +105,30 @@ test("direct character/project JSON export refuses base changes that violate sav
 
 test("eyes recovery validates structure, duplicate/missing paths, and PSD leaf kinds", async ({ page }) => {
   const rendered: Array<Array<{ path: string; visible: boolean }>> = [];
-  await intercept(page, rendered);
+  // Legacy eye and mouth poses must reside in distinct original PSD groups.
+  // The prior "valid" fixture reused 0 for both, masking the regression.
+  const eyeLayers: Layer[] = [
+    ...layers,
+    { path: "1", name: "目", kind: "group", visible: true,
+      effective_visible: true, bbox: [0, 0, 64, 64] },
+    { path: "1/0", name: "開眼", kind: "pixel", visible: true,
+      effective_visible: true, bbox: [0, 0, 16, 16] },
+    { path: "1/1", name: "閉眼", kind: "pixel", visible: false,
+      effective_visible: false, bbox: [0, 0, 16, 16] },
+  ];
+  await intercept(page, rendered, eyeLayers);
   const valid = draft();
+  valid.collection.items[0].base.push(
+    { path: "1", visible: true }, { path: "1/0", visible: true },
+    { path: "1/1", visible: false },
+  );
   valid.collection.items[0].eyes = {
-    opened: [{ path: "0/0", visible: true }],
-    closed: [{ path: "0/0", visible: false }, { path: "0/1", visible: true }],
+    opened: [{ path: "1/0", visible: true }],
+    closed: [{ path: "1/0", visible: false }, { path: "1/1", visible: true }],
   };
-  expect(matchesSource(valid, fingerprint, layers)).toBe(true);
-  expect(() => serializeCharacterProfile(source, fingerprint, layers, valid.collection))
+  valid.collection.motionGroups = { mouth: ["0"], eyes: ["1"] };
+  expect(matchesSource(valid, fingerprint, eyeLayers)).toBe(true);
+  expect(() => serializeCharacterProfile(source, fingerprint, eyeLayers, valid.collection))
     .not.toThrow();
   await restore(page, valid);
   await expect(page.getByRole("status").filter({ hasText: "前回の編集を復元しました" })).toBeVisible();
@@ -142,29 +139,29 @@ test("eyes recovery validates structure, duplicate/missing paths, and PSD leaf k
     { name: "duplicate", eyes: { opened: [
       { path: "0/0", visible: true }, { path: "0/0", visible: false },
     ], closed: [] } },
-    { name: "group", eyes: { opened: [{ path: "0", visible: true }], closed: [] } },
+    { name: "group", eyes: { opened: [], closed: [{ path: "1", visible: true }] } },
     { name: "malformed", eyes: { opened: [], closed: [], extra: [] } },
     { name: "unknown entry field", eyes: { opened: [
       { path: "0/0", visible: true, unexpected: 123 },
     ], closed: [] } },
   ];
   for (const item of cases) {
-    const invalid = draft();
-    // Intentionally malformed legacy storage; preserve its exact original bytes.
+    const invalid = item.name === "group" ? structuredClone(valid) : draft();
+    // Invalid current-format storage must preserve its exact original bytes.
     (invalid.collection.items[0] as unknown as { eyes: unknown }).eyes = item.eyes;
     const raw = JSON.stringify(invalid);
     await page.evaluate((text) =>
-      localStorage.setItem("tachie-motion.preset-draft.v1", text), raw);
+      localStorage.setItem("tachie-motion.preset-draft.v2", text), raw);
     const before = rendered.length;
     await page.reload();
     await expect(page.locator("[data-preset-id]")).toHaveCount(0);
     await expect(page.getByRole("status")).toContainText("保存データ");
     expect(await page.evaluate(() =>
-      localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(raw);
+      localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(raw);
     expect(rendered.length).toBe(before);
     if (item.name === "group") {
       expect(matchesSource(invalid, fingerprint, layers)).toBe(false);
-      expect(() => serializeCharacterProfile(source, fingerprint, layers, invalid.collection))
+      expect(() => serializeCharacterProfile(source, fingerprint, eyeLayers, invalid.collection))
         .toThrow("瞬き設定");
     }
     if (item.name === "unknown entry field") {
@@ -200,13 +197,13 @@ test("browser recovery rejects extra layer fields in base, Open and aiueo withou
       .toThrow("項目が不正");
     const raw = JSON.stringify(invalid);
     await page.evaluate((text) =>
-      localStorage.setItem("tachie-motion.preset-draft.v1", text), raw);
+      localStorage.setItem("tachie-motion.preset-draft.v2", text), raw);
     const before = rendered.length;
     await page.reload();
     await expect(page.locator("[data-preset-id]")).toHaveCount(0);
     await expect(page.getByRole("status")).toContainText("保存データ");
     expect(await page.evaluate(() =>
-      localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(raw);
+      localStorage.getItem("tachie-motion.preset-draft.v2"))).toBe(raw);
     expect(rendered.length).toBe(before);
   }
 });

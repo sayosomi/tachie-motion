@@ -25,12 +25,16 @@ jobs:
           node-version: "22"
       - name: Install media and Python test dependencies
         run: |
-          # The Azure mirror stalled FFmpeg downloads past the 20-minute CI limit.
-          # GitHub's Ubuntu 24.04 runner uses this file via apt's mirror+file source.
-          sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
-          test -s /etc/apt/apt-mirrors.txt
-          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=1 update
-          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=1 install -y --no-install-recommends ffmpeg
+          # GitHub-hosted runners may provide slow EC2/Azure mirrors.
+          # The previous Azure-only exclusion still allowed EC2 APT stalls.
+          # Pin the official Ubuntu mirror observed in the passing CI run.
+          # Keep installing and exercising real FFmpeg; no test bypass.
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            test "$(cat /etc/apt/apt-mirrors.txt)" = 'https://archive.ubuntu.com/ubuntu/'
+            timeout 180s sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=1 update
+            timeout 600s sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=1 install -y --no-install-recommends ffmpeg
+          fi
           ffmpeg -version
           ffprobe -version
           python -m pip install -e ".[web-test]"
@@ -45,7 +49,7 @@ jobs:
           npm run build
       - name: Install Chromium
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
       - name: Browser smoke tests
         working-directory: frontend
         run: npm run test:e2e
