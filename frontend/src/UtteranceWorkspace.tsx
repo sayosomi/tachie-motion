@@ -123,7 +123,11 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         // The Presets view may have been unmounted during its own recovery.
         // Write a missing initial timing here too, before enabling export or
         // project JSON saves. A failed write leaves the previous draft intact.
-        const restored = persistMissingBlinkTiming(saved);
+        let restored: PresetDraft;
+        try { restored = persistMissingBlinkTiming(saved); }
+        catch {
+          throw new Error("瞬き初期値をブラウザへ保存できません。空き容量・保存設定を確認してください。保存済みの設定は保持しています。");
+        }
         if (cancelled) return;
         setDraft(restored);
         setPsdLayers(psd.layers);
