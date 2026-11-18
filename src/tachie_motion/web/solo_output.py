@@ -72,7 +72,18 @@ def _recovery_paths(path: Path) -> tuple[Path, ...]:
             recovery_directories(path.parent))
 
 
-def initial_single_identity(path: Path, policy: str):
+def _other_otio_may_reference(path: Path) -> bool:
+    """Conservative guard: any OTIO in the output folder may reference this MOV.
+
+    Names do not establish the referenced media. The single-utterance route
+    opts into this guard; existing batch operations retain their own policy.
+    """
+    return (path.suffix.lower() == ".mov" and
+            any(item.suffix.lower() == ".otio" for item in path.parent.iterdir()))
+
+
+def initial_single_identity(path: Path, policy: str, *,
+                            protect_otio_references: bool = False):
     if policy not in ("error", "overwrite"):
         raise ValueError("Unsupported output conflict policy")
     if _recovery_paths(path):
@@ -81,6 +92,8 @@ def initial_single_identity(path: Path, policy: str):
     if _has_sibling_file(path):
         raise ValueError("Output name belongs to a MOV/OTIO pair; choose another name")
     prior = _identity(path)
+    if prior is not None and protect_otio_references and _other_otio_may_reference(path):
+        raise ValueError("Another OTIO may reference this MOV; choose another output name")
     if prior is None and policy == "overwrite":
         raise ValueError("No existing file to overwrite")
     if prior is not None and policy == "error":
@@ -88,7 +101,7 @@ def initial_single_identity(path: Path, policy: str):
     return prior
 
 
-def single_destination(path: Path) -> dict:
+def single_destination(path: Path, *, protect_otio_references: bool = False) -> dict:
     if _recovery_paths(path):
         return {"state": "recovery_required"}
     if _has_sibling_file(path):
@@ -96,6 +109,8 @@ def single_destination(path: Path) -> dict:
     try:
         existing = _identity(path)
     except ValueError:
+        return {"state": "unsafe"}
+    if existing is not None and protect_otio_references and _other_otio_may_reference(path):
         return {"state": "unsafe"}
     return {"state": "complete" if existing is not None else "available"}
 
@@ -107,18 +122,26 @@ def solo_destination_info(folder: Path, basename: str) -> dict:
     it could reference. The alternate is advisory; publication rechecks.
     """
     validate_media_basename(basename)
-    state = single_destination(folder / (basename + ".mov"))["state"]
+    from tachie_motion.web.batch_publish import recovery_directories
+    # Recovery blocks the entire folder: no alternate basename can work.
+    if recovery_directories(folder):
+        return {"state": "recovery_required", "suggested_basename": "",
+                "folder_recovery_required": True}
+    state = single_destination(folder / (basename + ".mov"),
+                               protect_otio_references=True)["state"]
     if state == "available":
         return {"state": state, "suggested_basename": basename}
     for number in range(2, 10002):
         suffix = f"_{number:03d}"
         candidate = basename[:64 - len(suffix)] + suffix
-        if single_destination(folder / (candidate + ".mov"))["state"] == "available":
+        if single_destination(folder / (candidate + ".mov"),
+                              protect_otio_references=True)["state"] == "available":
             return {"state": state, "suggested_basename": candidate}
     raise ValueError("No unused output name available")
 
 
-def publish_single(staged: Path, target: Path, *, policy: str, prior) -> str | None:
+def publish_single(staged: Path, target: Path, *, policy: str, prior,
+                   protect_otio_references: bool = False) -> str | None:
     """Exclusive creation for fresh files, hardlink-backed rollback for overwrite."""
     if _recovery_paths(target):
         raise RuntimeError("Previous export needs recovery: " +
@@ -127,6 +150,8 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior) -> str | N
         raise ValueError("Output is paired with another file; refusing single-file overwrite")
     if _identity(target) != prior:
         raise FileExistsError("Output changed while rendering; nothing published")
+    if prior is not None and protect_otio_references and _other_otio_may_reference(target):
+        raise ValueError("Another OTIO appeared before publication; MOV was not overwritten")
     if prior is None:
         if policy != "error":
             raise ValueError("No existing output was approved for overwrite")
@@ -147,11 +172,15 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior) -> str | N
         os.link(target, saved)
         if _identity(target) != prior:
             raise FileExistsError("Output changed before overwrite")
+        if protect_otio_references and _other_otio_may_reference(target):
+            raise ValueError("Another OTIO appeared during export; MOV was not overwritten")
         os.rename(target, removed)
         moved = True
         if _identity(removed) != prior:
             unexpected = True
             raise FileExistsError("Concurrent target change; original preserved")
+        if protect_otio_references and _other_otio_may_reference(target):
+            raise ValueError("Another OTIO appeared during publication; restoring original MOV")
         os.link(staged, target)  # exclusive; never clobber a competing file
         published = True
     except BaseException:
