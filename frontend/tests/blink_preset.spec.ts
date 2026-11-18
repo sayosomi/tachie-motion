@@ -97,7 +97,8 @@ test("normal layers edit the resting eye independently of the blink state", asyn
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "固定レイヤー" }).click();
   await expect(entry(page, "0/1/0").getByRole("radio")).toBeChecked();
-  await entry(page, "0/1/1").getByRole("radio").check();
+  await entry(page, "0/1/1").click({ position: { x: 2, y: 2 } });
+  await expect(entry(page, "0/1/1").getByRole("radio")).toBeChecked();
   await expect(entry(page, "0/1/0").getByRole("radio")).not.toBeChecked();
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "可動レイヤー" }).click();

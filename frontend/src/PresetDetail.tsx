@@ -392,6 +392,10 @@ export default function PresetDetail({
               else if (roleMode === "open") onOpenShapeChange("opened", layer.path, visible);
               else onAiueoChoiceChange(aiueoKey, layer.path, visible);
             };
+            const selectRowVisibility = () => {
+              if (isGroup || choice === "fixed") return;
+              applyVisibility(choice === "radio" ? true : !(editingBase ? on : effective));
+            };
             return <div key={layer.path} data-layer-path={layer.path}
               data-aiueo-role={area === "motion" && motionKind === "mouth" &&
                 roleMode === "aiueo" && !isGroup && !editingBase ? role : undefined}
@@ -404,11 +408,9 @@ export default function PresetDetail({
               style={{ paddingLeft: 10 + layerDepth(layer.path) * 13 }}
               onClick={(event) => {
                 // Native controls and the layer-name button handle their own click.
-                // Blank row space must also edit the movable pose exactly once.
+                // Blank row space edits fixed and movable layers exactly once.
                 if ((event.target as HTMLElement).closest("button, input")) return;
-                if (area === "motion" && !isGroup && choice !== "fixed") {
-                  applyVisibility(choice === "radio" ? true : !effective);
-                }
+                selectRowVisibility();
                 setSelectedPath((previous) =>
                   previous === layer.path ? null : layer.path);
               }}>
@@ -437,11 +439,10 @@ export default function PresetDetail({
                 <button type="button" className="preset-layer-select"
                   aria-pressed={selectedPath === layer.path}
                   aria-label={layer.name + " [" + layer.path + "] " +
-                    (area === "motion" && !isGroup && choice !== "fixed"
+                    (!isGroup && choice !== "fixed"
                       ? "を選択・切替" : "を選択")}
                   onClick={() => {
-                    if (area === "motion" && !isGroup && choice !== "fixed")
-                      applyVisibility(choice === "radio" ? true : !effective);
+                    selectRowVisibility();
                     setSelectedPath((previous) =>
                       previous === layer.path ? null : layer.path);
                   }}>

@@ -27,28 +27,28 @@ async function openDetail(page: import("@playwright/test").Page) {
   return () => previewRequests;
 }
 
-test("PSD name selection uses unique paths without toggling base or Open roles", async ({ page }) => {
-  const previewRequestCount = await openDetail(page);
-  const secondName = page.getByRole("button", { name: "目 [0/1] を選択" });
-  const firstName = page.getByRole("button", { name: "目 [0/0] を選択" });
+test("PSD fixed layer row, name and keyboard selection edit visibility while preserving focus", async ({ page }) => {
+  await openDetail(page);
+  const secondRow = page.locator('.preset-layer[data-layer-path="0/1"]');
+  const secondName = page.getByRole("button", { name: "目 [0/1] を選択・切替" });
+  const firstName = page.getByRole("button", { name: "目 [0/0] を選択・切替" });
   const secondCheckbox = page.getByRole("checkbox", { name: "目 [0/1] 固定" });
-
+  const firstCheckbox = page.getByRole("checkbox", { name: "目 [0/0] 固定" });
 
   await expect(page.getByRole("button", { name: "選択位置へ" })).toBeDisabled();
-  const originalSaved = await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"));
-  expect(originalSaved).not.toBeNull();
-  const previousCalls = previewRequestCount();
+  await secondRow.click({ position: { x: 2, y: 2 } });
+  await expect(secondCheckbox).toBeChecked();
+  await expect(secondRow).toHaveAttribute("data-selected", "true");
+  await secondRow.click({ position: { x: 2, y: 2 } });
+  await expect(secondCheckbox).not.toBeChecked();
   await secondName.click();
   await expect(secondName).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator('.preset-layer[data-layer-path="0/1"]')).toHaveAttribute("data-selected", "true");
-  await expect(secondCheckbox).not.toBeChecked();
-
+  await expect(secondCheckbox).toBeChecked();
   await expect(page.locator(".preset-selected-summary")).toContainText("目 [0/1]");
   await expect(page.locator(".preset-image-selection")).toHaveCount(0);
-  expect(previewRequestCount()).toBe(previousCalls);
-  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v1"))).toBe(originalSaved);
 
   await firstName.click();
+  await expect(firstCheckbox).not.toBeChecked();
   await expect(firstName).toHaveAttribute("aria-pressed", "true");
   await expect(secondName).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(".preset-selected-summary")).toContainText("目 [0/0]");
@@ -77,15 +77,15 @@ test("PSD name selection uses unique paths without toggling base or Open roles",
   await secondCheckbox.check();
   await expect(secondName).toHaveAttribute("aria-pressed", "true");
 
-
   await secondName.click();
+  await expect(secondCheckbox).not.toBeChecked();
   await expect(page.locator(".preset-image-selection")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "選択位置へ" })).toBeDisabled();
 });
 
 test("empty bounding boxes disable focus; selection never persists", async ({ page }) => {
   await openDetail(page);
-  await page.getByRole("button", { name: "範囲なし [1] を選択" }).click();
+  await page.getByRole("button", { name: "範囲なし [1] を選択・切替" }).click();
   await expect(page.locator(".preset-selected-summary")).toContainText("位置情報なし");
   await expect(page.locator(".preset-image-selection")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "選択位置へ" })).toBeDisabled();
@@ -120,7 +120,7 @@ test("tall PSD selection zooms to the layer without drawing an outline", async (
   await page.getByRole("button", { name: "詳細を編集" }).click();
   const image = page.locator(".preset-image-viewport img");
   await expect(image).toBeVisible();
-  await page.getByRole("button", { name: "口 [0/0] を選択" }).click();
+  await page.getByRole("button", { name: "口 [0/0] を選択・切替" }).click();
   await expect(page.getByRole("button", { name: "選択位置へ" })).toBeEnabled();
   await expect(page.locator(".preset-image-selection")).toHaveCount(0);
   await page.getByRole("button", { name: "選択位置へ" }).click();
