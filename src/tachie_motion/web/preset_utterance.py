@@ -280,8 +280,8 @@ def export_preset_utterance(
             if not committed:
                 raise
             cleanup_warning = (
-                ("MOV and OTIO" if otio is not None else "MOV")
-                + " was saved, but temporary render files could not "
+                ("MOV and OTIO were" if otio is not None else "MOV was")
+                + " saved, but temporary render files could not "
                 "be fully removed: " + work.name
             )
     result = {"mov": str(mov), "frames": report.frames,
