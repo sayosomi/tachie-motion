@@ -61,8 +61,11 @@ test("new preset-backed none/open utterance workflow sends exact preset snapshot
   await page.getByRole("button", { name: "WAVを確認" }).click();
   await expect(page.locator(".utterance-item").first()).toContainText("1.00秒 ／ 1000Hz");
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect(page.getByRole("status")).toContainText("書き出し完了");
+  await expect(page.getByLabel("出力予定ファイル")).toContainText("speech_001.mov");
+  await expect(page.getByLabel("出力予定ファイル")).not.toContainText(".otio");
+  await expect(page.locator(".utterance-export-panel .success")).not.toContainText("OTIO:");
   expect(payloads).toHaveLength(1);
   expect(payloads[0]).toMatchObject({
     psd: "/tmp/character.psd", wav: "/tmp/voice.wav",
@@ -75,7 +78,7 @@ test("new preset-backed none/open utterance workflow sends exact preset snapshot
   });
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("none");
   await expect(page.getByRole("status")).toHaveCount(0);
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   expect(payloads[1]).toMatchObject({ mode: "none" });
 });
 
@@ -90,7 +93,7 @@ test("stale PSD and missing mouth mappings block export", async ({ page }) => {
   await page.locator("#speech-wav-path").fill("/tmp/voice.wav");
   await page.getByRole("button", { name: "WAVを確認" }).click();
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeDisabled();
   await expect(page.locator(".utterance-export-panel").getByText("開いた口のレイヤーを明示選択", { exact: false })).toBeVisible();
 
   await page.route("**/api/psd", (route) => route.fulfill({ json: {
@@ -99,11 +102,11 @@ test("stale PSD and missing mouth mappings block export", async ({ page }) => {
   await page.reload();
   await page.getByRole("button", { name: "セリフ", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("PSDが変更");
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeDisabled();
 });
 
 
-test("existing MOV and OTIO offer overwrite by default and an editable separate filename", async ({ page }) => {
+test("existing single MOV offers overwrite by default and an editable separate filename", async ({ page }) => {
   await mockPsd(page);
   const requests: Record<string, unknown>[] = [];
   let existing = true;
@@ -131,7 +134,7 @@ test("existing MOV and OTIO offer overwrite by default and an editable separate 
     { (el as HTMLDetailsElement).open = true; });
   await page.locator("#speech-wav-path").fill("/tmp/voice.wav");
   await page.getByRole("button", { name: "WAVを確認" }).click();
-  await expect(page.getByText("同名のMOV・OTIOがあります")).toBeVisible();
+  await expect(page.getByText("同名のMOVがあります")).toBeVisible();
   await expect(page.getByRole("radio", { name: "上書きする" })).toBeChecked();
   await page.getByRole("button", { name: "上書きして書き出す" }).click();
   await expect(page.getByRole("status")).toContainText("書き出し完了");
@@ -151,12 +154,12 @@ test("existing MOV and OTIO offer overwrite by default and an editable separate 
   existing = false;
 });
 
-test("half-existing output forbids overwrite and requires a new name", async ({ page }) => {
+test("same-stem legacy OTIO forbids MOV overwrite and requires a new name", async ({ page }) => {
   await mockPsd(page);
   const requests: Record<string, unknown>[] = [];
   await page.route("**/api/preset-utterance-destination", route =>
     route.fulfill({ json: {
-      state: "partial", suggested_basename: "speech_001_002",
+      state: "unsafe", suggested_basename: "speech_001_002",
     } }));
   await page.route("**/api/preset-utterance-export", route => {
     requests.push(route.request().postDataJSON());
@@ -244,7 +247,7 @@ test("one WAV sends identical open-mouth render settings through single and all 
   await expect(page.locator("[data-utterance-id]").nth(1)
     .locator(".utterance-row-mode select")).toHaveValue("open");
 
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect(page.getByText("書き出し完了・30フレーム")).toBeVisible();
   await page.getByRole("radio", { name: /^全件/ }).check();
   await expect(page.getByText("口パク「なし」が", { exact: false })).toHaveCount(0);
@@ -295,8 +298,8 @@ test("a fixed-expression preset exports none even when the WAV row selects open"
   await page.locator("#speech-wav-path").fill("/tmp/voice.wav");
   await page.getByRole("button", { name: "WAVを確認" }).click();
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeEnabled();
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeEnabled();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   expect(exports).toHaveLength(1);
   expect(exports[0]).toMatchObject({ mode: "none", mouth: null, blink_enabled: false });
 });
