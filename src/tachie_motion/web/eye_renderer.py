@@ -78,7 +78,25 @@ def validate_closed_eye(
     if not any(selected.values()):
         raise ValueError("Blink requires an explicitly selected closed eye")
 
-    closed = {**base, **dict.fromkeys(editable, False), **selected}
+    # PSDTool * radio siblings can mix pixel leaves and groups. Choosing an
+    # explicit eye leaf must also hide a starred sibling group in the same
+    # assigned eye area, without changing the resting fixed group selection.
+    # Never hide starred groups outside the explicitly assigned eye groups.
+    selected_radio_parents = {
+        path[:-1] for path, visible in selected.items()
+        if visible and source[path].name.startswith("*")
+    }
+    radio_groups_to_hide = {
+        item.index_path for item in summaries
+        if item.kind == "group" and item.name.startswith("*")
+        and item.index_path[:-1] in selected_radio_parents
+        and any(item.index_path[:len(group)] == group
+                and len(item.index_path) > len(group) for group in eye_paths)
+    }
+    closed = {
+        **base, **dict.fromkeys(editable, False),
+        **dict.fromkeys(radio_groups_to_hide, False), **selected,
+    }
     validate_psdtool_state(summaries, closed, "eye closed pose")
     return closed
 
