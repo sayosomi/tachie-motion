@@ -1,5 +1,6 @@
 import type { Layer } from "./LayerTree";
 import type { MotionGroups } from "./motionGroups";
+import type { BlinkTiming } from "./blinkTiming";
 import { applyChoice, choiceChanges, initialChoiceVisibility } from "./psdChoice";
 
 export type Visibility = { path: string; visible: boolean };
@@ -20,6 +21,8 @@ export type Presets = {
   defaultId: string | null;
   /** PSD source-group bindings shared by all presets of one character. */
   motionGroups?: MotionGroups;
+  /** Character-wide blink timing, absent until explicitly saved. */
+  blinkTiming?: BlinkTiming;
 };
 
 export function createPreset(name: string, layers: Layer[]): UnifiedPreset {
