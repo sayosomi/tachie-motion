@@ -202,6 +202,8 @@ test("clearing eyes with stored opened pose roundtrips draft, character v2 and p
 
   await page.reload();
   await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
+  // The ?preset=<id> route restores the detail page, not the preset list.
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
   await expect(page.locator("[data-preset-id]")).toHaveCount(1);
   await page.getByRole("button", { name: "JSONを保存", exact: true }).click();
   await expect(page.locator(".profile-status")).toContainText("JSONを保存しました");
