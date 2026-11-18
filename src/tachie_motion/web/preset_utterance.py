@@ -121,6 +121,7 @@ def export_preset_utterance(
     mouth_groups: list[str] | None = None, lab_source_identity: str | None = None,
     eyes: dict | None = None, eye_groups: list[str] | None = None,
     blink_timing: dict | None = None,
+    protect_otio_references: bool = False,
 ):
     """Generate a preset-backed PCM MOV with optional OTIO for callers that need it.
 
@@ -153,7 +154,9 @@ def export_preset_utterance(
             raise ValueError('Invalid registered WAV identity')
         verify_wav_source(wav, source_identity)
     prior = (initial_target_identity(mov, otio, conflict_policy)
-             if otio is not None else initial_single_identity(mov, conflict_policy))
+             if otio is not None else initial_single_identity(
+                 mov, conflict_policy,
+                 protect_otio_references=protect_otio_references))
 
     psd, base = validated_snapshot(psd_path, fingerprint, layers)
     closed_eye = (validate_closed_eye(psd, base, eyes, eye_groups, mouth_groups)
@@ -271,6 +274,7 @@ def export_preset_utterance(
                 verify_export_lab(wav, source_identity, intervals, lab_identity)
             warning = publish_single(
                 pcm_mov, mov, policy=conflict_policy, prior=prior,
+                protect_otio_references=protect_otio_references,
             )
         committed = True
     finally:
