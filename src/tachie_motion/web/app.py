@@ -17,7 +17,7 @@ from tachie_motion.web.browser_preview_assets import layer_preview_assets, previ
 from tachie_motion.web.preset_preview import preview_base_preset
 from tachie_motion.web.preset_utterance import export_preset_utterance
 from tachie_motion.web.output_destinations import destination_info, validate_basename
-from tachie_motion.web.solo_output import validate_media_basename, single_destination
+from tachie_motion.web.solo_output import validate_media_basename, single_destination, solo_destination_info
 from tachie_motion.web.combined_otio import create_combined_otio
 from tachie_motion.web.batch_session import BatchCoordinator, validate_names, has_foreign_otio
 from tachie_motion.web.batch_publish import require_batch_recovery_clear
@@ -295,7 +295,7 @@ def preset_utterance_destination(payload: DestinationRequest):
             raise ValueError("Output folder must already exist")
         canonical = folder.resolve(strict=True)
         return {
-            **destination_info(canonical, payload.basename),
+            **solo_destination_info(canonical, payload.basename),
             "canonical_output_dir": str(canonical),
         }
     except (ValueError, OSError, RuntimeError, TypeError) as exc:
@@ -329,7 +329,7 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
                 eye_groups=payload.eye_groups, blink_timing=payload.blink_timing,
                 conflict_policy=payload.conflict_policy,
                 mov=folder / (payload.basename + ".mov"),
-                otio=folder / (payload.basename + ".otio"),
+                otio=None,  # Single utterance exports only PCM-in-MOV.
                 fps=payload.fps, source_identity=payload.source_identity,
             )
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
