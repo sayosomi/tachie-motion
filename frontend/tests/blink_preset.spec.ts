@@ -436,7 +436,9 @@ const initialTiming = {
 /** Reproduce a tab switch while the Presets view is still validating PSD.
  * The Speech view must handle the missing timing independently.
  */
-async function switchSpeechDuringHeldPresetRestore(page: Page, failSpeechWrite: boolean) {
+async function switchSpeechDuringHeldPresetRestore(
+  page: Page, failSpeechWrite: boolean, duringSpeechValidation?: () => Promise<void>,
+) {
   await openEditor(page);
   await setEyeGroup(page);
   await entry(page, "0/1/1").getByRole("radio").check();
@@ -461,12 +463,19 @@ async function switchSpeechDuringHeldPresetRestore(page: Page, failSpeechWrite: 
   const holdFirst = new Promise<void>((resolve) => { releaseFirst = resolve; });
   let firstSeen!: () => void;
   const firstRequested = new Promise<void>((resolve) => { firstSeen = resolve; });
+  let releaseSpeech!: () => void;
+  const holdSpeech = new Promise<void>((resolve) => { releaseSpeech = resolve; });
+  let speechSeen!: () => void;
+  const speechRequested = new Promise<void>((resolve) => { speechSeen = resolve; });
   let requestCount = 0;
   await page.route("**/api/psd", async (route) => {
     requestCount += 1;
     if (requestCount === 1) {
       firstSeen();
       await holdFirst;
+    } else if (requestCount === 2) {
+      speechSeen();
+      await holdSpeech;
     }
     // The first browser request may already be aborted by tab unmount.
     try {
@@ -488,6 +497,13 @@ async function switchSpeechDuringHeldPresetRestore(page: Page, failSpeechWrite: 
   await firstRequested;
   await page.getByRole("button", { name: "セリフ", exact: true }).click();
   releaseFirst();
+  if (duringSpeechValidation) {
+    await speechRequested;
+    try { await duringSpeechValidation(); }
+    finally { releaseSpeech(); }
+  } else {
+    releaseSpeech();
+  }
   await expect(page.getByRole("heading", { name: "セリフ" })).toBeVisible();
 }
 
@@ -511,6 +527,7 @@ test("Speech restore write failure preserves the old draft and blocks export", a
   });
   await expect(page.getByRole("button", { name: "WAVを確認" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+  await expect(page.locator(".project-controls").getByRole("button", { name: "JSONを保存" })).toBeDisabled();
 });
 
 test("new PSD initialization write failure leaves no phantom saved timing", async ({ page }) => {
