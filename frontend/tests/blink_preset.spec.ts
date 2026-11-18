@@ -404,7 +404,7 @@ test("existing same-source browser draft without blink timing is durably initial
   });
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "可動レイヤー" }).click();
-  await selectEye(page);
+  await enableEye(page);
   await expect(page.getByRole("spinbutton", { name: "間隔（秒）" })).toHaveValue("3");
 });
 
