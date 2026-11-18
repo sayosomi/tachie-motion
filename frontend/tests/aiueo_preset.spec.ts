@@ -131,7 +131,8 @@ test("unconfigured Open and aiueo poses keep base preview and enable zoom before
   await expect(page.locator('output[aria-label="プレビュー倍率"]')).toHaveText("8×");
 
   await page.getByRole("button", { name: "全体表示" }).click();
-  await layer(page, "0/1/0").getByRole("button", { name: /を選択/ }).click();
+  // Group-name selection still previews location without changing mouth state.
+  await layer(page, "0/1").getByRole("button", { name: /を選択/ }).click();
   await expect(selectedZoom).toBeEnabled();
   await selectedZoom.click();
   await expect(image).toHaveAttribute("style", /scale\(8\)/);
