@@ -7,7 +7,7 @@ import { AIUEO_KEYS, AIUEO_LABELS, aiueoLayerRole, openLayerRole } from "./prese
 import PresetImagePreview from "./PresetImagePreview";
 import MotionGroupSelector from "./MotionGroupSelector";
 import { isMouthLayer } from "./motionGroups";
-import { psdChoiceKind, psdParentPath } from "./psdChoice";
+import { psdChoiceKind, psdParentPath, derivedEyeRadioGroupHides } from "./psdChoice";
 import { PreviewSourceChangedError, type BrowserPreviewRenderer } from "./useBrowserPreview";
 
 type Props = {
@@ -158,12 +158,15 @@ export default function PresetDetail({
         || sourceChanged || previewLoading) return;
     const abort = new AbortController();
     const overrides = new Map((shape ?? []).map((item) => [item.path, item.visible]));
+    const closedRadioGroups = motionKind === "eyes"
+      ? derivedEyeRadioGroupHides(layers, shape, selectedGroups) : new Set<string>();
     const editable = new Set(layers.filter((layer) => layer.kind !== "group"
       && !layer.name.startsWith("!")
       && isMouthLayer(layer.path, selectedGroups)).map((layer) => layer.path));
     const states = preset.base.map((layer) => ({
       path: layer.path,
-      visible: editable.has(layer.path) ? (overrides.get(layer.path) === true) : layer.visible,
+      visible: closedRadioGroups.has(layer.path) ? false
+        : editable.has(layer.path) ? (overrides.get(layer.path) === true) : layer.visible,
     }));
     const legacy = () => {
       void (async () => {
