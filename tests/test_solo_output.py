@@ -98,6 +98,26 @@ class SoloOtioProtectionTests(unittest.TestCase):
         self.assertEqual(timeline.read_bytes(), b"ADDED DURING PUBLICATION")
         self.assertFalse((self.folder / ".speech.mov.single-backup").exists())
 
+    def test_foreign_otio_appearing_at_new_mov_link_rolls_back(self):
+        self.mov.write_bytes(b"OLD MOV")
+        prior = initial_single_identity(self.mov, "overwrite", protect_otio_references=True)
+        timeline = self.folder / "project.otio"
+        link = os.link
+
+        def inject(source, destination):
+            result = link(source, destination)
+            if Path(source) == self.stage and Path(destination) == self.mov:
+                timeline.write_bytes(b"ADDED AT FINAL LINK")
+            return result
+
+        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject):
+            with self.assertRaisesRegex(ValueError, "Another OTIO"):
+                publish_single(self.stage, self.mov, policy="overwrite", prior=prior,
+                               protect_otio_references=True)
+        self.assertEqual(self.mov.read_bytes(), b"OLD MOV")
+        self.assertEqual(timeline.read_bytes(), b"ADDED AT FINAL LINK")
+        self.assertFalse((self.folder / ".speech.mov.single-backup").exists())
+
     def test_batch_recovery_returns_diagnostic_without_candidate_scan(self):
         recovery = self.folder / ".tachie-batch-recovery-test"
         recovery.mkdir()
