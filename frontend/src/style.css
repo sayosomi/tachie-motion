@@ -175,6 +175,10 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   background:#25455b; box-shadow:inset 3px 0 #91dbcb;
 }
 .preset-layer-name { flex:1; min-width:0; overflow-wrap:anywhere; }
+.preset-editor[data-edit-area="motion"] .preset-layer:not(.group) { cursor:pointer; }
+.preset-editor[data-edit-area="motion"] .preset-layer:not(.group):not([data-selected="true"]):hover {
+  background:#20384a;
+}
 .preset-inherit-base { display:flex; gap:9px; align-items:center; margin:10px 0 8px;
   cursor:pointer; font-size:13px; font-weight:600; }
 .preset-inherit-base input { width:19px; height:19px; flex:0 0 19px;

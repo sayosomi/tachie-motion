@@ -401,7 +401,17 @@ export default function PresetDetail({
                 !isGroup && !editingBase ? role : undefined}
               data-selected={selectedPath === layer.path ? "true" : "false"}
               className={"layer preset-layer " + (isGroup ? "group" : "")}
-              style={{ paddingLeft: 10 + layerDepth(layer.path) * 13 }}>
+              style={{ paddingLeft: 10 + layerDepth(layer.path) * 13 }}
+              onClick={(event) => {
+                // Native controls and the layer-name button handle their own click.
+                // Blank row space must also edit the movable pose exactly once.
+                if ((event.target as HTMLElement).closest("button, input")) return;
+                if (area === "motion" && !isGroup && choice !== "fixed") {
+                  applyVisibility(choice === "radio" ? true : !effective);
+                }
+                setSelectedPath((previous) =>
+                  previous === layer.path ? null : layer.path);
+              }}>
               {isGroup && <button className="group-toggle preset-expand" type="button"
                 aria-expanded={expanded.includes(layer.path)}
                 aria-label={layer.name + " [" + layer.path + "] を" +

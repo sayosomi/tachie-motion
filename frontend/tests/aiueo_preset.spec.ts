@@ -53,6 +53,13 @@ test("movable row selection edits a mouth shape and explicit n rest survives rel
   await chooseMouthGroups(page);
   await page.getByRole("group", { name: "口の方式" })
     .getByRole("button", { name: "aiueo" }).click();
+  // Click the row's blank left padding, not the input or the name button.
+  await layer(page, "0/1/0").click({ position: { x: 2, y: 2 } });
+  await expect(checkbox(page, "0/1/0")).toBeChecked();
+  // The native checkbox must not bubble into a second row toggle.
+  await checkbox(page, "0/1/0").uncheck();
+  await expect(checkbox(page, "0/1/0")).not.toBeChecked();
+  // The name button remains an independent, keyboard-accessible way to edit.
   await layer(page, "0/1/0").getByRole("button", { name: /を選択/ }).click();
   await expect(checkbox(page, "0/1/0")).toBeChecked();
   let saved = JSON.parse((await page.evaluate(() =>
