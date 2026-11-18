@@ -8,7 +8,7 @@ from pathlib import Path
 import tempfile
 
 from tachie_motion.animation.blink import (
-    schedule_blink_frames, compose_mouth_eye_indices,
+    schedule_random_blink_frames, compose_mouth_eye_indices,
 )
 from tachie_motion.audio.volume import analyze_wav
 from tachie_motion.web.aiueo_renderer import (
@@ -124,7 +124,7 @@ def export_preset_utterance(
 ):
     """Generate one preset-backed PCM-in-MOV and synchronized OTIO.
 
-    Supports none/open/aiueo, optionally with deterministic blink settings.
+    Supports none/open/aiueo, with fresh blink timing variation per export.
     Timeline change points and multiple character tracks remain excluded.
     """
     if mode not in ("none", "open", "aiueo"):
@@ -185,7 +185,7 @@ def export_preset_utterance(
     if len(indices) != len(schedule.frames):
         raise ValueError("LAB video frame count disagrees with WAV timing")
     if closed_eye is not None:
-        blink_frames = schedule_blink_frames(
+        blink_frames = schedule_random_blink_frames(
             frame_count=len(indices), **blink_timing,
         )
     work = tempfile.TemporaryDirectory(prefix=".tachie-preset-", dir=mov.parent)
