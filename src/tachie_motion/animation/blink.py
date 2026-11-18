@@ -1,10 +1,11 @@
-"""Deterministic closed-eye frame scheduling, independent of PSD and WAV I/O.
+"""Closed-eye frame scheduling, independent of PSD and WAV I/O.
 
-All durations and offsets are explicit integer frame counts. No user-facing
-defaults are defined here: those are a separate, pending product decision.
+The pure scheduler stays deterministic for tests and exact frame bounds.
+Each MOV export uses fresh OS-backed randomness for a different blink pattern.
 """
 
 from hashlib import sha256
+import secrets
 
 
 def _jitter_offset(seed: int, event_index: int, width: int) -> int:
@@ -52,6 +53,40 @@ def schedule_blink_frames(
         start += interval_frames + _jitter_offset(seed, event, jitter_frames)
         event += 1
     return tuple(closed)
+
+
+def schedule_random_blink_frames(
+    *,
+    frame_count: int,
+    interval_frames: int,
+    closed_frames: int,
+    jitter_frames: int,
+    phase_frames: int,
+    seed: int,
+) -> tuple[bool, ...]:
+    """Schedule one MOV with fresh random timing (not stable across exports).
+
+    Keep the existing integer timing validation, then draw a new seed for
+    inter-blink variations and independently vary the first blink around the
+    configured phase by +/- the jitter width. An explicit zero jitter disables
+    both variations. The saved seed is kept only for existing JSON/API shape.
+    """
+    # The scheduler is the source of truth for all safety constraints.
+    # A zero-frame call validates parameters without generating a sequence.
+    schedule_blink_frames(
+        frame_count=0, interval_frames=interval_frames,
+        closed_frames=closed_frames, jitter_frames=jitter_frames,
+        phase_frames=phase_frames, seed=seed,
+    )
+    phase_shift = (secrets.randbelow(2 * jitter_frames + 1) - jitter_frames
+                   if jitter_frames else 0)
+    return schedule_blink_frames(
+        frame_count=frame_count,
+        interval_frames=interval_frames, closed_frames=closed_frames,
+        jitter_frames=jitter_frames,
+        phase_frames=max(0, phase_frames + phase_shift),
+        seed=secrets.randbits(64),
+    )
 
 
 def compose_mouth_eye_indices(

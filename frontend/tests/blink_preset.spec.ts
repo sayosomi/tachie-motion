@@ -217,8 +217,9 @@ test("saved blink defaults are shown on first load and custom edits survive relo
   await expect(page.getByRole("spinbutton", { name: "間隔（秒）" })).toHaveValue("3");
   await expect(page.getByRole("spinbutton", { name: "閉眼時間（秒）" })).toHaveValue("0.12");
   await expect(page.getByRole("spinbutton", { name: "間隔の揺らぎ（±秒）" })).toHaveValue("0.5");
-  await expect(page.getByRole("spinbutton", { name: "最初の瞬きまで（秒）" })).toHaveValue("0.7");
-  await expect(page.getByRole("spinbutton", { name: "再現用シード（整数）" })).toHaveValue("0");
+  await expect(page.getByRole("spinbutton", { name: "最初の瞬きの目安（秒）" })).toHaveValue("0.7");
+  await expect(page.getByRole("spinbutton", { name: "再現用シード（整数）" })).toHaveCount(0);
+  await expect(page.getByText("同じWAVの再書き出しでも瞬きは変わります。", { exact: false })).toBeVisible();
   expect((await saved(page)).collection.blinkTiming).toEqual({
     intervalMs: 3000, closedMs: 120, jitterMs: 500, phaseMs: 700, seed: 0,
   });
@@ -227,8 +228,7 @@ test("saved blink defaults are shown on first load and custom edits survive relo
   await page.getByRole("spinbutton", { name: "間隔（秒）" }).fill("5");
   await page.getByRole("spinbutton", { name: "閉眼時間（秒）" }).fill("0.1");
   await page.getByRole("spinbutton", { name: "間隔の揺らぎ（±秒）" }).fill("6");
-  await page.getByRole("spinbutton", { name: "最初の瞬きまで（秒）" }).fill("1");
-  await page.getByRole("spinbutton", { name: "再現用シード（整数）" }).fill("1234");
+  await page.getByRole("spinbutton", { name: "最初の瞬きの目安（秒）" }).fill("1");
   await page.getByRole("button", { name: "瞬き時間を保存" }).click();
   await expect(page.getByRole("status").filter({ hasText: "数値が不正" })).toBeVisible();
 
@@ -236,7 +236,7 @@ test("saved blink defaults are shown on first load and custom edits survive relo
   await page.getByRole("button", { name: "瞬き時間を保存" }).click();
   await expect(page.getByRole("status").filter({ hasText: "保存しました" })).toBeVisible();
   expect((await saved(page)).collection.blinkTiming).toEqual({
-    intervalMs: 5000, closedMs: 100, jitterMs: 1000, phaseMs: 1000, seed: 1234,
+    intervalMs: 5000, closedMs: 100, jitterMs: 1000, phaseMs: 1000, seed: 0,
   });
 
   await page.reload();
@@ -245,7 +245,7 @@ test("saved blink defaults are shown on first load and custom edits survive relo
     .getByRole("button", { name: "可動レイヤー" }).click();
   await selectEye(page);
   await expect(page.getByRole("spinbutton", { name: "間隔（秒）" })).toHaveValue("5");
-  await expect(page.getByRole("spinbutton", { name: "再現用シード（整数）" })).toHaveValue("1234");
+  await expect(page.getByRole("spinbutton", { name: "再現用シード（整数）" })).toHaveCount(0);
 });
 
 

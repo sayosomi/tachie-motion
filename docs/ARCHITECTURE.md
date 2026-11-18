@@ -16,7 +16,7 @@ Status: architecture boundaries include both implemented and proposed features. 
 
 1. PSD source: enumerate original tree, order and visibility; create stable in-project identities even when duplicate names exist. No automatic semantic classification.
 2. Character profile: PSD reference, manual lip/eye bindings, presets, blink configuration, fixed canvas bounds, stable origin.
-3. Animation item: WAV or idle, independent initial presets, timestamped change points, lip mode, blink seed. No inheritance across items.
+3. Animation item: WAV or idle, independent initial presets, timestamped change points and lip mode. Blink timings are character-wide; the legacy seed field may remain in stored profiles but does not control exported MOVs. No inheritance across items.
 4. Pure evaluator: (item, time) -> effective layer visibility and transforms. Preset first; only explicitly bound eyes/mouth are overridden.
 5. Renderer: cache repeated combinations; composite transparent RGBA frames with consistent pixel/alpha/color treatment.
 6. Encoder: stream frames to FFmpeg; export alpha ProRes 4444 MOV. Decode/reinspect rendered output for verification.
@@ -43,7 +43,7 @@ Enforce the small-file review guidelines in [AGENTS.md](../AGENTS.md). Directory
 - Use integer samples, frame indices, or rational time representations to avoid floating-point drift.
 - Segment durations derived from WAV; rounded video frames must not push later audio out of sync.
 - Preserve stable media names and geometry on partial rerender.
-- Blink random state is derived from stored per-character/per-item seed and timing parameters.
+- Blink timing parameters (interval, closed duration, jitter and first-blink phase) are persisted per character. Each utterance MOV export draws fresh randomness for its first blink and subsequent intervals; the stored legacy seed is ignored. Re-exporting the same WAV need not reproduce its blink timing. The pure frame scheduler remains deterministic when given explicit parameters and seed, enabling exact automated tests.
 - Still frames or facial states may be cached; reference frame compositing must be deterministic.
 
 ## Initial proof-of-concept risks

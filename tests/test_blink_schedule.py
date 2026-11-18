@@ -1,9 +1,11 @@
 """Synthetic tests for the pure closed-eye frame scheduler (Issue #34)."""
 
 import unittest
+from unittest.mock import patch
 
 from tachie_motion.animation.blink import (
-    schedule_blink_frames, compose_mouth_eye_indices,
+    schedule_blink_frames, schedule_random_blink_frames,
+    compose_mouth_eye_indices,
 )
 
 
@@ -67,6 +69,42 @@ class BlinkScheduleTests(unittest.TestCase):
             self.schedule(frame_count=8, phase_frames=7),
             (False,) * 7 + (True,),
         )
+
+    def test_each_export_draws_fresh_seed_and_first_blink_offset(self):
+        params = dict(
+            frame_count=100, interval_frames=10,
+            closed_frames=2, jitter_frames=2,
+            phase_frames=4, seed=0,
+        )
+        with (patch("tachie_motion.animation.blink.secrets.randbits",
+                    side_effect=[101, 202]) as new_seed,
+              patch("tachie_motion.animation.blink.secrets.randbelow",
+                    side_effect=[0, 4]) as first_offset):
+            early = schedule_random_blink_frames(**params)
+            late = schedule_random_blink_frames(**params)
+        self.assertEqual(next(i for i, value in enumerate(early) if value), 2)
+        self.assertEqual(next(i for i, value in enumerate(late) if value), 6)
+        self.assertNotEqual(early, late)
+        self.assertEqual(new_seed.call_count, 2)
+        self.assertEqual(first_offset.call_count, 2)
+
+    def test_zero_jitter_disables_variation_and_invalid_settings_still_fail(self):
+        params = dict(
+            frame_count=90, interval_frames=30,
+            closed_frames=3, jitter_frames=0,
+            phase_frames=7, seed=0,
+        )
+        with (patch("tachie_motion.animation.blink.secrets.randbits",
+                    return_value=999) as new_seed,
+              patch("tachie_motion.animation.blink.secrets.randbelow") as offset):
+            actual = schedule_random_blink_frames(**params)
+        self.assertEqual(actual, schedule_blink_frames(**params))
+        new_seed.assert_called_once_with(64)
+        offset.assert_not_called()
+        with patch("tachie_motion.animation.blink.secrets.randbits") as new_seed:
+            with self.assertRaises(ValueError):
+                schedule_random_blink_frames(**{**params, "closed_frames": 30})
+            new_seed.assert_not_called()
 
     def test_combined_indices_cover_none_open_and_aiueo(self):
         self.assertEqual(
