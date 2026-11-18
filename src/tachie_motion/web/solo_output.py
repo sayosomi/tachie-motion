@@ -100,6 +100,24 @@ def single_destination(path: Path) -> dict:
     return {"state": "complete" if existing is not None else "available"}
 
 
+def solo_destination_info(folder: Path, basename: str) -> dict:
+    """Preflight one PCM MOV and offer a safe alternate basename.
+
+    A same-stem OTIO is left untouched and protects any existing MOV that
+    it could reference. The alternate is advisory; publication rechecks.
+    """
+    validate_media_basename(basename)
+    state = single_destination(folder / (basename + ".mov"))["state"]
+    if state == "available":
+        return {"state": state, "suggested_basename": basename}
+    for number in range(2, 10002):
+        suffix = f"_{number:03d}"
+        candidate = basename[:64 - len(suffix)] + suffix
+        if single_destination(folder / (candidate + ".mov"))["state"] == "available":
+            return {"state": state, "suggested_basename": candidate}
+    raise ValueError("No unused output name available")
+
+
 def publish_single(staged: Path, target: Path, *, policy: str, prior) -> str | None:
     """Exclusive creation for fresh files, hardlink-backed rollback for overwrite."""
     if _recovery_paths(target):
