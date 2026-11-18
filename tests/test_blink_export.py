@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 from psd_tools import PSDImage
@@ -137,6 +138,31 @@ class BlinkExportApiTests(unittest.TestCase):
             ], check=True, capture_output=True, text=True).stdout.strip(),
             "pcm_s16le",
         )
+        self.assertEqual((self.source.read_bytes(), self.wav.read_bytes()),
+                         self.original)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_separate_mov_exports_use_fresh_first_blink_timing(self):
+        timing = {
+            **self.body["blink_timing"],
+            "interval_frames": 3, "jitter_frames": 1,
+        }
+        with (patch("tachie_motion.animation.blink.secrets.randbelow",
+                    side_effect=[0, 2]) as phase_random,
+              patch("tachie_motion.animation.blink.secrets.randbits",
+                    side_effect=[101, 202]) as interval_random):
+            first = self.post(basename="blink_random_1", blink_timing=timing)
+            second = self.post(basename="blink_random_2", blink_timing=timing)
+
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        early = self.decoded_video(self.root / "blink_random_1.mov")
+        late = self.decoded_video(self.root / "blink_random_2.mov")
+        self.assertEqual(len(early), len(late))
+        self.assertNotEqual(early[0], late[0])
+        self.assertEqual(phase_random.call_count, 2)
+        self.assertEqual(interval_random.call_count, 2)
         self.assertEqual((self.source.read_bytes(), self.wav.read_bytes()),
                          self.original)
 
