@@ -210,16 +210,19 @@ test("clearing starred closed eyes permits reassignment and restores blank state
 });
 
 
-test("blink timing requires explicit values, survives reload, and remains character-wide", async ({ page }) => {
+test("saved blink defaults are shown on first load and custom edits survive reload", async ({ page }) => {
   await openEditor(page);
   await setEyeGroup(page);
-  // Suggested values are present as guidance but not silently persisted.
+  // The initial values are already in durable browser storage.
   await expect(page.getByRole("spinbutton", { name: "間隔（秒）" })).toHaveValue("3");
   await expect(page.getByRole("spinbutton", { name: "閉眼時間（秒）" })).toHaveValue("0.12");
   await expect(page.getByRole("spinbutton", { name: "間隔の揺らぎ（±秒）" })).toHaveValue("0.5");
   await expect(page.getByRole("spinbutton", { name: "最初の瞬きまで（秒）" })).toHaveValue("0.7");
   await expect(page.getByRole("spinbutton", { name: "再現用シード（整数）" })).toHaveValue("0");
-  expect((await saved(page)).collection.blinkTiming).toBeUndefined();
+  expect((await saved(page)).collection.blinkTiming).toEqual({
+    intervalMs: 3000, closedMs: 120, jitterMs: 500, phaseMs: 700, seed: 0,
+  });
+  await expect(page.getByText("初期値または変更済みの保存設定")).toBeVisible();
 
   await page.getByRole("spinbutton", { name: "間隔（秒）" }).fill("5");
   await page.getByRole("spinbutton", { name: "閉眼時間（秒）" }).fill("0.1");
@@ -246,7 +249,7 @@ test("blink timing requires explicit values, survives reload, and remains charac
 });
 
 
-test("blink-disabled export becomes available only after explicit timing and eye selection", async ({ page }) => {
+test("blink export uses saved initial timing without pressing the timing save button", async ({ page }) => {
   const submissions: Array<Record<string, unknown>> = [];
   await page.route("**/api/health", (route) => route.fulfill({
     json: { ok: true, default_output_dir: "/tmp/output" },
@@ -275,25 +278,8 @@ test("blink-disabled export becomes available only after explicit timing and eye
   });
   await page.locator("#speech-wav-path").fill("/tmp/声 だんもん.wav");
   await page.getByRole("button", { name: "WAVを確認" }).click();
-  await expect(page.getByText("瞬きの閉じ目レイヤーとキャラクター共通の時間設定")).toBeVisible();
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
-
-  await page.getByRole("button", { name: "プリセット", exact: true }).click();
-  // Returning from the speech view preserves the active preset detail page.
-  if (await page.getByRole("button", { name: "詳細を編集" }).count()) {
-    await page.getByRole("button", { name: "詳細を編集" }).click();
-  }
-  await page.getByRole("group", { name: "編集区分" })
-    .getByRole("button", { name: "可動レイヤー" }).click();
-  await selectEye(page);
-  await page.getByRole("spinbutton", { name: "間隔（秒）" }).fill("4");
-  await page.getByRole("spinbutton", { name: "閉眼時間（秒）" }).fill("0.1");
-  await page.getByRole("spinbutton", { name: "間隔の揺らぎ（±秒）" }).fill("0.5");
-  await page.getByRole("spinbutton", { name: "最初の瞬きまで（秒）" }).fill("1");
-  await page.getByRole("spinbutton", { name: "再現用シード（整数）" }).fill("123");
-  await page.getByRole("button", { name: "瞬き時間を保存" }).click();
-
-  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await expect(page.getByText("瞬きの閉じ目レイヤーとキャラクター共通の時間設定")).toHaveCount(0);
+  // No manual timing edit/save is needed after selecting the closed eye.
   await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeEnabled();
   await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
   await expect.poll(() => submissions.length).toBe(1);
@@ -306,8 +292,8 @@ test("blink-disabled export becomes available only after explicit timing and eye
     ],
   });
   expect(submissions[0].blink_timing).toEqual({
-    interval_frames: 120, closed_frames: 3,
-    jitter_frames: 15, phase_frames: 30, seed: 123,
+    interval_frames: 90, closed_frames: 4,
+    jitter_frames: 15, phase_frames: 21, seed: 0,
   });
   expect(submissions[0].mode).toBe("none");
 });
@@ -358,7 +344,9 @@ test("failed blink timing persistence has visible viewport error and no false su
   // Fail only the timing save; the following unrelated edit must succeed.
   // This reproduces accidental persistence of a failed in-memory blink edit.
   await page.getByRole("spinbutton", { name: "間隔（秒）" }).fill("4.2");
-  expect((await saved(page)).collection.blinkTiming).toBeUndefined();
+  expect((await saved(page)).collection.blinkTiming).toEqual({
+    intervalMs: 3000, closedMs: 120, jitterMs: 500, phaseMs: 700, seed: 0,
+  });
   await page.evaluate(() => {
     const original = Storage.prototype.setItem;
     let failNextDraftWrite = true;
@@ -387,14 +375,37 @@ test("failed blink timing persistence has visible viewport error and no false su
   await expect(page.locator(".preset-error-toast")).toHaveCount(0);
   // Failed storage writes must not reach React collection or a later
   // successful save. Otherwise the later edit silently saves blink timing.
-  await expect(page.getByText("目安として3秒間隔", { exact: false })).toBeVisible();
+  await expect(page.getByText("初期値または変更済みの保存設定", { exact: false })).toBeVisible();
   await page.getByRole("checkbox", { name: "目 ON" }).uncheck();
   const afterOtherEdit = await saved(page);
   expect(afterOtherEdit.collection.items[0].blinkEnabled).toBe(false);
-  expect(afterOtherEdit.collection.blinkTiming).toBeUndefined();
+  expect(afterOtherEdit.collection.blinkTiming).toEqual({
+    intervalMs: 3000, closedMs: 120, jitterMs: 500, phaseMs: 700, seed: 0,
+  });
   await page.reload();
   await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
-  expect((await saved(page)).collection.blinkTiming).toBeUndefined();
+  expect((await saved(page)).collection.blinkTiming).toEqual({
+    intervalMs: 3000, closedMs: 120, jitterMs: 500, phaseMs: 700, seed: 0,
+  });
+});
+
+test("existing same-source browser draft without blink timing is durably initialized on restore", async ({ page }) => {
+  await openEditor(page);
+  await page.evaluate(() => {
+    const key = "tachie-motion.preset-draft.v2";
+    const previous = JSON.parse(localStorage.getItem(key)!);
+    delete previous.collection.blinkTiming;
+    localStorage.setItem(key, JSON.stringify(previous));
+  });
+  await page.reload();
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
+  expect((await saved(page)).collection.blinkTiming).toEqual({
+    intervalMs: 3000, closedMs: 120, jitterMs: 500, phaseMs: 700, seed: 0,
+  });
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await selectEye(page);
+  await expect(page.getByRole("spinbutton", { name: "間隔（秒）" })).toHaveValue("3");
 });
 
 test("failed rename persistence preserves the visible error and unchanged preset name", async ({ page }) => {
