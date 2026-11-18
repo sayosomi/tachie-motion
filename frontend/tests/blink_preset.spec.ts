@@ -506,6 +506,9 @@ test("Speech restore write failure preserves the old draft and blocks export", a
   await switchSpeechDuringHeldPresetRestore(page, true);
   await expect(page.getByRole("alert")).toContainText("瞬き初期値をブラウザへ保存できません");
   expect((await saved(page)).collection.blinkTiming).toBeUndefined();
+  await page.locator("#speech-wav-path-advanced").evaluate((node) => {
+    (node as HTMLDetailsElement).open = true;
+  });
   await expect(page.getByRole("button", { name: "WAVを確認" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
 });
