@@ -108,8 +108,8 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   for (const [index, item] of items.entries()) {
     const preset = draft.collection.items.find((entry) => entry.id === item.presetId);
     const reason = exportReadinessError(preset, item, labStatuses[item.id], draft.collection);
-    if (reason) {
-      throw new Error(`${index + 1}番 ${item.wavPath} — ${reason}`);
+    if (reason || !preset) {
+      throw new Error(`${index + 1}番 ${item.wavPath} — ${reason ?? "プリセットが見つかりません。"}`);
     }
     const basename = movieNames[index];
     const destination = movies[index];
