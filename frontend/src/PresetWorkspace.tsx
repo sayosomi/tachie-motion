@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { BlinkTiming } from "./blinkTiming";
 import type { Layer } from "./LayerTree";
 import PresetDetail from "./PresetDetail";
 import NativeFilePicker from "./NativeFilePicker";
@@ -503,6 +504,9 @@ export default function PresetWorkspace() {
         updatePresets(setBaseLayerChoice(collection, active.id, psd.layers, path, visible))}
       mouthGroups={effectiveMouthGroups(collection, psd.layers)}
       eyeGroups={effectiveEyeGroups(collection, psd.layers)}
+      blinkTiming={collection.blinkTiming}
+      onBlinkTimingChange={(timing: BlinkTiming) =>
+        updatePresets({ ...collection, blinkTiming: timing })}
       onMouthGroupsChange={(groups) =>
         updatePresets(setMouthGroups(collection, psd.layers, groups))}
       onEyeGroupsChange={(groups) =>
