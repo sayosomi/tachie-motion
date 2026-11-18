@@ -98,7 +98,7 @@ export function validatePsdChoices(
   collection: Presets, layers: Layer[], context: "restore" | "edit" = "restore",
 ): void {
   const failureNote = context === "edit"
-    ? "変更は適用・保存していません。先に該当する口形の選択を調整してください。"
+    ? "変更は適用・保存していません。対象の*レイヤーを確認してください。"
     : "保存データを変更せず読み込みを中止しました。";
   const mandatory = layers.filter((layer) => psdChoiceKind(layer.name) === "fixed");
   const siblingGroups = new Map<string, string[]>();
