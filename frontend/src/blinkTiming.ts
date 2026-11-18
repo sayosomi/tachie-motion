@@ -1,6 +1,4 @@
-/** Character-wide blink timing, expressed in integer milliseconds.
- * Suggested form values are not automatically saved or applied to video.
- */
+/** Character-wide blink timing, expressed in integer milliseconds. */
 export type BlinkTiming = {
   intervalMs: number;
   closedMs: number;
@@ -9,8 +7,8 @@ export type BlinkTiming = {
   seed: number;
 };
 
-/** Initial form suggestions, not a hidden output default or an auto-save. */
-export const SUGGESTED_BLINK_TIMING: BlinkTiming = {
+/** User-approved initial character timing; stored at initialization, not just shown. */
+export const DEFAULT_BLINK_TIMING: BlinkTiming = {
   intervalMs: 3000, closedMs: 120, jitterMs: 500, phaseMs: 700, seed: 0,
 };
 
