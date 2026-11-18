@@ -280,8 +280,8 @@ test("blink export uses saved initial timing without pressing the timing save bu
   await page.getByRole("button", { name: "WAVを確認" }).click();
   await expect(page.getByText("瞬きの閉じ目レイヤーとキャラクター共通の時間設定")).toHaveCount(0);
   // No manual timing edit/save is needed after selecting the closed eye.
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeEnabled();
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeEnabled();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect.poll(() => submissions.length).toBe(1);
   expect(submissions[0].blink_enabled).toBe(true);
   expect(submissions[0].eye_groups).toEqual(["0/1"]);
@@ -515,7 +515,7 @@ test("switching to Speech during old-draft PSD restore persists blink defaults b
   });
   await page.locator("#speech-wav-path").fill("/tmp/011_あんこもん.wav");
   await page.getByRole("button", { name: "WAVを確認" }).click();
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeEnabled();
 });
 
 test("Speech restore write failure preserves the old draft and blocks export", async ({ page }) => {
@@ -526,7 +526,7 @@ test("Speech restore write failure preserves the old draft and blocks export", a
     (node as HTMLDetailsElement).open = true;
   });
   await expect(page.getByRole("button", { name: "WAVを確認" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeDisabled();
   await expect(page.locator(".project-controls").getByRole("button", { name: "JSONを保存" })).toBeDisabled();
 });
 
@@ -571,8 +571,8 @@ test("Speech PSD validation adopts newer blink timing saved in another browser t
   });
   await page.locator("#speech-wav-path").fill("/tmp/011_あんこもん.wav");
   await page.getByRole("button", { name: "WAVを確認" }).click();
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeEnabled();
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeEnabled();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect.poll(() => submissions.length).toBe(1);
   expect(submissions[0].blink_timing).toMatchObject({
     interval_frames: 135, seed: 7,
@@ -590,7 +590,7 @@ test("Speech rejects conflicting other-tab preset edits without overwriting them
     (node as HTMLDetailsElement).open = true;
   });
   await expect(page.getByRole("button", { name: "WAVを確認" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeDisabled();
   await expect(page.locator(".project-controls").getByRole("button", { name: "JSONを保存" })).toBeDisabled();
 });
 
