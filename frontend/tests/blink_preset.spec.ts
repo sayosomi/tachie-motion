@@ -265,7 +265,6 @@ test("blink export uses saved initial timing without pressing the timing save bu
     submissions.push(route.request().postDataJSON() as Record<string, unknown>);
     return route.fulfill({ json: {
       mov: "/tmp/output/blink_001.mov",
-      otio: "/tmp/output/blink_001.otio",
       frames: 30, sample_count: 1000,
     } });
   });
@@ -559,7 +558,6 @@ test("Speech PSD validation adopts newer blink timing saved in another browser t
     submissions.push(route.request().postDataJSON() as Record<string, unknown>);
     return route.fulfill({ json: {
       mov: "/tmp/output/blink_001.mov",
-      otio: "/tmp/output/blink_001.otio", frames: 30, sample_count: 1000,
     } });
   });
   await switchSpeechDuringHeldPresetRestore(page, false,
