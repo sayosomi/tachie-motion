@@ -517,7 +517,7 @@ test("restored, explicitly approved WAV identity is sent to single and batch exp
   await page.route("**/api/preset-utterance-export", (route) => {
     identities.push((route.request().postDataJSON() as { source_identity: string }).source_identity);
     return route.fulfill({ json: {
-      mov: "/tmp/output/generated.mov", otio: "/tmp/output/generated.otio",
+      mov: "/tmp/output/generated.mov",
       frames: 30, sample_count: 48000,
     } });
   });
