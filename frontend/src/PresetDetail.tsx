@@ -87,6 +87,10 @@ export default function PresetDetail({
   const eligible = new Set(layers.filter((layer) =>
     area === "motion" ? isMouthLayer(layer.path, selectedGroups) : true
   ).map((layer) => layer.path));
+  const currentMotionShape = motionKind === "eyes" ? preset.eyes?.closed
+    : roleMode === "open" ? preset.openMouth?.opened : preset.aiueoMouth?.[aiueoKey];
+  const hasConfiguredMotionShape = currentMotionShape?.some((entry) =>
+    eligible.has(entry.path) && baseByPath.get(entry.path) !== entry.visible) ?? false;
   const queryText = query.trim().toLocaleLowerCase();
   const activeFilter = Boolean(queryText);
   const matches = new Set<string>();
@@ -338,9 +342,10 @@ export default function PresetDetail({
         </>}
         {(area === "normal" || (motionEnabled && selectedGroups.length > 0)) && <>
         {area === "motion" && <p className="preset-motion-instruction">
-          {motionKind === "eyes" ? "② 閉じた目のレイヤーを選択してください"
-            : roleMode === "open" ? "② 開いた口のレイヤーを選択してください"
-              : `② 「${AIUEO_LABELS[aiueoKey]}」の口のレイヤーを選択してください`}
+          {motionKind === "eyes" ? "② 閉じた目のレイヤー"
+            : roleMode === "open" ? "② 開いた口のレイヤー"
+              : `② 「${AIUEO_LABELS[aiueoKey]}」の口のレイヤー`}
+          {!hasConfiguredMotionShape && "を選択してください"}
         </p>}
         <div className="preset-role-tools">
           <input aria-label="レイヤー検索" value={query} onChange={(e) => setQuery(e.target.value)}
