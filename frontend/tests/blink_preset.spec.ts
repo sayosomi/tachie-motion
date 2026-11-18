@@ -275,7 +275,10 @@ test("blink-disabled export becomes available only after explicit timing and eye
   await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
 
   await page.getByRole("button", { name: "プリセット", exact: true }).click();
-  await page.getByRole("button", { name: "詳細を編集" }).click();
+  // Returning from the speech view preserves the active preset detail page.
+  if (await page.getByRole("button", { name: "詳細を編集" }).count()) {
+    await page.getByRole("button", { name: "詳細を編集" }).click();
+  }
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "可動レイヤー" }).click();
   await selectEye(page);
