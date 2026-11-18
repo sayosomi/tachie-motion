@@ -107,7 +107,7 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   let overwrites = 0;
   for (const [index, item] of items.entries()) {
     const preset = draft.collection.items.find((entry) => entry.id === item.presetId);
-    if (!preset || !exportReady(preset, item, labStatuses[item.id])) {
+    if (!preset || !exportReady(preset, item, labStatuses[item.id], draft.collection)) {
       throw new Error(item.wavPath + " — 口パク・プリセットの設定を確認してください");
     }
     const basename = movieNames[index];
@@ -147,6 +147,7 @@ function snapshotKey(draft: PresetDraft | null, items: UtteranceItem[],
   if (!draft) return "";
   return JSON.stringify({
     psd: draft.path, fingerprint: draft.fingerprint, presets: draft.collection.items,
+    blinkTiming: draft.collection.blinkTiming, motionGroups: draft.collection.motionGroups,
     naming, items: items.map((item) => ({
       id: item.id, wavPath: item.wavPath, wav: item.wav, presetId: item.presetId,
       mode: item.mode, fps: item.fps,
