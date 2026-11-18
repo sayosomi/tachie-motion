@@ -1,6 +1,6 @@
 """Preset-backed one-WAV export: real synthetic PSD/WAV, no user media."""
 
-import json
+import subprocess
 from pathlib import Path
 from PIL import Image
 import shutil
@@ -176,9 +176,7 @@ class PresetExportApiTests(unittest.TestCase):
         valid_open = [{"path": a, "visible": True},
                       {"path": b, "visible": False}]
         destination_mov = self.root / "speech.mov"
-        destination_otio = self.root / "speech.otio"
         destination_mov.write_bytes(b"original MOV")
-        destination_otio.write_bytes(b"original OTIO")
         original_psd = source.read_bytes()
         cases = [
             (base, [{"path": a, "visible": True}, {"path": b, "visible": True}]),
@@ -197,7 +195,7 @@ class PresetExportApiTests(unittest.TestCase):
                 )
                 self.assertEqual(response.status_code, 400, response.text)
                 self.assertEqual(destination_mov.read_bytes(), b"original MOV")
-                self.assertEqual(destination_otio.read_bytes(), b"original OTIO")
+                self.assertFalse((self.root / "speech.otio").exists())
                 self.assertEqual(source.read_bytes(), original_psd)
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
@@ -221,15 +219,14 @@ class PresetExportApiTests(unittest.TestCase):
             mov = self.root / (basename + ".mov")
             self.assertTrue(mov.is_file())
             self.assertFalse((self.root / (basename + ".otio")).exists())
-            codec = __import__("subprocess").run([
+            codec = subprocess.run([
                 "ffprobe", "-v", "error", "-select_streams", "a:0",
                 "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(mov),
             ], check=True, capture_output=True, text=True).stdout.strip()
             self.assertEqual(codec, "pcm_s16le")
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), originals)
         self.assertEqual(self.post().status_code, 400)
-        original_mov = (self.root / "speech.mov").read_bytes()
-        replaced = self.post(conflict_policy="overwrite")
+         replaced = self.post(conflict_policy="overwrite")
         self.assertEqual(replaced.status_code, 200, replaced.text)
         self.assertEqual(replaced.json()["mov"], str((self.root / "speech.mov").resolve()))
         self.assertNotIn("otio", replaced.json())
@@ -317,7 +314,7 @@ class PresetExportApiTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")
-    def test_mux_failure_leaves_new_and_existing_pairs_untouched(self):
+    def test_mux_failure_leaves_new_and_existing_single_mov_untouched(self):
         from unittest.mock import patch
 
         originals = (self.psd.read_bytes(), self.wav.read_bytes())
@@ -347,7 +344,7 @@ class PresetExportApiTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")
-    def test_replaced_wav_with_same_timing_cannot_publish_web_pair(self):
+    def test_replaced_wav_with_same_timing_cannot_publish_web_mov(self):
         from unittest.mock import patch
         from tachie_motion.render.pcm_mux import mux_verified_pcm
 
@@ -387,17 +384,18 @@ class PresetExportApiTests(unittest.TestCase):
                          "FFmpeg required")
     def test_project_wav_change_after_mux_denies_publish_without_outputs(self):
         from unittest.mock import patch
-        from tachie_motion.timeline.otio_json import write_otio
+        from tachie_motion.render.pcm_mux import mux_verified_pcm
 
         original_identity = describe_wav(str(self.wav))["source_identity"]
 
-        def replace_wav_after_mux(document, destination):
-            write_otio(document, destination)
+        def replace_wav_after_mux(*args, **kwargs):
+            report = mux_verified_pcm(*args, **kwargs)
             payload = bytearray(self.wav.read_bytes())
             payload[-1] ^= 1
             self.wav.write_bytes(payload)
+            return report
 
-        with patch("tachie_motion.web.preset_utterance.write_otio",
+        with patch("tachie_motion.web.preset_utterance.mux_verified_pcm",
                    side_effect=replace_wav_after_mux):
             denied = self.post(source_identity=original_identity)
         self.assertEqual(denied.status_code, 400, denied.text)
