@@ -1,6 +1,6 @@
 import type { Layer } from "./LayerTree";
 import type { Presets } from "./presetModel";
-import { AIUEO_KEYS } from "./presetModel";
+import { AIUEO_KEYS, withDefaultBlinkTiming } from "./presetModel";
 import { validMotionGroups } from "./motionGroups";
 import { validatePsdChoices } from "./psdChoice";
 import { validBlinkTiming } from "./blinkTiming";
@@ -151,6 +151,18 @@ export function readPresetDraft(): PresetDraft | null {
     }
   }
   return value as unknown as PresetDraft;
+}
+
+/** Call only after PSD identity and layer/choice validation has succeeded.
+ * The missing initial timing is committed to storage before either screen can
+ * publish a usable draft; an already-saved custom timing is untouched.
+ */
+export function persistMissingBlinkTiming(draft: PresetDraft): PresetDraft {
+  const collection = withDefaultBlinkTiming(draft.collection);
+  if (collection === draft.collection) return draft;
+  const upgraded: PresetDraft = { ...draft, collection };
+  writePresetDraft(upgraded);
+  return upgraded;
 }
 
 export function matchesSource(draft: PresetDraft, fingerprint: string, layers: Layer[]): boolean {
