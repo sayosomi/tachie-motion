@@ -355,10 +355,16 @@ test("starred eye group next to starred closed leaf is hidden only for the close
 test("failed blink timing persistence has visible viewport error and no false success", async ({ page }) => {
   await openEditor(page);
   await setEyeGroup(page);
+  // Fail only the timing save; the following unrelated edit must succeed.
+  // This reproduces accidental persistence of a failed in-memory blink edit.
+  await page.getByRole("spinbutton", { name: "間隔（秒）" }).fill("4.2");
+  expect((await saved(page)).collection.blinkTiming).toBeUndefined();
   await page.evaluate(() => {
     const original = Storage.prototype.setItem;
+    let failNextDraftWrite = true;
     Storage.prototype.setItem = function (key, value) {
-      if (key === "tachie-motion.preset-draft.v2") {
+      if (failNextDraftWrite && key === "tachie-motion.preset-draft.v2") {
+        failNextDraftWrite = false;
         throw new DOMException("Storage denied", "QuotaExceededError");
       }
       return original.call(this, key, value);
@@ -377,6 +383,38 @@ test("failed blink timing persistence has visible viewport error and no false su
       node.getBoundingClientRect().top >= 0 &&
       node.getBoundingClientRect().top < window.innerHeight / 2
   )).toBe(true);
+  // Failed storage writes must not reach React collection or a later
+  // successful save. Otherwise the later edit silently saves blink timing.
+  await expect(page.getByText("目安として3秒間隔", { exact: false })).toBeVisible();
+  await page.getByRole("checkbox", { name: "目 ON" }).uncheck();
+  const afterOtherEdit = await saved(page);
+  expect(afterOtherEdit.collection.items[0].blinkEnabled).toBe(false);
+  expect(afterOtherEdit.collection.blinkTiming).toBeUndefined();
+  await page.reload();
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
+  expect((await saved(page)).collection.blinkTiming).toBeUndefined();
+
   await page.getByRole("button", { name: "エラーを閉じる" }).click();
   await expect(page.locator(".preset-error-toast")).toHaveCount(0);
+});
+
+test("failed rename persistence preserves the visible error and unchanged preset name", async ({ page }) => {
+  await openEditor(page);
+  await page.locator("#preset-name").fill("保存失敗テスト");
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    let failNextDraftWrite = true;
+    Storage.prototype.setItem = function (key, value) {
+      if (failNextDraftWrite && key === "tachie-motion.preset-draft.v2") {
+        failNextDraftWrite = false;
+        throw new DOMException("Storage denied", "QuotaExceededError");
+      }
+      return original.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "名前を変更" }).click();
+  await expect(page.locator(".preset-error-toast")).toContainText("ブラウザに自動保存できません");
+  expect((await saved(page)).collection.items[0].name).toBe("通常");
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  await expect(page.getByText("通常", { exact: true })).toBeVisible();
 });
