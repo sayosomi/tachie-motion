@@ -71,7 +71,7 @@ test("movable row selection edits a mouth shape and explicit n rest survives rel
   await expect(page.locator(".preset-image-viewport img")).toBeVisible();
 
   await page.reload();
-  await page.getByRole("button", { name: "詳細を編集" }).click();
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
   await page.getByRole("group", { name: "編集区分" })
     .getByRole("button", { name: "可動レイヤー" }).click();
   await page.getByRole("group", { name: "口の方式" })
