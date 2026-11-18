@@ -18,8 +18,12 @@ export async function assignOpenPair(page: Page,
   closedPath = "0/0", openedPath = "0/1", groupName = "face") {
   await openMotion(page);
   await selectMouthGroup(page, groupName, "0");
-  await page.getByRole("group", { name: "編集する口形" })
-    .getByRole("button", { name: "開き口" }).click();
+  // 開閉の初期編集対象は開いた口。旧「開き口」ボタンは廃止済み。
+  await page.getByRole("group", { name: "口パク方式" })
+    .getByRole("button", { name: "開閉" })
+    .getAttribute("aria-pressed").then((value) => {
+      if (value !== "true") throw new Error("開閉が選択されていません");
+    });
   await page.locator(`.preset-layer[data-layer-path="${closedPath}"]`)
     .getByRole("checkbox").uncheck();
   await page.locator(`.preset-layer[data-layer-path="${openedPath}"]`)

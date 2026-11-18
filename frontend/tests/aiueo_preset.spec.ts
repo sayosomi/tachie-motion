@@ -358,7 +358,10 @@ test("Open and aiueo have separate PSDTool sibling radio selections and a shared
   await expect(page.getByText("口形を指定してください")).toHaveCount(0);
   await expect(page.locator(".preview-empty")).toHaveCount(0);
 
-  await shape(page, "口を開けたとき").click();
+  // 開閉の初期編集対象は開いた口。詳細設定なしでは選択ボタンを出さない。
+  await expect(page.getByRole("group", { name: "口パク方式" })
+    .getByRole("button", { name: "開閉" })).toHaveAttribute("aria-pressed", "true");
+  await expect(shapes(page)).toHaveCount(0);
   await layer(page, "0/1").getByRole("radio").check();
   await expect(layer(page, "0/0").getByRole("radio")).not.toBeChecked();
   await expect(layer(page, "0/1").getByRole("radio")).toBeChecked();
