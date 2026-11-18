@@ -153,6 +153,53 @@ class PresetExportApiTests(unittest.TestCase):
                 self.assertEqual(set(self.root.iterdir()), {self.psd, self.wav})
         self.assertEqual(self.post(mode="aiueo", blink_enabled=True).status_code, 400)
 
+    def test_open_api_rejects_psdtool_conflicts_without_publishing(self):
+        from psd_tools import PSDImage
+
+        psd = PSDImage.new(mode="RGB", size=(32, 32), depth=8)
+        mouth = psd.create_group(name="mouth")
+        for name in ("*A", "*B", "!fixed"):
+            mouth.create_pixel_layer(
+                Image.new("RGBA", (4, 4), (120, 180, 200, 255)),
+                name=name, left=2, top=2,
+            )
+        source = self.root / "psdtool.psd"
+        psd.save(source)
+        meta = describe_psd(str(source))
+        base = [{"path": layer["path"], "visible": layer["name"] != "*B"}
+                for layer in meta["layers"]]
+        by_name = {layer["name"]: layer["path"] for layer in meta["layers"]}
+        a, b, mandatory = (by_name[name] for name in ("*A", "*B", "!fixed"))
+        parent = by_name["mouth"]
+        closed = [{"path": a, "visible": True},
+                  {"path": b, "visible": False}]
+        valid_open = [{"path": a, "visible": True},
+                      {"path": b, "visible": False}]
+        destination_mov = self.root / "speech.mov"
+        destination_otio = self.root / "speech.otio"
+        destination_mov.write_bytes(b"original MOV")
+        destination_otio.write_bytes(b"original OTIO")
+        original_psd = source.read_bytes()
+        cases = [
+            (base, [{"path": a, "visible": True}, {"path": b, "visible": True}]),
+            ([{**entry, "visible": False} if entry["path"] == mandatory else entry
+              for entry in base], valid_open),
+            ([{**entry, "visible": True} if entry["path"] == b else entry
+              for entry in base], valid_open),
+        ]
+        for fixed_layers, active in cases:
+            with self.subTest(active=active, base=fixed_layers):
+                response = self.post(
+                    mode="open", psd=str(source), fingerprint=meta["fingerprint"],
+                    layers=fixed_layers, mouth_groups=[parent],
+                    mouth={"closed": closed, "opened": active},
+                    conflict_policy="overwrite",
+                )
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertEqual(destination_mov.read_bytes(), b"original MOV")
+                self.assertEqual(destination_otio.read_bytes(), b"original OTIO")
+                self.assertEqual(source.read_bytes(), original_psd)
+
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")
     def test_none_and_open_produce_pcm_mov_with_embedded_audio_reference(self):

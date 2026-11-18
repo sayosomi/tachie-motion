@@ -184,3 +184,27 @@ test("checkbox toggles retain eye and mouth shapes without duplicating controls"
   await expect(page.getByRole("group", { name: "口の方式" })
     .getByRole("button", { name: "Open" })).toBeVisible();
 });
+
+test("clearing starred closed eyes permits reassignment and restores blank state", async ({ page }) => {
+  await openEditor(page);
+  await setEyeGroup(page);
+  await entry(page, "0/1/1").getByRole("radio").check();
+  await page.getByRole("button", { name: "閉じ目の選択を解除" }).click();
+  await expect(entry(page, "0/1/0").getByRole("radio")).not.toBeChecked();
+  await expect(entry(page, "0/1/1").getByRole("radio")).not.toBeChecked();
+  const restored = await saved(page);
+  expect(restored.collection.items[0].eyes).toBeUndefined();
+  expect(restored.collection.items[0].base.find(
+    (item: { path: string; visible: boolean }) => item.path === "0/1/0")?.visible).toBe(true);
+  await page.reload();
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await selectEye(page);
+  await expect(entry(page, "0/1/1").getByRole("radio")).not.toBeChecked();
+  await page.getByRole("button", { name: "変更", exact: true }).click();
+  await page.getByRole("group", { name: "PSDグループ" })
+    .getByRole("checkbox", { name: "目 [0/1]" }).uncheck();
+  await page.getByRole("button", { name: "閉じる", exact: true }).click();
+  expect((await saved(page)).collection.motionGroups.eyes).toEqual([]);
+});

@@ -436,3 +436,37 @@ test("Open and aiueo have separate PSDTool sibling radio selections and a shared
     { path: "0/3", visible: false },
   ]);
 });
+
+test("clear resets only one Open or aiueo selection and persists after reload", async ({ page }) => {
+  await openEditor(page);
+  await chooseMouthGroups(page);
+  await checkbox(page, "0/1/0").check();
+  await expect(page.getByRole("button", { name: "Openの選択を解除" })).toBeVisible();
+  await page.getByRole("button", { name: "Openの選択を解除" }).click();
+  await expect(checkbox(page, "0/1/0")).not.toBeChecked();
+  expect((await page.evaluate(() => JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v2")!)))
+    .collection.items[0].openMouth).toBeUndefined();
+
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "aiueo" }).click();
+  await shape(page, "あ").click();
+  await checkbox(page, "0/0/0").check();
+  await shape(page, "い").click();
+  await checkbox(page, "0/1/0").check();
+  await shape(page, "あ").click();
+  await page.getByRole("button", { name: "「あ」の選択を解除" }).click();
+  await expect(checkbox(page, "0/0/0")).not.toBeChecked();
+  await shape(page, "い").click();
+  await expect(checkbox(page, "0/1/0")).toBeChecked();
+
+  await page.reload();
+  await expect(page.getByText("前回の編集を復元しました。")).toBeVisible();
+  await page.getByRole("group", { name: "編集区分" })
+    .getByRole("button", { name: "可動レイヤー" }).click();
+  await page.getByRole("group", { name: "口の方式" })
+    .getByRole("button", { name: "aiueo" }).click();
+  await shape(page, "あ").click();
+  await expect(checkbox(page, "0/0/0")).not.toBeChecked();
+  await shape(page, "い").click();
+  await expect(checkbox(page, "0/1/0")).toBeChecked();
+});
