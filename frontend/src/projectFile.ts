@@ -4,6 +4,7 @@ import {
   parseCharacterProfile, serializeCharacterProfile, type CharacterProfile,
 } from "./characterProfile";
 import type { PresetDraft } from "./presetDraftStorage";
+import { withDefaultBlinkTiming } from "./presetModel";
 import type { UtteranceItem, WavData } from "./utteranceItems";
 
 export const PROJECT_FORMAT = "tachie-motion-project";
@@ -143,7 +144,7 @@ export function projectPresetDraft(project: ProjectFile, psdPath = project.chara
   return {
     version: 2, path: psdPath,
     fingerprint: project.character.source.fingerprint,
-    collection: structuredClone(project.character.collection),
+    collection: withDefaultBlinkTiming(structuredClone(project.character.collection)),
     nameDrafts: {},
   };
 }
