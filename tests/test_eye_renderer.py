@@ -29,7 +29,10 @@ class ClosedEyeTests(unittest.TestCase):
         self.closed_path = by_name["*closed"]
         self.always_path = by_name["!always"]
         self.eye_path = by_name["eyes"]
-        self.mouth_path = by_name["mouth"]
+        self.mouth_path = next(
+            item.index_path for item in summaries
+            if item.name == "mouth" and item.kind == "group"
+        )
         self.base = {
             item.index_path: item.index_path != self.closed_path
             for item in summaries
