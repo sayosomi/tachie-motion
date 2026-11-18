@@ -29,7 +29,7 @@ export default function BlinkTimingEditor({
 }) {
   const [values, setValues] = useState<Inputs>(() => toInputs(timing));
   const [message, setMessage] = useState("");
-  useEffect(() => { setValues(toInputs(timing)); setMessage(""); }, [timing]);
+  useEffect(() => { setValues(toInputs(timing)); }, [timing]);
 
   function save() {
     const numeric = {
