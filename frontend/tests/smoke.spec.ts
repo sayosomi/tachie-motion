@@ -217,6 +217,7 @@ test("one WAV sends identical open-mouth render settings through single and all 
     requests.push(request);
     return route.fulfill({ json: {
       mov: "/tmp/" + request.basename + ".mov",
+      frames: 30, sample_count: 1000,
     } });
   });
   await page.route("**/api/preset-batch-mov-destination", (route) =>
