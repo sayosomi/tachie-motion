@@ -580,8 +580,10 @@ test("explicit character blink timing round-trips through profile JSON", async (
   const exported = await exportJson(page);
   expect((exported.collection as Record<string, unknown>).blinkTiming).toEqual(timing);
 
+  page.on("dialog", (dialog) => { void dialog.accept(); });
   await importJson(page, exported);
-  await expect(page.getByRole("status")).toContainText("キャラクター設定JSONを読み込みました");
+  await expect(page.locator(".character-profile-actions [role=status]"))
+    .toContainText("キャラクター設定JSONを読み込みました");
   const restored = await page.evaluate(() => JSON.parse(
     localStorage.getItem("tachie-motion.preset-draft.v2")!
   ));
