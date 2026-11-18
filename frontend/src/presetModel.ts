@@ -1,6 +1,6 @@
 import type { Layer } from "./LayerTree";
 import type { MotionGroups } from "./motionGroups";
-import type { BlinkTiming } from "./blinkTiming";
+import { DEFAULT_BLINK_TIMING, type BlinkTiming } from "./blinkTiming";
 import { applyChoice, choiceChanges, initialChoiceVisibility } from "./psdChoice";
 
 export type Visibility = { path: string; visible: boolean };
@@ -21,9 +21,16 @@ export type Presets = {
   defaultId: string | null;
   /** PSD source-group bindings shared by all presets of one character. */
   motionGroups?: MotionGroups;
-  /** Character-wide blink timing, absent until explicitly saved. */
+  /** Persisted character-wide blink timing; older v2 data may omit it. */
   blinkTiming?: BlinkTiming;
 };
+
+/** Fill only missing timing; never replace user-adjusted values. */
+export function withDefaultBlinkTiming(current: Presets): Presets {
+  return current.blinkTiming === undefined
+    ? { ...current, blinkTiming: { ...DEFAULT_BLINK_TIMING } }
+    : current;
+}
 
 export function createPreset(name: string, layers: Layer[]): UnifiedPreset {
   if (!name.trim()) throw new Error("プリセット名を入力してください");
