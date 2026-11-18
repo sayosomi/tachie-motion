@@ -126,12 +126,14 @@ export default function PresetWorkspace() {
   }, []);
 
   function persist(next: Presets, drafts: Record<string, string> = nameDrafts,
-    path: string = loadedPath, fingerprint: string | undefined = psd?.fingerprint) {
-    if (!path || !fingerprint) return;
+    path: string = loadedPath, fingerprint: string | undefined = psd?.fingerprint): boolean {
+    if (!path || !fingerprint) return false;
     try {
       writePresetDraft({ version: 2, path, fingerprint, collection: next, nameDrafts: drafts });
+      return true;
     } catch {
       setError("ブラウザに自動保存できません。再読み込み前に空き容量・保存設定を確認してください。");
+      return false;
     }
   }
 
@@ -310,8 +312,12 @@ export default function PresetWorkspace() {
     setPsdPath(value);
   }
 
-  function updatePresets(next: Presets, drafts: Record<string, string> = nameDrafts) {
-    if (sourceChanged || next === collection) return;
+  function updatePresets(next: Presets, drafts: Record<string, string> = nameDrafts): boolean {
+    if (sourceChanged) {
+      setError("元PSDの変更が検出されたため、編集を保存できません。PSDを確認してください。");
+      return false;
+    }
+    if (next === collection) return true;
     // Validate the complete composed mouth/eye poses BEFORE writing the draft
     // or triggering a render. A base radio switch can conflict with an older
     // phoneme override that inherits the newly selected sibling.
@@ -320,14 +326,15 @@ export default function PresetWorkspace() {
         validatePsdChoices(next, psd.layers, "edit");
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
-        return; // Leave UI, original overrides and localStorage unchanged.
+        return false; // Leave UI, original overrides and localStorage unchanged.
       }
     }
     editVersion.current += 1;
-    persist(next, drafts);
+    const stored = persist(next, drafts);
     setCollection(next);
     setDirty(true);
-    setError("");
+    if (stored) setError("");
+    return stored;
   }
 
   function changeNameDraft(id: string, name: string) {
@@ -445,7 +452,11 @@ export default function PresetWorkspace() {
       type="button" className="secondary" onClick={() => { void loadPsd(true); }}>
       保存済みを破棄して新規
     </button>}
-    {error && <p className="notice error" role="alert">{error}</p>}
+    {error && <div className="notice error preset-error-toast" role="alert">
+      <span>{error}</span>
+      <button type="button" className="secondary" aria-label="エラーを閉じる"
+        onClick={() => setError("")}>閉じる</button>
+    </div>}
     {sourceChanged && <p className="notice error" role="alert">
       PSDの外部変更または同一性確認の失敗を検出しました。古いプレビューを停止しました。PSDを再読み込みしてください。
       編集内容は自動保存された状態のまま保持しています。
