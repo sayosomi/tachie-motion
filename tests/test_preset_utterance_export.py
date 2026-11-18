@@ -202,51 +202,62 @@ class PresetExportApiTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")
-    def test_none_and_open_produce_pcm_mov_with_embedded_audio_reference(self):
+    def test_none_and_open_produce_pcm_mov_without_individual_otio(self):
         originals = (self.psd.read_bytes(), self.wav.read_bytes())
         static = self.post()
         self.assertEqual(static.status_code, 200, static.text)
         self.assertEqual(static.json()["frames"], 4)
-        closed, opened = self.closed, self.opened
+        self.assertNotIn("otio", static.json())
         shape = {
-            "closed": [{"path": closed, "visible": True},
-                       {"path": opened, "visible": False}],
-            "opened": [{"path": closed, "visible": False},
-                       {"path": opened, "visible": True}],
+            "closed": [{"path": self.closed, "visible": True},
+                       {"path": self.opened, "visible": False}],
+            "opened": [{"path": self.closed, "visible": False},
+                       {"path": self.opened, "visible": True}],
         }
         response = self.post(mode="open", mouth=shape, basename="lip_open")
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["frames"], 4)
         for basename in ("speech", "lip_open"):
-            otio = json.loads((self.root / (basename + ".otio")).read_text("utf-8"))
-            tracks = otio["tracks"]["children"]
-            self.assertEqual(len(tracks), 2)
-            reference = tracks[1]["children"][0]["media_references"]["DEFAULT_MEDIA"]
-            self.assertEqual(reference["target_url"], str((self.root / (basename + ".mov")).resolve()))
-            self.assertEqual(reference["name"], basename + ".mov")
-            self.assertTrue((self.root / (basename + ".mov")).is_file())
+            mov = self.root / (basename + ".mov")
+            self.assertTrue(mov.is_file())
+            self.assertFalse((self.root / (basename + ".otio")).exists())
+            codec = __import__("subprocess").run([
+                "ffprobe", "-v", "error", "-select_streams", "a:0",
+                "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(mov),
+            ], check=True, capture_output=True, text=True).stdout.strip()
+            self.assertEqual(codec, "pcm_s16le")
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), originals)
         self.assertEqual(self.post().status_code, 400)
-        # Explicit overwrite maintains stable MOV/OTIO paths in the result.
-        old_otio = (self.root / "speech.otio").read_bytes()
+        original_mov = (self.root / "speech.mov").read_bytes()
         replaced = self.post(conflict_policy="overwrite")
         self.assertEqual(replaced.status_code, 200, replaced.text)
         self.assertEqual(replaced.json()["mov"], str((self.root / "speech.mov").resolve()))
-        self.assertEqual(replaced.json()["otio"], str((self.root / "speech.otio").resolve()))
-        video_ref = json.loads((self.root / "speech.otio").read_text("utf-8"))[
-            "tracks"]["children"][0]["children"][0]["media_references"]["DEFAULT_MEDIA"]
-        self.assertEqual(video_ref["name"], "speech.mov")
-        self.assertEqual(video_ref["target_url"], (self.root / "speech.mov").resolve().as_uri())
-        self.assertTrue((self.root / "speech.otio").read_bytes())
+        self.assertNotIn("otio", replaced.json())
+        self.assertTrue((self.root / "speech.mov").is_file())
+        self.assertFalse((self.root / "speech.otio").exists())
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), originals)
-        self.assertFalse((self.root / ".speech.tachie-backup").exists())
-        # The alternative uses a fresh pair and does not touch the existing one.
-        snapshot = ((self.root / "speech.mov").read_bytes(),
-                    (self.root / "speech.otio").read_bytes())
+        self.assertFalse((self.root / ".speech.mov.single-backup").exists())
+        previous = (self.root / "speech.mov").read_bytes()
         separate = self.post(basename="speech_002")
         self.assertEqual(separate.status_code, 200, separate.text)
-        self.assertEqual(snapshot, ((self.root / "speech.mov").read_bytes(),
-                                    (self.root / "speech.otio").read_bytes()))
+        self.assertEqual((self.root / "speech.mov").read_bytes(), previous)
+        self.assertFalse((self.root / "speech_002.otio").exists())
+
+    def test_existing_legacy_otio_blocks_solo_overwrite_and_offers_safe_name(self):
+        old_mov = self.root / "speech.mov"
+        old_otio = self.root / "speech.otio"
+        old_mov.write_bytes(b"OLD MOV")
+        old_otio.write_bytes(b"OLD OTIO")
+        probe = self.client.post("/api/preset-utterance-destination",
+                                 json={"output_dir": str(self.root), "basename": "speech"})
+        self.assertEqual(probe.status_code, 200, probe.text)
+        self.assertEqual(probe.json()["state"], "unsafe")
+        self.assertEqual(probe.json()["suggested_basename"], "speech_002")
+        denied = self.post(conflict_policy="overwrite")
+        self.assertEqual(denied.status_code, 400, denied.text)
+        self.assertEqual(old_mov.read_bytes(), b"OLD MOV")
+        self.assertEqual(old_otio.read_bytes(), b"OLD OTIO")
+        self.assertFalse((self.root / "speech_002.mov").exists())
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")
