@@ -177,7 +177,7 @@ test("same-stem legacy OTIO forbids MOV overwrite and requires a new name", asyn
     { (el as HTMLDetailsElement).open = true; });
   await page.locator("#speech-wav-path").fill("/tmp/voice.wav");
   await page.getByRole("button", { name: "WAVを確認" }).click();
-  await expect(page.getByText("同名のOTIOまたは特殊ファイルがある", { exact: false })).toBeVisible();
+  await expect(page.getByText("既存OTIOがこのMOVを参照している可能性", { exact: false })).toBeVisible();
   await expect(page.getByRole("radio", { name: "上書きする" })).toHaveCount(0);
   await expect(page.locator("#speech-save-as")).toHaveValue("speech_001_002");
   await page.getByRole("button", { name: "別名で書き出す" }).click();
@@ -186,6 +186,28 @@ test("same-stem legacy OTIO forbids MOV overwrite and requires a new name", asyn
   });
 });
 
+
+test("batch recovery disables solo output and does not offer a useless alternate", async ({ page }) => {
+  await mockPsd(page);
+  await page.route("**/api/preset-utterance-destination", route =>
+    route.fulfill({ json: { state: "recovery_required", suggested_basename: "",
+      folder_recovery_required: true } }));
+  await page.goto("/");
+  await page.locator("#preset-psd-path-advanced").evaluate(el => {
+    (el as HTMLDetailsElement).open = true;
+  });
+  await page.locator("#preset-psd-path").fill("/tmp/character.psd");
+  await page.getByRole("button", { name: "読み込む", exact: true }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await page.locator("#speech-wav-path-advanced").evaluate(el => {
+    (el as HTMLDetailsElement).open = true;
+  });
+  await page.locator("#speech-wav-path").fill("/tmp/voice.wav");
+  await page.getByRole("button", { name: "WAVを確認" }).click();
+  await expect(page.getByText("前回の一括書き出しの復旧領域が残っています", { exact: false })).toBeVisible();
+  await expect(page.locator("#speech-save-as")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "別名で書き出す" })).toBeDisabled();
+});
 
 test("one WAV sends identical open-mouth render settings through single and all exports", async ({ page }) => {
   await mockPsd(page);
