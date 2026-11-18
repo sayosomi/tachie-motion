@@ -138,6 +138,9 @@ def export_preset_utterance(
                 "phase_frames", "seed",
             }):
         raise ValueError("Blink requires explicit frame timing and seed")
+    if blink_enabled and mode != "none" and (
+            type(mouth_groups) is not list or not mouth_groups):
+        raise ValueError("Blink with lip motion requires explicit mouth PSD groups")
     if fps not in (24, 30, 60):
         raise ValueError("Unsupported frame rate")
     if mov.suffix.lower() != ".mov" or (otio is not None and otio.suffix.lower() != ".otio"):
