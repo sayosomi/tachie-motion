@@ -16,9 +16,9 @@ const motionTabs = (page: Page) => page.getByRole("tablist", { name: "パーツ"
 const saved = async (page: Page) => JSON.parse((await page.evaluate(() =>
   localStorage.getItem("tachie-motion.preset-draft.v2")))!);
 
-async function openEditor(page: Page, requests: Array<{ path: string; visible: boolean }[]> = []) {
+async function openEditor(page: Page, requests: Array<{ path: string; visible: boolean }[]> = [], sourceLayers = layers) {
   await page.route("**/api/psd", (route) => route.fulfill({ json: {
-    width: 64, height: 64, fingerprint: "1000:2000", preview: png, layers,
+    width: 64, height: 64, fingerprint: "1000:2000", preview: png, layers: sourceLayers,
   } }));
   await page.route("**/api/preset-preview", (route) => {
     requests.push(route.request().postDataJSON().layers);
@@ -213,8 +213,12 @@ test("clearing starred closed eyes permits reassignment and restores blank state
 test("blink timing requires explicit values, survives reload, and remains character-wide", async ({ page }) => {
   await openEditor(page);
   await setEyeGroup(page);
-  await page.getByRole("button", { name: "瞬き時間を保存" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "数値が不正" })).toBeVisible();
+  // Suggested values are present as guidance but not silently persisted.
+  await expect(page.getByRole("spinbutton", { name: "間隔（秒）" })).toHaveValue("3");
+  await expect(page.getByRole("spinbutton", { name: "閉眼時間（秒）" })).toHaveValue("0.12");
+  await expect(page.getByRole("spinbutton", { name: "間隔の揺らぎ（±秒）" })).toHaveValue("0.5");
+  await expect(page.getByRole("spinbutton", { name: "最初の瞬きまで（秒）" })).toHaveValue("0.7");
+  await expect(page.getByRole("spinbutton", { name: "再現用シード（整数）" })).toHaveValue("0");
   expect((await saved(page)).collection.blinkTiming).toBeUndefined();
 
   await page.getByRole("spinbutton", { name: "間隔（秒）" }).fill("5");
@@ -306,4 +310,73 @@ test("blink-disabled export becomes available only after explicit timing and eye
     jitter_frames: 15, phase_frames: 30, seed: 123,
   });
   expect(submissions[0].mode).toBe("none");
+});
+
+
+test("starred eye group next to starred closed leaf is hidden only for the closed pose", async ({ page }) => {
+  const requests: Array<{ path: string; visible: boolean }[]> = [];
+  const sourceLayers = [
+    { path: "7", name: "顔／目", kind: "group", visible: true,
+      effective_visible: true, bbox: [0, 0, 64, 64] },
+    { path: "7/0", name: "*開いた目グループ", kind: "group", visible: true,
+      effective_visible: true, bbox: [10, 10, 30, 20] },
+    { path: "7/0/0", name: "虹彩", kind: "pixel", visible: true,
+      effective_visible: true, bbox: [10, 10, 30, 20] },
+    { path: "7/1", name: "*閉じ目", kind: "pixel", visible: false,
+      effective_visible: false, bbox: [10, 10, 30, 20] },
+  ];
+  await openEditor(page, requests, sourceLayers);
+  await page.getByRole("tablist", { name: "パーツ" })
+    .getByRole("tab", { name: "目" }).click();
+  await page.getByRole("checkbox", { name: "目 ON" }).check();
+  await page.getByRole("button", { name: "グループを選択", exact: true }).click();
+  await page.getByRole("group", { name: "PSDグループ" })
+    .getByRole("checkbox", { name: "顔／目 [7]" }).check();
+  await page.getByRole("button", { name: "閉じる", exact: true }).click();
+  await entry(page, "7/1").getByRole("radio").check();
+  await expect(entry(page, "7/1").getByRole("radio")).toBeChecked();
+  await expect(page.locator(".preset-error-toast")).toHaveCount(0);
+
+  const draft = await saved(page);
+  expect(draft.collection.items[0].base.find(
+    (state: { path: string; visible: boolean }) => state.path === "7/0"
+  )?.visible).toBe(true);
+  expect(draft.collection.items[0].eyes.closed.find(
+    (state: { path: string; visible: boolean }) => state.path === "7/1"
+  )?.visible).toBe(true);
+  expect(draft.collection.items[0].eyes.closed.some(
+    (state: { path: string }) => state.path === "7/0"
+  )).toBe(false);
+  await expect.poll(() => requests.some((states) =>
+    states.find((state) => state.path === "7/0")?.visible === false &&
+    states.find((state) => state.path === "7/1")?.visible === true)).toBe(true);
+});
+
+test("failed blink timing persistence has visible viewport error and no false success", async ({ page }) => {
+  await openEditor(page);
+  await setEyeGroup(page);
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === "tachie-motion.preset-draft.v2") {
+        throw new DOMException("Storage denied", "QuotaExceededError");
+      }
+      return original.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "瞬き時間を保存" }).click();
+  await expect(page.locator(".preset-error-toast")).toContainText("ブラウザに自動保存できません");
+  await expect(page.getByRole("status").filter({
+    hasText: "保存できませんでした",
+  })).toBeVisible();
+  await expect(page.getByRole("status").filter({
+    hasText: "キャラクター共通の瞬き設定を保存しました",
+  })).toHaveCount(0);
+  await expect.poll(() => page.locator(".preset-error-toast").evaluate((node) =>
+    getComputedStyle(node).position === "fixed" &&
+      node.getBoundingClientRect().top >= 0 &&
+      node.getBoundingClientRect().top < window.innerHeight / 2
+  )).toBe(true);
+  await page.getByRole("button", { name: "エラーを閉じる" }).click();
+  await expect(page.locator(".preset-error-toast")).toHaveCount(0);
 });
