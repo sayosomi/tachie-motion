@@ -428,3 +428,129 @@ test("failed rename persistence preserves the visible error and unchanged preset
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await expect(page.getByText("通常", { exact: true })).toBeVisible();
 });
+
+const initialTiming = {
+  intervalMs: 3000, closedMs: 120, jitterMs: 500, phaseMs: 700, seed: 0,
+};
+
+/** Reproduce a tab switch while the Presets view is still validating PSD.
+ * The Speech view must handle the missing timing independently.
+ */
+async function switchSpeechDuringHeldPresetRestore(page: Page, failSpeechWrite: boolean) {
+  await openEditor(page);
+  await setEyeGroup(page);
+  await entry(page, "0/1/1").getByRole("radio").check();
+  await page.evaluate(() => {
+    const key = "tachie-motion.preset-draft.v2";
+    const draft = JSON.parse(localStorage.getItem(key)!);
+    delete draft.collection.blinkTiming;
+    localStorage.setItem(key, JSON.stringify(draft));
+  });
+  if (failSpeechWrite) {
+    await page.addInitScript(() => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        if (key === "tachie-motion.preset-draft.v2")
+          throw new DOMException("Storage denied", "QuotaExceededError");
+        return original.call(this, key, value);
+      };
+    });
+  }
+  await page.unroute("**/api/psd");
+  let releaseFirst!: () => void;
+  const holdFirst = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let firstSeen!: () => void;
+  const firstRequested = new Promise<void>((resolve) => { firstSeen = resolve; });
+  let requestCount = 0;
+  await page.route("**/api/psd", async (route) => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      firstSeen();
+      await holdFirst;
+    }
+    // The first browser request may already be aborted by tab unmount.
+    try {
+      await route.fulfill({ json: {
+        width: 64, height: 64, fingerprint: "1000:2000", preview: png, layers,
+      } });
+    } catch { /* A cancelled Presets request is expected. */ }
+  });
+  await page.route("**/api/health", (route) => route.fulfill({ json: {
+    ok: true, default_output_dir: "/tmp/output",
+  } }));
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  await page.route("**/api/preset-utterance-destination", (route) =>
+    route.fulfill({ json: { state: "available", suggested_basename: "blink_002" } }));
+  await page.reload();
+  await firstRequested;
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  releaseFirst();
+  await expect(page.getByRole("heading", { name: "セリフ" })).toBeVisible();
+}
+
+test("switching to Speech during old-draft PSD restore persists blink defaults before export", async ({ page }) => {
+  await switchSpeechDuringHeldPresetRestore(page, false);
+  await expect.poll(async () => (await saved(page)).collection.blinkTiming).toEqual(initialTiming);
+  await page.locator("#speech-wav-path-advanced").evaluate((node) => {
+    (node as HTMLDetailsElement).open = true;
+  });
+  await page.locator("#speech-wav-path").fill("/tmp/011_あんこもん.wav");
+  await page.getByRole("button", { name: "WAVを確認" }).click();
+  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeEnabled();
+});
+
+test("Speech restore write failure preserves the old draft and blocks export", async ({ page }) => {
+  await switchSpeechDuringHeldPresetRestore(page, true);
+  await expect(page.getByRole("alert")).toContainText("瞬き初期値をブラウザへ保存できません");
+  expect((await saved(page)).collection.blinkTiming).toBeUndefined();
+  await expect(page.getByRole("button", { name: "WAVを確認" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+});
+
+test("new PSD initialization write failure leaves no phantom saved timing", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === "tachie-motion.preset-draft.v2")
+        throw new DOMException("Storage denied", "QuotaExceededError");
+      return original.call(this, key, value);
+    };
+  });
+  await page.route("**/api/psd", (route) => route.fulfill({ json: {
+    width: 64, height: 64, fingerprint: "1000:2000", preview: png, layers,
+  } }));
+  await page.goto("/");
+  await page.locator("#preset-psd-path-advanced").evaluate((node) => {
+    (node as HTMLDetailsElement).open = true;
+  });
+  await page.locator("#preset-psd-path").fill(source);
+  await page.getByRole("button", { name: "読み込む", exact: true }).click();
+  await expect(page.locator(".preset-error-toast")).toContainText("ブラウザに自動保存できません");
+  await expect(page.getByRole("button", { name: "詳細を編集" })).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem("tachie-motion.preset-draft.v2"))).toBeNull();
+});
+
+test("old-draft restore write failure never publishes unsaved blink defaults", async ({ page }) => {
+  await openEditor(page);
+  await page.evaluate(() => {
+    const key = "tachie-motion.preset-draft.v2";
+    const draft = JSON.parse(localStorage.getItem(key)!);
+    delete draft.collection.blinkTiming;
+    localStorage.setItem(key, JSON.stringify(draft));
+  });
+  await page.addInitScript(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === "tachie-motion.preset-draft.v2")
+        throw new DOMException("Storage denied", "QuotaExceededError");
+      return original.call(this, key, value);
+    };
+  });
+  await page.reload();
+  await expect(page.getByText("初期の瞬き時間を保存できないため復元を中止しました。", { exact: false })).toBeVisible();
+  expect((await saved(page)).collection.blinkTiming).toBeUndefined();
+  await expect(page.getByRole("button", { name: "詳細を編集" })).toHaveCount(0);
+});
