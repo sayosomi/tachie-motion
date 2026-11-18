@@ -36,6 +36,7 @@ type Props = {
   onEyeShapeChange: (pose: "opened" | "closed", path: string, visible: boolean) => void;
   onOpenShapeChange: (shape: "closed" | "opened", path: string, visible: boolean) => void;
   onAiueoChoiceChange: (key: AiueoKey, path: string, visible: boolean) => void;
+  onClearMotionShape: (selection: "open" | "eyes" | AiueoKey) => void;
   onDelete: () => void;
 };
 
@@ -49,7 +50,7 @@ export default function PresetDetail({
   sourcePath, fingerprint, canvasWidth, canvasHeight, nameDraft,
   onNameDraftChange, onBack, onRename, onToggle, mouthGroups, eyeGroups,
   onMouthGroupsChange, onEyeGroupsChange, onMouthMotionChange, onBlinkChange,
-  onEyeShapeChange, onOpenShapeChange, onAiueoChoiceChange, onDelete,
+  onEyeShapeChange, onOpenShapeChange, onAiueoChoiceChange, onClearMotionShape, onDelete,
 }: Props) {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -346,6 +347,14 @@ export default function PresetDetail({
               : `② 「${AIUEO_LABELS[aiueoKey]}」の口のレイヤー`}
           {!hasConfiguredMotionShape && "を選択してください"}
         </p>}
+        {area === "motion" && hasConfiguredMotionShape && <button
+          type="button" className="secondary preset-clear-shape"
+          onClick={() => onClearMotionShape(motionKind === "eyes" ? "eyes"
+            : roleMode === "open" ? "open" : aiueoKey)}>
+          {motionKind === "eyes" ? "閉じ目の選択を解除"
+            : roleMode === "open" ? "Openの選択を解除"
+              : `「${AIUEO_LABELS[aiueoKey]}」の選択を解除`}
+        </button>}
         <div className="preset-role-tools">
           <input aria-label="レイヤー検索" value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="レイヤー名・パスで検索" />

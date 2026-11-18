@@ -7,7 +7,7 @@ import {
   appendPreset, availablePresetName, createPreset, duplicatePreset, movePreset,
   removeSessionPreset, renamePreset, reorderPresets,
   setBaseLayerChoice, setAiueoPsdChoice, setOpenPsdChoice, setMouthMotionEnabled,
-  setEyePsdChoice, setBlinkEnabled,
+  setEyePsdChoice, setBlinkEnabled, clearMotionSelection,
   type AiueoKey,
   type Presets, type UnifiedPreset,
 } from "./presetModel";
@@ -517,7 +517,9 @@ export default function PresetWorkspace() {
         updatePresets(setOpenPsdChoice(collection, active.id, psd.layers, shape, path, visible))}
       onAiueoChoiceChange={(key: AiueoKey, path: string, visible: boolean) =>
         updatePresets(setAiueoPsdChoice(collection, active.id, psd.layers, key, path, visible))}
-      onDelete={() => remove(active.id)}
+      onClearMotionShape={(selection) =>
+         updatePresets(clearMotionSelection(collection, active.id, selection))}
+       onDelete={() => remove(active.id)}
     /> : psd && <section className="panel preset-list-section">
       <div className="preset-list-header">
         <h2>一覧</h2>

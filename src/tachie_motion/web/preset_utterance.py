@@ -10,7 +10,7 @@ import tempfile
 from tachie_motion.audio.volume import analyze_wav
 from tachie_motion.web.aiueo_renderer import (
     validate_aiueo_mouth, render_aiueo_states, inspect_export_lab,
-    verify_export_lab, aiueo_indices,
+    verify_export_lab, aiueo_indices, validate_psdtool_state,
 )
 from tachie_motion.presets import LayerState, LayerStateSet
 from tachie_motion.psd.crop import write_fixed_crop_png
@@ -62,6 +62,8 @@ def validate_open_mouth(psd, base: dict, mouth: dict | None,
                         mouth_groups: list[str] | None = None):
     if type(mouth) is not dict or set(mouth) != {"closed", "opened"}:
         raise ValueError("This preset has no complete open mouth definition")
+    summaries = tuple(walk_layers(psd))
+    validate_psdtool_state(summaries, base, "Open base")
     states = {}
     for key in ("closed", "opened"):
         entries = mouth[key]
@@ -88,7 +90,6 @@ def validate_open_mouth(psd, base: dict, mouth: dict | None,
     if not any(states["opened"].values()):
         raise ValueError("Open mouth has no explicitly selected visible layer")
     if mouth_groups is not None:
-        summaries = tuple(walk_layers(psd))
         known = {item.index_path: item for item in summaries}
         if (type(mouth_groups) is not list or not mouth_groups or
                 any(type(group) is not str for group in mouth_groups)):
@@ -104,6 +105,7 @@ def validate_open_mouth(psd, base: dict, mouth: dict | None,
         if any(path not in hidden for path in states["opened"]):
             raise ValueError("Open mouth target is outside assigned PSD groups")
         states["opened"] = {**hidden, **states["opened"]}
+    validate_psdtool_state(summaries, {**base, **states["opened"]}, "Open opened")
     return states
 
 

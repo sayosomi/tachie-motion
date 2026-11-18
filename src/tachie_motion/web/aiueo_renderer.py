@@ -51,6 +51,19 @@ def verify_export_lab(wav: Path, source_identity: str,
         raise ValueError("LAB changed during rendering; nothing was published")
 
 
+def validate_psdtool_state(summaries: tuple, states: dict, label: str) -> None:
+    """Enforce PSDTool mandatory and sibling-exclusive visibility on a full pose."""
+    siblings: dict[tuple[int, ...], list[tuple[int, ...]]] = {}
+    for item in summaries:
+        if item.name.startswith("!") and states.get(item.index_path) is not True:
+            raise ValueError(label + " violates ! mandatory PSD layer")
+        if item.name.startswith("*"):
+            siblings.setdefault(item.index_path[:-1], []).append(item.index_path)
+    for paths in siblings.values():
+        if sum(states.get(path) is True for path in paths) > 1:
+            raise ValueError(label + " violates * exclusive PSD layer")
+
+
 def validate_aiueo_mouth(psd, base: dict, mouth: dict | None,
                          mouth_groups: list[str] | None = None) -> dict:
     """Require all six explicit mouth shapes, including rest ('n').
@@ -73,13 +86,7 @@ def validate_aiueo_mouth(psd, base: dict, mouth: dict | None,
         groups = tuple(item.index_path for item in summaries if item.kind == "group")
     if not groups:
         raise ValueError("aiueo requires assigned PSD mouth groups")
-    siblings: dict[tuple[int, ...], list[tuple[int, ...]]] = {}
-    fixed: list[tuple[int, ...]] = []
-    for item in summaries:
-        if item.name.startswith("*"):
-            siblings.setdefault(item.index_path[:-1], []).append(item.index_path)
-        elif item.name.startswith("!"):
-            fixed.append(item.index_path)
+    validate_psdtool_state(summaries, base, "aiueo base")
     # The fixed pose is not an implicit mouth selection. Keep mandatory
     # leaves, but explicitly switch every editable mouth leaf OFF unless
     # selected in this phoneme.
@@ -110,11 +117,7 @@ def validate_aiueo_mouth(psd, base: dict, mouth: dict | None,
                 raise ValueError("aiueo mouth has a hidden parent; adjust preset visibility")
             overrides[path] = entry["visible"]
         effective = {**base, **hidden, **overrides}
-        if any(effective.get(path) is not True for path in fixed):
-            raise ValueError("aiueo mouth violates ! mandatory PSD layer")
-        for paths in siblings.values():
-            if sum(effective.get(path) is True for path in paths) > 1:
-                raise ValueError("aiueo mouth violates * exclusive PSD layer")
+        validate_psdtool_state(summaries, effective, "aiueo mouth")
         results[key] = {**hidden, **overrides}
     return results
 
