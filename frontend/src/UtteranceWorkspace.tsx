@@ -10,6 +10,7 @@ import useWavPlayback from "./WavPlayback";
 import { useLabStatus } from "./useLabStatus";
 import { useBatchUtteranceExport } from "./useBatchUtteranceExport";
 import { exportPayload, exportReady, aiueoMouthReady } from "./utteranceExportRequest";
+import { blinkFrames } from "./blinkTiming";
 import type { UnifiedPreset } from "./presetModel";
 import { matchesSource, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
@@ -281,7 +282,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const outputBasename = requiresAlternate ? saveAsName : current?.basename ?? "";
   const conflictPolicy = info?.state === "complete" && !requiresAlternate
     ? "overwrite" : "error";
-  const allowed = !!current && exportReady(selected, current, labStatuses[current.id]);
+  const allowed = !!current && exportReady(selected, current, labStatuses[current.id], draft?.collection);
   const canExport = !!draft && !!current && allowed && !editingLocked &&
     !singleExportLock.current && addingCount === 0 &&
     !!info && !destinationError &&
@@ -313,7 +314,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     }
   }
 
-  const canApplyToAll = !!current && !!selected && exportReady(selected, current, labStatuses[current.id]) &&
+  const canApplyToAll = !!current && !!selected && exportReady(selected, current, labStatuses[current.id], draft?.collection) &&
     (current.mode !== "aiueo" || items.every((item) => labStatuses[item.id]?.status === "valid")) &&
     !editingLocked && addingCount === 0 && items.length > 1;
 
@@ -329,7 +330,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     <header className="topbar"><div className="brand"><span className="brand-mark">t</span>
       <span>tachie-motion</span></div></header>
     <div className="intro"><h1>セリフ</h1></div>
-    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件はMOVと全体OTIO 1本を生成します。aiueoには同名の有効なLABとプリセット6口形の設定が必要です。瞬き・待機・変更点は後続対応です。</p>
+    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件はMOVと全体OTIO 1本を生成します。aiueoには同名の有効なLABとプリセット6口形の設定が必要です。瞬きは目のレイヤーとキャラクター共通の時間を設定すると利用できます。待機・変更点は後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} labStatuses={labStatuses}
       onRecheckLabs={() => setLabRefreshVersion((previous) => previous + 1)}
@@ -363,7 +364,10 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         aiueoMouthMissing={current?.mode === "aiueo" && selected?.mouthMotionEnabled !== false
           && !aiueoMouthReady(selected)}
         labStatus={current ? labStatuses[current.id] : undefined}
-        blinkUnsupported={!!selected?.blinkEnabled}
+        blinkMissing={!!selected?.blinkEnabled && !allowed &&
+          (!draft?.collection.motionGroups?.eyes?.length ||
+            !selected.eyes?.closed.some((entry) => entry.visible) ||
+            !blinkFrames(draft.collection.blinkTiming, current?.fps ?? 30))}
         info={info} destinationError={destinationError}
         requiresAlternate={requiresAlternate} saveAsName={saveAsName}
         outputBasename={outputBasename} canExport={canExport}
