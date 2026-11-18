@@ -45,6 +45,10 @@ class BlinkExportApiTests(unittest.TestCase):
         psd.save(self.source)
 
         info = describe_psd(str(self.source))
+        mouth_layers = [layer for layer in info["layers"]
+                        if layer["name"] == "mouth" and "/" in layer["path"]]
+        mouth_close = next(layer["path"] for layer in mouth_layers if layer["visible"])
+        mouth_open = next(layer["path"] for layer in mouth_layers if not layer["visible"])
         paths = {entry["name"]: entry["path"] for entry in info["layers"]}
         self.eye_group = paths["blink eyes"]
         self.eye_open = paths["open eye"]
