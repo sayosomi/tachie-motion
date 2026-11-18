@@ -520,3 +520,13 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .blink-timing-editor input[type="number"] { width:120px; max-width:50%; flex:none; }
 .blink-timing-editor button { margin-top:8px; }
 .blink-timing-editor [role="status"] { margin:10px 0 0; }
+
+
+/* Keep edit failures within the current viewport even in a tall PSD tree. */
+.preset-error-toast { position:fixed; z-index:1000; top:14px; left:50%;
+  transform:translateX(-50%); width:min(700px,calc(100vw - 32px));
+  box-sizing:border-box; display:flex; align-items:start; gap:14px;
+  box-shadow:0 8px 34px #0009; line-height:1.6; max-height:45vh; overflow:auto; }
+.preset-error-toast > span { flex:1; min-width:0; overflow-wrap:anywhere; }
+.preset-error-toast > button { flex:none; padding:5px 10px; min-height:30px;
+  margin:0; border-color:#aa7c78; }
