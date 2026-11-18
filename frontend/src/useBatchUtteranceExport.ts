@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { PresetDraft } from "./presetDraftStorage";
 import type { UnifiedPreset } from "./presetModel";
-import { effectiveLabSourceIdentity, exportPayload, exportReady } from "./utteranceExportRequest";
+import { effectiveLabSourceIdentity, exportPayload, exportReadinessError } from "./utteranceExportRequest";
 import { movName, otioName, validateBatchNaming, type BatchNaming } from "./nameTemplate";
 import type { UtteranceItem } from "./utteranceItems";
 import type { LabInfo } from "./useLabStatus";
@@ -107,8 +107,9 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   let overwrites = 0;
   for (const [index, item] of items.entries()) {
     const preset = draft.collection.items.find((entry) => entry.id === item.presetId);
-    if (!preset || !exportReady(preset, item, labStatuses[item.id], draft.collection)) {
-      throw new Error(item.wavPath + " — 口パク・プリセットの設定を確認してください");
+    const reason = exportReadinessError(preset, item, labStatuses[item.id], draft.collection);
+    if (reason) {
+      throw new Error(`${index + 1}番 ${item.wavPath} — ${reason}`);
     }
     const basename = movieNames[index];
     const destination = movies[index];
