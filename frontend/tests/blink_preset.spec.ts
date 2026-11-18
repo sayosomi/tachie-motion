@@ -530,6 +530,70 @@ test("Speech restore write failure preserves the old draft and blocks export", a
   await expect(page.locator(".project-controls").getByRole("button", { name: "JSONを保存" })).toBeDisabled();
 });
 
+/** Browser tab B explicitly saves newer settings during tab A's PSD check. */
+async function changeInOtherTab(page: Page, changePreset: boolean) {
+  const other = await page.context().newPage();
+  try {
+    // Do not let tab B's own automatic restore interfere with this controlled
+    // cross-tab write. The localStorage write is identical to a regular save.
+    await other.route("**/api/psd", (route) =>
+      route.fulfill({ status: 503, json: { detail: "held in test" } }));
+    await other.goto(new URL("/", page.url()).href);
+    await other.evaluate((change) => {
+      const key = "tachie-motion.preset-draft.v2";
+      const current = JSON.parse(localStorage.getItem(key)!);
+      current.collection.blinkTiming = {
+        intervalMs: 4500, closedMs: 120, jitterMs: 500, phaseMs: 700, seed: 7,
+      };
+      if (change) current.collection.items[0].name = "別タブで編集したプリセット";
+      localStorage.setItem(key, JSON.stringify(current));
+    }, changePreset);
+  } finally {
+    await other.close();
+  }
+}
+
+test("Speech PSD validation adopts newer blink timing saved in another browser tab", async ({ page }) => {
+  const submissions: Array<Record<string, unknown>> = [];
+  await page.route("**/api/preset-utterance-export", (route) => {
+    submissions.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill({ json: {
+      mov: "/tmp/output/blink_001.mov",
+      otio: "/tmp/output/blink_001.otio", frames: 30, sample_count: 1000,
+    } });
+  });
+  await switchSpeechDuringHeldPresetRestore(page, false,
+    () => changeInOtherTab(page, false));
+
+  expect((await saved(page)).collection.blinkTiming.intervalMs).toBe(4500);
+  await page.locator("#speech-wav-path-advanced").evaluate((node) => {
+    (node as HTMLDetailsElement).open = true;
+  });
+  await page.locator("#speech-wav-path").fill("/tmp/011_あんこもん.wav");
+  await page.getByRole("button", { name: "WAVを確認" }).click();
+  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeEnabled();
+  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await expect.poll(() => submissions.length).toBe(1);
+  expect(submissions[0].blink_timing).toMatchObject({
+    interval_frames: 135, seed: 7,
+  });
+});
+
+test("Speech rejects conflicting other-tab preset edits without overwriting them", async ({ page }) => {
+  await switchSpeechDuringHeldPresetRestore(page, false,
+    () => changeInOtherTab(page, true));
+  await expect(page.getByRole("alert")).toContainText("別のタブでプリセットが更新されました");
+  const current = await saved(page);
+  expect(current.collection.blinkTiming.intervalMs).toBe(4500);
+  expect(current.collection.items[0].name).toBe("別タブで編集したプリセット");
+  await page.locator("#speech-wav-path-advanced").evaluate((node) => {
+    (node as HTMLDetailsElement).open = true;
+  });
+  await expect(page.getByRole("button", { name: "WAVを確認" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+  await expect(page.locator(".project-controls").getByRole("button", { name: "JSONを保存" })).toBeDisabled();
+});
+
 test("new PSD initialization write failure leaves no phantom saved timing", async ({ page }) => {
   await page.addInitScript(() => {
     const original = Storage.prototype.setItem;
