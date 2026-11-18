@@ -20,11 +20,13 @@ export function exportReady(
   if (item.mode === "none" || preset.mouthMotionEnabled === false) return true;
   if (item.mode === "aiueo") return lab?.status === "valid" && !!lab.source_identity && aiueoMouthReady(preset);
   const mouth = preset.openMouth;
-  return item.mode === "open" && Boolean(
-    mouth && mouth.closed.length > 0 &&
-    mouth.closed.length === mouth.opened.length &&
-    JSON.stringify(mouth.closed) !== JSON.stringify(mouth.opened),
-  );
+  if (item.mode !== "open" || !mouth || !mouth.opened.length ||
+      mouth.closed.length !== mouth.opened.length) return false;
+  const base = new Map(preset.base.map((layer) => [layer.path, layer.visible]));
+  // The resting mouth is always the current fixed-layer visibility.
+  // Legacy closed-shape values are preserved in JSON but never drive playback.
+  return mouth.opened.some((layer) =>
+    base.has(layer.path) && base.get(layer.path) !== layer.visible);
 }
 
 /** Only a LAB-driven, enabled aiueo movie may reserve a LAB identity. */

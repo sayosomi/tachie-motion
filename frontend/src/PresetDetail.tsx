@@ -58,7 +58,6 @@ export default function PresetDetail({
   const [previewState, setPreviewState] = useState<PreviewState>("base");
   const [roleMode, setRoleMode] = useState<"open" | "aiueo">("open");
   const [motionKind, setMotionKind] = useState<"mouth" | "eyes">("mouth");
-  const [showAdvancedPose, setShowAdvancedPose] = useState(false);
   const [aiueoKey, setAiueoKey] = useState<AiueoKey>("a");
   const [shapePreview, setShapePreview] = useState<ShapePreview | null>(null);
 
@@ -68,7 +67,7 @@ export default function PresetDetail({
   }, [layers]);
 
   const editingBase = area === "normal" || previewState === "base";
-  const eyePose = previewState === "eyes-closed" ? "closed" : "opened";
+  const eyePose = "closed" as const;
   const selectedGroups = motionKind === "mouth" ? mouthGroups : eyeGroups;
   const motionEnabled = motionKind === "mouth"
     ? preset.mouthMotionEnabled !== false : preset.blinkEnabled;
@@ -139,15 +138,11 @@ export default function PresetDetail({
       : previewState === "eyes-opened" || previewState === "eyes-closed"
         ? preset.eyes?.[eyePose]
         : preset.aiueoMouth?.[previewState.slice(6) as AiueoKey];
-  // Open's closed pose inherits the preset's base portrait until overridden.
-  // This is not an invalid/unconfigured mouth; the opened pose is still required
-  // for animated export and keeps its separate missing-shape warning.
-  const inheritedClosed = previewState === "closed" && !shape?.length;
   const unconfiguredOpened = previewState === "opened" && !shape?.length;
   const shapeKey = JSON.stringify([sourcePath, fingerprint, sourceIdentity,
     preset.base, shape, previewState, preset.mouthMotionEnabled, preset.blinkEnabled]);
   useEffect(() => {
-    if (previewState === "base" || inheritedClosed || unconfiguredOpened
+    if (previewState === "base" || unconfiguredOpened
         || (area === "motion" && !motionEnabled)
         || sourceChanged || previewLoading) return;
     if (!shape?.length) return; // The unconfigured phoneme inherits the base preview.
@@ -192,13 +187,13 @@ export default function PresetDetail({
     }
     return () => abort.abort();
   }, [shapeKey, browserRenderer, sourceChanged, previewLoading, verifySource,
-    preset.mouthMotionEnabled, inheritedClosed, unconfiguredOpened, motionKind,
+    preset.mouthMotionEnabled, unconfiguredOpened, motionKind,
     area, motionEnabled]);
 
   const unconfiguredAiueo = previewState.startsWith("aiueo-") && !shape?.length;
   const unconfiguredEyes = previewState.startsWith("eyes-") && !shape?.length;
   // An OFF motion shows only the preset's resting appearance.
-  const usingBasePreview = previewState === "base" || inheritedClosed
+  const usingBasePreview = previewState === "base"
     || unconfiguredOpened || unconfiguredAiueo || unconfiguredEyes
     || (area === "motion" && !motionEnabled);
   const shownPreview = sourceChanged ? undefined :
@@ -206,9 +201,9 @@ export default function PresetDetail({
   const shownError = sourceChanged ? "PSDが変更されました。再読み込みしてください。" :
     usingBasePreview ? previewError : shapePreview?.key === shapeKey ? shapePreview.error : undefined;
   const focusPaths = new Set((motionKind === "eyes" ? [
-    ...(preset.eyes?.opened ?? []), ...(preset.eyes?.closed ?? []),
+    ...(preset.eyes?.closed ?? []),
   ] : roleMode === "open" ? [
-    ...(preset.openMouth?.closed ?? []), ...(preset.openMouth?.opened ?? []),
+    ...(preset.openMouth?.opened ?? []),
   ] : AIUEO_KEYS.flatMap((key) => preset.aiueoMouth?.[key] ?? [])).map((item) => item.path));
   const hasBounds = (layer: Layer) => layer.bbox.length === 4
     && layer.bbox.every(Number.isFinite)
@@ -264,7 +259,6 @@ export default function PresetDetail({
     const enabled = kind === "eyes" ? preset.blinkEnabled
       : preset.mouthMotionEnabled !== false;
     setPreviewState(enabled ? motionPose(kind) : "base");
-    setShowAdvancedPose(false);
     setSelectedPath(null);
     setQuery("");
   }
@@ -273,7 +267,6 @@ export default function PresetDetail({
     if (motionKind === "mouth") onMouthMotionChange(enabled);
     else onBlinkChange(enabled);
     setPreviewState(enabled ? motionPose(motionKind) : "base");
-    setShowAdvancedPose(false);
     setSelectedPath(null);
   }
 
@@ -292,98 +285,53 @@ export default function PresetDetail({
           <button type="button" disabled={!nameDraft.trim() || nameDraft === preset.name}
             onClick={() => onRename(nameDraft)}>名前を変更</button>
         </div>
-        <div className="preset-role-tabs" role="group" aria-label="編集区分">
+        <div className="preset-role-tabs preset-area-tabs" role="group" aria-label="編集区分">
           <button type="button" aria-pressed={area === "normal"}
             onClick={() => { setArea("normal"); setPreviewState("base"); setQuery(""); }}>
-            通常レイヤー
+            固定レイヤー
           </button>
           <button type="button" aria-pressed={area === "motion"}
             onClick={() => { setArea("motion"); selectMotion(motionKind); }}>
-            動かすパーツ
+            可動レイヤー
           </button>
         </div>
         {area === "motion" && <>
-          <div className="preset-role-tabs preset-motion-tabs" role="tablist" aria-label="動作の種類">
-            <button type="button" role="tab" aria-selected={motionKind === "mouth"}
-              aria-controls="preset-motion-content"
-              onClick={() => selectMotion("mouth")}>口パク</button>
-            <button type="button" role="tab" aria-selected={motionKind === "eyes"}
-              aria-controls="preset-motion-content"
-              onClick={() => selectMotion("eyes")}>瞬き</button>
-          </div>
-          {!motionEnabled ? <div id="preset-motion-content" role="tabpanel"
-            aria-label={motionKind === "mouth" ? "口パク" : "瞬き"}
-            className="preset-motion-disabled">
-            <button type="button" onClick={() => toggleCurrentMotion(true)}>
-              ONにする
-            </button>
-          </div> : <div id="preset-motion-content" role="tabpanel"
-            aria-label={motionKind === "mouth" ? "口パク" : "瞬き"}
-            className="preset-motion-settings">
-          <div className="preset-motion-status">
-            <button type="button" className="secondary"
-              onClick={() => toggleCurrentMotion(false)}>OFFにする</button>
-          </div>
-          {motionKind === "mouth" ? <>
-          <div className="preset-role-tabs" role="group" aria-label="口パク方式">
-            <button type="button" aria-pressed={roleMode === "open"}
-              onClick={() => { setRoleMode("open"); setPreviewState("opened"); setShowAdvancedPose(false); }}>開閉</button>
-            <button type="button" aria-pressed={roleMode === "aiueo"}
-              onClick={() => { setRoleMode("aiueo"); setPreviewState(`aiueo-${aiueoKey}`);
-                setShowAdvancedPose(false); }}>あいうえお</button>
-          </div>
-          {roleMode === "open" ? <>
-            {showAdvancedPose && <div className="preset-aiueo-choice" role="group" aria-label="編集する口形">
-              <button type="button" aria-pressed={previewState === "opened"}
-                onClick={() => setPreviewState("opened")}>口を開けたとき</button>
-              <button type="button" aria-pressed={previewState === "closed"}
-                onClick={() => setPreviewState("closed")}>口を閉じたとき</button>
-            </div>}
-            <button type="button" className="secondary"
-              aria-expanded={showAdvancedPose}
-              onClick={() => {
-                if (showAdvancedPose && previewState === "closed") setPreviewState("opened");
-                setShowAdvancedPose(!showAdvancedPose);
-              }}>
-              {showAdvancedPose ? "詳細設定を閉じる" : "閉じたときの口も設定"}
-            </button>
-            {preset.openMouth?.closed.some((item) =>
-              preset.base.find((base) => base.path === item.path)?.visible !== item.visible
-            ) && !showAdvancedPose && <p className="hint">閉じたときの口に個別設定があります。</p>}
-          </> : <>
-            <div className="preset-aiueo-choice" role="group" aria-label="編集する口形">
-              {AIUEO_KEYS.map((key) => <button key={key} type="button"
-                aria-pressed={previewState === `aiueo-${key}`}
-                title={key === "n" ? "ん（無音・静止口）" : undefined}
-                onClick={() => { setAiueoKey(key); setPreviewState(`aiueo-${key}`); }}>
-                {AIUEO_LABELS[key]}
-              </button>)}
+          <div className="preset-motion-controls">
+            <div className="preset-role-tabs preset-motion-tabs" role="tablist" aria-label="パーツ">
+              <button type="button" role="tab" aria-selected={motionKind === "mouth"}
+                aria-controls="preset-motion-content"
+                onClick={() => selectMotion("mouth")}>口</button>
+              <button type="button" role="tab" aria-selected={motionKind === "eyes"}
+                aria-controls="preset-motion-content"
+                onClick={() => selectMotion("eyes")}>目</button>
             </div>
-          </>}
-          </> : <>
-            {showAdvancedPose && <div className="preset-aiueo-choice" role="group" aria-label="編集する目の形">
-              <button type="button" aria-pressed={previewState === "eyes-closed"}
-                onClick={() => setPreviewState("eyes-closed")}>目を閉じたとき</button>
-              <button type="button" aria-pressed={previewState === "eyes-opened"}
-                onClick={() => setPreviewState("eyes-opened")}>目を開けたとき</button>
-            </div>}
-            <button type="button" className="secondary"
-              aria-expanded={showAdvancedPose}
-              onClick={() => {
-                if (showAdvancedPose && previewState === "eyes-opened") {
-                  setPreviewState("eyes-closed");
-                }
-                setShowAdvancedPose(!showAdvancedPose);
-              }}>
-              {showAdvancedPose ? "詳細設定を閉じる" : "開いたときの目も設定"}
-            </button>
-            {Boolean(preset.eyes?.opened.length) && !showAdvancedPose
-              && <p className="hint">開いたときの目に個別設定があります。</p>}
-            <p className="hint">瞬きの動画書き出しは未実装です。ここでは静止プレビューと設定保存のみ行います。</p>
-          </>}
-          <MotionGroupSelector groups={layers.filter((layer) => layer.kind === "group")}
-            selected={selectedGroups} onChange={motionKind === "mouth"
-              ? onMouthGroupsChange : onEyeGroupsChange} />
+            <label className="preset-motion-switch">
+              <input type="checkbox" aria-label={motionKind === "mouth" ? "口 ON" : "目 ON"}
+                checked={motionEnabled} onChange={(event) => toggleCurrentMotion(event.target.checked)} />
+              ON
+            </label>
+          </div>
+          {motionEnabled && <div id="preset-motion-content" role="tabpanel"
+            aria-label={motionKind === "mouth" ? "口" : "目"}
+            className="preset-motion-settings">
+            {motionKind === "mouth" && <>
+              <div className="preset-role-tabs preset-mode-tabs" role="group" aria-label="口の方式">
+                <button type="button" aria-pressed={roleMode === "open"}
+                  onClick={() => { setRoleMode("open"); setPreviewState("opened"); }}>Open</button>
+                <button type="button" aria-pressed={roleMode === "aiueo"}
+                  onClick={() => { setRoleMode("aiueo"); setPreviewState(`aiueo-${aiueoKey}`); }}>aiueo</button>
+              </div>
+              {roleMode === "aiueo" && <div className="preset-aiueo-choice" role="group" aria-label="編集する口形">
+                {AIUEO_KEYS.map((key) => <button key={key} type="button"
+                  aria-pressed={previewState === `aiueo-${key}`}
+                  onClick={() => { setAiueoKey(key); setPreviewState(`aiueo-${key}`); }}>
+                  {AIUEO_LABELS[key]}
+                </button>)}
+              </div>}
+            </>}
+            <MotionGroupSelector groups={layers.filter((layer) => layer.kind === "group")}
+              selected={selectedGroups} onChange={motionKind === "mouth"
+                ? onMouthGroupsChange : onEyeGroupsChange} />
           </div>}
         </>}
         {(area === "normal" || motionEnabled) && <>
@@ -406,7 +354,7 @@ export default function PresetDetail({
             const on = baseByPath.get(layer.path) ?? false;
             const role = roles.get(layer.path) ?? unsetRole;
             const effective = motionKind === "mouth" &&
-              (previewState === "closed" || previewState === "opened")
+              previewState === "opened"
               ? preset.openMouth?.[previewState].find((item) => item.path === layer.path)?.visible ?? on
               : role === "base" ? on : role === "show";
             return <div key={layer.path} data-layer-path={layer.path}
@@ -447,10 +395,8 @@ export default function PresetDetail({
                     }
                   }}
                   aria-label={layer.name + " [" + layer.path + "] " +
-                    (editingBase ? "基本" : motionKind === "eyes"
-                      ? eyePose === "opened" ? "開眼" : "閉眼"
-                      : roleMode === "open"
-                        ? previewState === "closed" ? "閉じ口" : "開き口" : AIUEO_LABELS[aiueoKey])} />}
+                    (editingBase ? "固定" : motionKind === "eyes" ? "close"
+                      : roleMode === "open" ? "open" : AIUEO_LABELS[aiueoKey])} />}
                 <button type="button" className="preset-layer-select"
                   aria-pressed={selectedPath === layer.path}
                   aria-label={layer.name + " [" + layer.path + "] を選択"}
@@ -470,7 +416,7 @@ export default function PresetDetail({
         </div>
         {area === "motion" && hiddenParents.length > 0 && !editingBase &&
           <p className="hint warning" role="status">
-            {motionKind === "eyes" ? "目の対象" : "口形対象"}の親グループが非表示です。「通常レイヤー」で親グループをONにしてください。
+            {motionKind === "eyes" ? "目の対象" : "口形対象"}の親グループが非表示です。「固定レイヤー」で親グループをONにしてください。
           </p>}
         </>}
         <button type="button" className="secondary preset-delete"
@@ -492,7 +438,7 @@ export default function PresetDetail({
           selectedFocus={selectedFocus} />
         {area === "motion" && motionEnabled && motionKind === "mouth" && unconfiguredOpened &&
           preset.mouthMotionEnabled !== false
-          && !sourceChanged && <p className="hint warning">開き口を指定してください</p>}
+          && !sourceChanged && <p className="hint warning">口のopenを指定してください</p>}
         {(area === "normal" || motionEnabled) &&
           <p className="hint">全体表示と{area === "motion" && motionKind === "eyes" ? "目元" : "口元"}の拡大を切り替えられます。拡大時はドラッグで移動できます。</p>}
       </section>

@@ -15,9 +15,7 @@ export function withinGroup(path: string, groupPath: string): boolean {
 export function assignedEyePaths(collection: Presets): Set<string> {
   const assigned = new Set<string>();
   for (const preset of collection.items) {
-    for (const shape of [preset.eyes?.opened, preset.eyes?.closed]) {
-      for (const layer of shape ?? []) assigned.add(layer.path);
-    }
+    for (const layer of preset.eyes?.closed ?? []) assigned.add(layer.path);
   }
   return assigned;
 }
@@ -25,9 +23,7 @@ export function assignedEyePaths(collection: Presets): Set<string> {
 export function assignedMouthPaths(collection: Presets): Set<string> {
   const assigned = new Set<string>();
   for (const preset of collection.items) {
-    for (const shape of [preset.openMouth?.closed, preset.openMouth?.opened]) {
-      for (const layer of shape ?? []) assigned.add(layer.path);
-    }
+    for (const layer of preset.openMouth?.opened ?? []) assigned.add(layer.path);
     for (const key of AIUEO_KEYS) {
       for (const layer of preset.aiueoMouth?.[key] ?? []) assigned.add(layer.path);
     }
@@ -121,7 +117,7 @@ export function setEyeGroups(
     throw new Error("PSDのレイヤーグループを選んでください");
   }
   if ([...assignedEyePaths(collection)].some((path) => !isMouthLayer(path, groups))) {
-    throw new Error("目に登録済みのレイヤーがあります。先に開眼・閉眼の割当を解除してください。");
+    throw new Error("目のcloseに登録済みのレイヤーがあります。先に割当を解除してください。");
   }
   const mouth = effectiveMouthGroups(collection, layers);
   if (groupsOverlap(groups, mouth)) {

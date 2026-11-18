@@ -109,8 +109,8 @@ export function validatePsdChoices(
     };
     check("基本");
     if (preset.openMouth) {
-      check("Open閉じ口", preset.openMouth.closed);
-      check("Open開き口", preset.openMouth.opened);
+      // Legacy closed values are inactive; base defines the resting mouth.
+      check("Open open", preset.openMouth.opened);
     }
     if (preset.aiueoMouth) {
       for (const key of ["a", "i", "u", "e", "o", "n"] as const) {
@@ -118,8 +118,8 @@ export function validatePsdChoices(
       }
     }
     if (preset.eyes) {
-      check("瞬き開いた目", preset.eyes.opened);
-      check("瞬き閉じた目", preset.eyes.closed);
+      // Legacy opened values are inactive; base defines the resting eyes.
+      check("目 close", preset.eyes.closed);
     }
   }
 }

@@ -467,3 +467,34 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   margin:12px 0 0; font-size:12px; line-height:1.6; }
 .project-repair-approve input[type="checkbox"] { width:18px; height:18px;
   flex:0 0 18px; margin:0; }
+
+/* Preset editor: hierarchy A — large area tabs, underlined part tabs,
+   compact Open/aiueo mode, six independent phoneme buttons. */
+.preset-area-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:3px; margin:14px 0 8px; border-bottom:1px solid #51667a; }
+.preset-area-tabs button { border:1px solid transparent; border-bottom:0;
+  border-radius:6px 6px 0 0; background:#283b50; color:#c1d0e0;
+  font-weight:700; min-height:42px; }
+.preset-area-tabs button[aria-pressed="true"] { background:#3f7389;
+  border-color:#70bec5; color:#fff; }
+.preset-motion-controls { display:flex; align-items:center; gap:12px; min-height:42px; }
+.preset-motion-tabs { flex:1; margin:0 0 8px; gap:22px;
+  border-bottom:1px solid #40546a; }
+.preset-motion-tabs [role="tab"] { border:0; border-bottom:3px solid transparent;
+  border-radius:0; padding:9px 8px 7px; min-height:40px;
+  background:transparent; color:#a6bdd0; font-weight:700; }
+.preset-motion-tabs [role="tab"][aria-selected="true"] {
+  border:0; border-bottom:3px solid #80d8d8; background:transparent; color:#9bf2f1; }
+.preset-motion-switch { display:flex; gap:8px; align-items:center;
+  cursor:pointer; flex-shrink:0; margin:0 0 8px; color:#dcebf3; font-weight:700; }
+.preset-motion-switch input { width:19px; height:19px; margin:0; accent-color:#7dcfc8; cursor:pointer; }
+.preset-mode-tabs { display:inline-flex; gap:3px; padding:3px;
+  margin:7px 0 11px; border-radius:5px; background:#213248; }
+.preset-mode-tabs button { min-height:35px; padding:5px 18px; border:1px solid transparent;
+  border-radius:4px; background:transparent; color:#b8c9dc; }
+.preset-mode-tabs button[aria-pressed="true"] {
+  border-color:#74c5c9; background:#3f7389; color:#fff; }
+.preset-aiueo-choice { gap:4px; margin:0 0 11px; }
+.preset-aiueo-choice button { flex:1 1 38px; border-radius:3px; min-width:38px; min-height:40px; }
+.preset-aiueo-choice button[aria-pressed="true"] {
+  border-color:#74c5c9; background:#3f7389; color:#fff; }

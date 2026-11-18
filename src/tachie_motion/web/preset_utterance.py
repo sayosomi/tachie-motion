@@ -83,8 +83,10 @@ def validate_open_mouth(psd, base: dict, mouth: dict | None):
         states[key] = result
     if states["closed"].keys() != states["opened"].keys():
         raise ValueError("Both mouth shapes must target the same layers")
-    if states["closed"] == states["opened"]:
-        raise ValueError("Closed and opened mouth shapes are identical")
+    # The legacy closed map stays structurally validated for JSON compatibility,
+    # but the actual resting pose comes from the fixed-layer snapshot.
+    if not any(base[path] != visible for path, visible in states["opened"].items()):
+        raise ValueError("Open mouth shape matches fixed-layer visibility")
     return states
 
 
@@ -155,8 +157,12 @@ def export_preset_utterance(
         else:
             pngs = []
             for state in (("closed", "opened") if shapes else ("base",)):
-                if shapes:
-                    for path, visible in shapes[state].items():
+                # Each frame starts from the preset's current fixed visibility.
+                # Ignore stored legacy closed overrides, even when they differ.
+                for path, visible in base.items():
+                    resolve_layer(psd, path).visible = visible
+                if shapes and state == "opened":
+                    for path, visible in shapes["opened"].items():
                         resolve_layer(psd, path).visible = visible
                 png = directory / (state + ".png")
                 write_fixed_crop_png(psd, png, padding=16)
