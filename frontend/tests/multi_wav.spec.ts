@@ -177,7 +177,7 @@ test("failed addition preserves selected export and the PCM MOV endpoint receive
   await page.route("**/api/preset-utterance-export", (route) => {
     exports.push(route.request().postDataJSON() as Record<string, unknown>);
     return route.fulfill({ json: {
-      mov: "/tmp/output/speech_001.mov", otio: "/tmp/output/speech_001.otio",
+      mov: "/tmp/output/speech_001.mov",
       frames: 30, sample_count: 1000,
     } });
   });
@@ -606,7 +606,7 @@ test("single export locks every WAV's edits and new additions when selection cha
     exported++;
     await new Promise<void>((resolve) => { release = resolve; });
     await route.fulfill({ json: {
-      mov: "/tmp/output/speech_001.mov", otio: "/tmp/output/speech_001.otio",
+      mov: "/tmp/output/speech_001.mov",
       frames: 30, sample_count: 800,
     } });
   });
@@ -746,7 +746,7 @@ test("a drag started before single export cannot reorder after the export lock e
   await page.route("**/api/preset-utterance-export", async (route) => {
     await new Promise<void>((resolve) => { releaseExport = resolve; });
     await route.fulfill({ json: {
-      mov: "/tmp/output/speech_001.mov", otio: "/tmp/output/speech_001.otio",
+      mov: "/tmp/output/speech_001.mov",
       frames: 30, sample_count: 800,
     } });
   });
