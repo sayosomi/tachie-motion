@@ -326,3 +326,11 @@ Use self-authored / permission-cleared synthetic test PSD and WAV in CI. Do not 
 - 開眼・閉眼を基本表示から独立上書きし、複数の葉・PSDTool `*` 同親排他・`!` 強制表示・親非表示を検証。ブラウザCanvas優先とPythonフォールバックの静止プレビューの表示経路を保護。
 - 瞬き設定ON/OFF、目のグループ、二つの形をキャラクター設定JSON v1とブラウザ復元に保存し、旧 `motionGroups: {mouth}`・既存 `eyes` データも破壊せず読み込み。
 - 瞬きMOV・周期・位相の実装は **このSliceでは行わない**。瞬きONでの既存動画書き出し拒否を維持。CI・独立コード監査・Mac Human UXは個別に判定。
+
+## Public Issue #32 / PR #33 — 固定レイヤー基準とA案タブUI（2026-11-18）
+
+- 固定レイヤー編集は目のopen・口のcloseを決定し、可動レイヤーは「口／目」「Open／aiueo」「あいうえおん」で切り替える。動作ON/OFFはチェック1個であり、OFFは一覧・操作を隠すが設定JSONを削除しない。
+- Open-openだけに動作時差分があり、closeの各映像フレームは常に最新の固定レイヤーで合成する。JSON中の旧`openMouth.closed`が異なっても使わない。目のopenも固定レイヤーを継承し、旧`eyes.opened`は不使用だが保存・復元で保持。
+- Open-openと固定レイヤーが同じ場合はOpen書き出し不可。aiueoは母音ごと独立し、「ん」未登録は固定表示。PSDTool `*` 排他・`!` 強制、親グループ非表示、目／口の動作対象の競合拒否を維持する。
+- Canvas静止プレビューとPythonフォールバックの状態一致、従来の個別／一括PCM入りMOVとOTIO、旧キャラクターJSON・ブラウザ復元・制作プロジェクトJSON v2を回帰確認。瞬きMOVは依然未実装で実行拒否。
+- CI、独立remoteコード監査、Mac実PSD UI確認を区別。Mac HumanではA案タブ、文字ボタン、レイヤー選択、表示差分の見た目と操作性だけを判定する。

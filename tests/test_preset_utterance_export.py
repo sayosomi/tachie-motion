@@ -57,7 +57,7 @@ class PresetSnapshotTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "complete"):
                 validate_open_mouth(image, visibility, None)
-            with self.assertRaisesRegex(ValueError, "identical"):
+            with self.assertRaisesRegex(ValueError, "matches fixed-layer"):
                 validate_open_mouth(image, visibility, {
                     "closed": [{"path": closed, "visible": True}],
                     "opened": [{"path": closed, "visible": True}],
@@ -198,6 +198,36 @@ class PresetExportApiTests(unittest.TestCase):
         self.assertEqual(separate.status_code, 200, separate.text)
         self.assertEqual(snapshot, ((self.root / "speech.mov").read_bytes(),
                                     (self.root / "speech.otio").read_bytes()))
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_open_closed_frame_uses_base_even_with_legacy_opposite_override(self):
+        from unittest.mock import patch
+        from tachie_motion.psd.visibility import parse_index_path, resolve_layer
+        from tachie_motion.web.preset_utterance import write_fixed_crop_png
+
+        seen = []
+        closed = parse_index_path(self.closed)
+        opened = parse_index_path(self.opened)
+
+        def observe(psd, destination, **kwargs):
+            seen.append((resolve_layer(psd, closed).visible,
+                         resolve_layer(psd, opened).visible))
+            return write_fixed_crop_png(psd, destination, **kwargs)
+
+        # Legacy closed is deliberately opposite the current fixed state.
+        # It must stay in the payload for compatibility, not affect playback.
+        legacy = {
+            "closed": [{"path": self.closed, "visible": False},
+                       {"path": self.opened, "visible": True}],
+            "opened": [{"path": self.closed, "visible": False},
+                       {"path": self.opened, "visible": True}],
+        }
+        with patch("tachie_motion.web.preset_utterance.write_fixed_crop_png",
+                   side_effect=observe):
+            response = self.post(mode="open", mouth=legacy, basename="fixed_close")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(seen, [(True, False), (False, True)])
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")
