@@ -558,6 +558,7 @@ test("Speech PSD validation adopts newer blink timing saved in another browser t
     submissions.push(route.request().postDataJSON() as Record<string, unknown>);
     return route.fulfill({ json: {
       mov: "/tmp/output/blink_001.mov",
+      frames: 30, sample_count: 1000,
     } });
   });
   await switchSpeechDuringHeldPresetRestore(page, false,
