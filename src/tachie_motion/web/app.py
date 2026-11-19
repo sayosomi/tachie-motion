@@ -329,9 +329,17 @@ def export_progress_reserve(payload: ExportProgressReservation):
 async def export_progress(token: str):
     # An abandoned batch is expired only while no render owns export_lock.
     # A progress poll must never wait behind the long-running media worker.
-    if not app.state.export_lock.locked():
-        async with app.state.export_lock:
+    try:
+        # A zero-wait check followed by "async with" has a race: a new
+        # render can acquire the lock in between and freeze progress polling.
+        await asyncio.wait_for(app.state.export_lock.acquire(), timeout=0.01)
+    except asyncio.TimeoutError:
+        pass  # Rendering owns the lock; return the live snapshot immediately.
+    else:
+        try:
             app.state.batch.expire_idle()
+        finally:
+            app.state.export_lock.release()
     try:
         return app.state.export_progress.snapshot(token)
     except KeyError:
@@ -441,6 +449,7 @@ async def preset_batch_start(payload: BatchStartRequest):
         if not folder.is_absolute() or not folder.is_dir():
             raise ValueError("Output folder must already exist")
         async with app.state.export_lock:
+            app.state.export_progress.require_available(payload.progress_id)
             token = await asyncio.to_thread(
                 app.state.batch.start, folder, payload.timeline_basename,
                 payload.timeline_policy, [entry.model_dump() for entry in payload.entries],

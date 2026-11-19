@@ -70,6 +70,14 @@ class ExportProgress:
                 or type(total) is not int or not 1 <= total <= 2000):
             raise ValueError("Invalid export progress identity")
 
+    def require_available(self, token: str | None) -> None:
+        """Reject conflicting reservations before creating a batch stage."""
+        with self._lock:
+            self._prune()
+            if (self._job and self._job.status not in _TERMINAL
+                    and self._job.token != token):
+                raise RuntimeError("Another export is active")
+
     def reserve(self, token: str, kind: str, total: int = 1) -> None:
         """Register a browser job before its render POST is sent.
 
