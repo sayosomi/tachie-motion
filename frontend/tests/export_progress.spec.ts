@@ -142,3 +142,54 @@ test("batch cancellation never publishes OTIO or advances to the next WAV", asyn
   expect(renders).toBe(1);
   expect(otio).toBe(0);
 });
+
+test("lost batch MOV response never advances or unlocks until server terminal", async ({ page }) => {
+  await setup(page);
+  await addWav(page, "一件目.wav");
+  await addWav(page, "二件目.wav");
+  let releaseCancel!: () => void;
+  const holdCancel = new Promise<void>((resolve) => { releaseCancel = resolve; });
+  let terminal = false;
+  let renders = 0;
+  let otio = 0;
+  await page.route("**/api/preset-batch-start", (route) =>
+    route.fulfill({ json: { batch_id: "batch-session-token-long-enough" } }));
+  await page.route("**/api/export-progress/*", (route) => route.fulfill({
+    json: {
+      status: terminal ? "cancelled" : "running",
+      stage: terminal ? "書き出しをキャンセルしました" : "ProRes映像を生成中",
+      percent: 30, index: 1, total: 2, frames: 10, frame_total: 20,
+      can_cancel: !terminal,
+    },
+  }));
+  let cancelRequested = false;
+  await page.route("**/api/export-cancel", async (route) => {
+    cancelRequested = true;
+    await holdCancel;
+    terminal = true;
+    await route.fulfill({ json: { accepted: true, status: "cancelled" } });
+  });
+  await page.route("**/api/preset-batch-mov-export", (route) => {
+    renders++;
+    return route.abort("failed"); // No HTTP result: worker status is unknown.
+  });
+  await page.route("**/api/preset-combined-otio", (route) => {
+    otio++;
+    return route.fulfill({ status: 500, json: { detail: "unexpected" } });
+  });
+  await page.getByRole("radio", { name: /全件/ }).check();
+  await expect(page.getByText("書き出し予定を確認済み", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
+  await expect.poll(() => cancelRequested).toBe(true);
+  await expect(page.getByRole("dialog", { name: "書き出し中" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "編集画面に戻る" })).toHaveCount(0);
+  expect(renders).toBe(1);
+  expect(otio).toBe(0);
+  releaseCancel();
+  await expect(page.getByRole("dialog")).toContainText("書き出しをキャンセルしました");
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(renders).toBe(1);
+  expect(otio).toBe(0);
+});
