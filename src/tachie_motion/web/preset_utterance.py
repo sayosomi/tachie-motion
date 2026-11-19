@@ -265,6 +265,7 @@ def export_preset_utterance(
             expected_channels=schedule.channels,
             expected_sample_width_bits=schedule.sample_width_bits,
             expected_pcm_sha256=schedule.pcm_sha256,
+            check_cancel=check_cancel if progress else None,
         )
         report("PCM音声の照合完了", 93)
         if source_identity is not None:
