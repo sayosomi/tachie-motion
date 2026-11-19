@@ -127,7 +127,7 @@ export default function UtteranceExportPanel({
         共通テンプレートに戻す
       </button>
       {current.basenameEdited && <p className="hint">このWAVのみ手動命名です。並び替えても名前は変わりません。</p>}
-      {soloNameError && <p className="hint warning" role="alert">{soloNameError}</p>
+      {soloNameError && <p className="hint warning" role="alert">{soloNameError}</p>}
       {destinationError && <p className="hint warning" role="alert">{destinationError}</p>}
       {info?.state === "complete" && <>
         <p className="hint">同名のMOVがあります。</p>
