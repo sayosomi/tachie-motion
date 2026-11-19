@@ -197,6 +197,7 @@ export function useBatchUtteranceExport(
   const [reviewing, setReviewing] = useState(false);
   const busy = useRef(false);
   const uncertainRun = useRef(false);
+  const [reconcileVersion, setReconcileVersion] = useState(0);
   useEffect(() => {
     if (!uncertainRun.current || !overlay.terminalPhase) return;
     // A lost response never releases the edit lock. Only a confirmed
@@ -209,7 +210,7 @@ export function useBatchUtteranceExport(
       : overlay.terminalPhase === "cancelled"
         ? "サーバーが中断を確認しました。旧ファイルは保護されています。"
         : "書き出しの終了を確認しました。出力先・復旧情報をご確認ください。");
-  }, [overlay.terminalPhase]);
+  }, [overlay.terminalPhase, reconcileVersion]);
   const key = snapshotKey(draft, items, naming) + "|" + conflictChoice +
     "|" + JSON.stringify(items.map((item) => [
       item.id, item.mode === "aiueo"
@@ -369,6 +370,7 @@ export function useBatchUtteranceExport(
           (error instanceof DOMException && error.name === "AbortError"))) {
         transportUnknown = true;
         uncertainRun.current = true;
+        setReconcileVersion((value) => value + 1);
         overlay.uncertain("通信が切れました。サーバーの停止・公開状態を確認中です。");
         setSummary("書き出し結果は未確定です。サーバーの確認まで再実行できません。");
         // The server finishes cancellation independently after its worker

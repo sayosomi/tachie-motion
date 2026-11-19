@@ -73,11 +73,19 @@ def encode_prores_sequence(
                         watcher.check()
                 watcher.check()
             except (BrokenPipeError, OSError) as exc:
-                watcher.check()
+                # An interrupted pipe may raise before the normal cancellation
+                # checkpoint. Reap the killed child *before* raising the token
+                # cancellation, otherwise a zombie FFmpeg can be left behind.
+                if proc.poll() is None:
+                    proc.kill()
                 if proc.stdin is not None:
-                    proc.stdin.close()
+                    try:
+                        proc.stdin.close()
+                    except OSError:
+                        pass
                     proc.stdin = None
                 _, errors = proc.communicate()
+                watcher.check()
                 raise RuntimeError(
                     "FFmpeg stopped accepting scheduled frames: "
                     + errors.decode("utf-8", "replace")[-1500:]
@@ -86,7 +94,10 @@ def encode_prores_sequence(
                 if proc.poll() is None:
                     proc.kill()
                 if proc.stdin is not None:
-                    proc.stdin.close()
+                    try:
+                        proc.stdin.close()
+                    except OSError:
+                        pass
                     proc.stdin = None
                 proc.communicate()
                 watcher.check()
