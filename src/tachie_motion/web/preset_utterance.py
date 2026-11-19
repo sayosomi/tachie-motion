@@ -246,9 +246,12 @@ def export_preset_utterance(
                    25 + (38 * written) // total, written, total)
 
         report("ProRes映像をエンコード中", 25, 0, len(indices))
-        encoded = encode_prores_sequence(
-            pngs, indices, staged_mov, fps=fps,
-            on_frame=on_frame, check_cancel=check_cancel)
+        if progress:
+            encoded = encode_prores_sequence(
+                pngs, indices, staged_mov, fps=fps,
+                on_frame=on_frame, check_cancel=check_cancel)
+        else:
+            encoded = encode_prores_sequence(pngs, indices, staged_mov, fps=fps)
         report("映像の独立検証完了", 77, len(indices), len(indices))
         if encoded.frames != len(indices) or encoded.decoded_frames != len(indices):
             raise RuntimeError("Encoded MOV frame count mismatch")
@@ -265,7 +268,7 @@ def export_preset_utterance(
             expected_channels=schedule.channels,
             expected_sample_width_bits=schedule.sample_width_bits,
             expected_pcm_sha256=schedule.pcm_sha256,
-            check_cancel=check_cancel if progress else None,
+            **({"check_cancel": check_cancel} if progress else {}),
         )
         report("PCM音声の照合完了", 93)
         if source_identity is not None:
