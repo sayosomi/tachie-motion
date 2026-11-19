@@ -3,7 +3,7 @@ import type { PresetDraft } from "./presetDraftStorage";
 import type { UnifiedPreset } from "./presetModel";
 import { effectiveLabSourceIdentity, exportPayload, exportReadinessError } from "./utteranceExportRequest";
 import { movName, otioName, suffixedOutputName, validateBatchNaming, type BatchNaming } from "./nameTemplate";
-import type { UtteranceItem } from "./utteranceItems";
+import { wavFilename, type UtteranceItem } from "./utteranceItems";
 import type { LabInfo } from "./useLabStatus";
 
 type Destination = {
@@ -256,7 +256,7 @@ export function useBatchUtteranceExport(
       sessionId = session.batch_id;
       if (!sessionId) throw new Error("一括書き出しのセッションを開始できません");
       overlay.begin(sessionId, plans.map((plan) =>
-        plan.item.wavPath.replace(/^.*[/\\\\]/, "")));
+        wavFilename(plan.item.wavPath)));
       let successes = 0;
       let failures = 0;
       const complete: { basename: string; frames: number; fps: number;
