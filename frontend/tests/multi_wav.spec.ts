@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
+// These browser scenarios mock MOV/OTIO completion. Reserve progress in the
+// same mock transport; never create an orphan job on the real local API.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/export-progress-reserve", (route) =>
+    route.fulfill({ json: { registered: true } }));
+});
+
 /** Image-backed chooser selects by stable preset ID. */
 const presetTrigger = (scope: import("@playwright/test").Locator) =>
   scope.locator(".utterance-row-preset .preset-picker-trigger");
@@ -325,7 +332,8 @@ test("batch exports every WAV in list order and retains individual failures", as
   await expect(page.getByRole("heading", { name: "一括書き出し", exact: true })).toHaveCount(0);
   await expect(page.getByText("口パク「なし」が3件", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "全件を書き出す" }).click();
-  await expect(page.getByText("旧MOV・OTIOは変更していません", { exact: false }))
+  await expect(page.locator(".utterance-export-panel")
+    .getByText("旧MOV・OTIOは変更していません", { exact: false }))
     .toBeVisible();
   expect(requests.map((r) => r.wav)).toEqual(["/tmp/a.wav", "/tmp/b.wav", "/tmp/c.wav"]);
   expect(requests.map((r) => r.basename)).toEqual(["001_character_a", "002_character_b", "003_character_c"]);
@@ -441,8 +449,8 @@ test("batch locks the preset selector throughout an in-progress render", async (
   await page.getByRole("radio", { name: /^全件/ }).check();
   await page.getByRole("button", { name: "全件を書き出す" }).click();
   await expect.poll(() => Boolean(releaseFirst)).toBe(true);
-  await page.locator("[data-utterance-id]").nth(1)
-    .locator(".utterance-item-select").click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  // The overlay deliberately blocks editing other rows during a render.
   await expect(presetTrigger(page.locator('[data-selected="true"]'))).toBeDisabled();
   await expect(presetTrigger(page.locator('[data-selected="true"]'))).toHaveAttribute("data-selected-preset-id", assignedPreset!);
   releaseFirst!();
@@ -629,7 +637,7 @@ test("single export locks every WAV's edits and new additions when selection cha
   await page.locator("[data-utterance-id]").first().locator(".utterance-item-select").click();
   await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect.poll(() => Boolean(release)).toBe(true);
-  await page.locator("[data-utterance-id]").nth(1).locator(".utterance-item-select").click();
+  await expect(page.getByRole("dialog")).toBeVisible();
   await expect(presetTrigger(page.locator('[data-selected="true"]'))).toBeDisabled();
   await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toBeDisabled();
   await expect(page.locator(".utterance-row-preset .preset-picker-trigger:disabled")).toHaveCount(2);

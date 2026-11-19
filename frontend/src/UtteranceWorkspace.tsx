@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Layer } from "./LayerTree";
 import UtteranceExportPanel, { type ExportScope } from "./UtteranceExportPanel";
+import ExportProgressDialog from "./ExportProgressDialog";
+import { useExportProgress } from "./useExportProgress";
+import { wavFilename } from "./utteranceItems";
 import UtteranceList from "./UtteranceList";
 import ProjectActions from "./ProjectActions";
 import { projectPresetDraft, type ProjectFile } from "./projectFile";
@@ -88,13 +91,27 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const mounted = useRef(false);
   // Synchronous guard closes the gap before React commits exportingId state.
   const singleExportLock = useRef(false);
+  const singleUncertain = useRef(false);
+  // A successful progress poll can precede the lost POST response.
+  const [singleReconcileVersion, setSingleReconcileVersion] = useState(0);
   const labStatuses = useLabStatus(items, active, labRefreshVersion);
+  const exportProgress = useExportProgress();
   const batch = useBatchUtteranceExport(draft, items, setItems,
     () => setProbeVersion((previous) => previous + 1),
     active && exportScope === "all" && !projectBusy && !exportingId,
-    naming, () => projectBusyRef.current || singleExportLock.current, labStatuses);
+    naming, () => projectBusyRef.current || singleExportLock.current, labStatuses,
+    { begin: exportProgress.begin, settle: exportProgress.settle,
+      uncertain: exportProgress.uncertain,
+      terminalPhase: exportProgress.view?.phase === "success" ||
+        exportProgress.view?.phase === "failed" ||
+        exportProgress.view?.phase === "cancelled"
+        ? exportProgress.view.phase : null });
   const playback = useWavPlayback(items);
-  const editingLocked = batch.running || batch.isBusy() || !!exportingId || projectBusy;
+  const modalPhase = exportProgress.view?.phase;
+  const exportStillActive = !!modalPhase && modalPhase !== "success" &&
+    modalPhase !== "failed" && modalPhase !== "cancelled";
+  const editingLocked = batch.running || batch.isBusy() || !!exportingId ||
+    projectBusy || exportStillActive;
   const projectLock = (locked: boolean) => {
     projectBusyRef.current = locked;
     if (locked) catalogEpoch.current++; // Invalidate any older asynchronous WAV addition.
@@ -109,6 +126,18 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
+
+  // If a fetch connection drops, keep edits locked until a real server
+  // terminal status arrives. A lost response does not imply a stopped worker.
+  useEffect(() => {
+    const phase = exportProgress.view?.phase;
+    if (!singleUncertain.current ||
+        (phase !== "success" && phase !== "failed" && phase !== "cancelled")) return;
+    singleUncertain.current = false;
+    singleExportLock.current = false;
+    setExportingId(null);
+    setProbeVersion((previous) => previous + 1);
+  }, [exportProgress.view?.phase, singleReconcileVersion]);
 
   // Keep the WAV list mounted across the Presets/Speech tabs. Refresh the
   // character snapshot when returning; reject changed PSDs, do not reuse a stale draft.
@@ -397,24 +426,46 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   async function exportUtterance() {
     if (!draft || !current || !selected || !canExport || isEditBusy()) return;
     singleExportLock.current = true;
+    singleUncertain.current = false;
     const itemId = current.id;
+    const token = crypto.randomUUID();
+    let submitted = false;
     setExportingId(itemId);
     setItems((previous) => updateUtterance(previous, itemId, {}));
     try {
+      await post("export-progress-reserve", {
+        token, kind: "single", total: 1,
+      });
+      exportProgress.begin(token, [wavFilename(current.wavPath)]);
+      submitted = true;
+      const payload = exportPayload(draft, current, selected, outputBasename, conflictPolicy,
+        labStatuses[current.id]?.source_identity);
       const result = await post<ExportData>("preset-utterance-export",
-        exportPayload(draft, current, selected, outputBasename, conflictPolicy,
-          labStatuses[current.id]?.source_identity));
+        { ...payload, progress_id: token });
+      exportProgress.settle("success");
       if (mounted.current) setItems((previous) => previous.map((item) =>
         item.id === itemId ? { ...item, result, error: "" } : item));
     } catch (err) {
-      if (mounted.current) setItems((previous) => previous.map((item) =>
-        item.id === itemId ? { ...item, result: null,
-          error: err instanceof Error ? err.message : String(err) } : item));
+      const reason = err instanceof Error ? err.message : String(err);
+      if (submitted && (err instanceof TypeError ||
+          (err instanceof DOMException && err.name === "AbortError"))) {
+        singleUncertain.current = true;
+        setSingleReconcileVersion((value) => value + 1);
+        exportProgress.uncertain(
+          "通信が切れました。サーバー処理の結果を確認中です。出力先を確認するまで再実行しないでください。");
+      } else {
+        exportProgress.settle(reason.includes("書き出しをキャンセルしました")
+          ? "cancelled" : "failed", reason);
+        if (mounted.current) setItems((previous) => previous.map((item) =>
+          item.id === itemId ? { ...item, result: null, error: reason } : item));
+      }
     } finally {
-      singleExportLock.current = false;
-      if (mounted.current) {
-        setExportingId(null);
-        setProbeVersion((previous) => previous + 1);
+      if (!singleUncertain.current) {
+        singleExportLock.current = false;
+        if (mounted.current) {
+          setExportingId(null);
+          setProbeVersion((previous) => previous + 1);
+        }
       }
     }
   }
@@ -482,5 +533,8 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         onRevise={revise} onSingleExport={() => { void exportUtterance(); }}
         batch={batch} disabled={editingLocked || addingCount > 0}
         naming={naming} onNamingChange={setNaming} />
+    <ExportProgressDialog progress={exportProgress.view}
+      onCancel={() => { void exportProgress.cancel(); }}
+      onClose={exportProgress.close} />
   </main>;
 }

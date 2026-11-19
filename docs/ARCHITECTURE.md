@@ -54,6 +54,18 @@ Enforce the small-file review guidelines in [AGENTS.md](../AGENTS.md). Directory
 - Frozen canvas must include possible sprite bounds while keeping character anchor stable.
 - Windows installation and FFmpeg discovery differ from macOS; test CI and manual smoke runs early.
 
+## Live export progress and cancellation (Issue #44)
+
+- 新規進捗予約APIは短時間だけ `export_lock` を取得し、既存バッチのアイドル失効判定後に進捗ジョブを予約する。実worker稼働中は誤って失効させない。旧タブのトークンを失った新規ブラウザでも10分失効後に新しい予約が可能。
+- 一括開始の事前検証失敗は、未起動の同一トークン予約だけ終了する。公開に成功した一括処理は、その後の不要な解除HTTPの失敗で結果を覆さない。単一のPOST通信断と進捗成功ポーリングが逆順でも、終端を確認した編集ロックは解除する。
+
+
+- `web/export_progress.py` owns a thread-safe in-memory, unguessable job-token registry independent of the media `export_lock`; a read-only progress endpoint and a cancellable request endpoint can respond while a long-running `asyncio.to_thread` render holds the export lock. Tokens do not embed private media paths.
+- `render/sequence.py` signals successfully submitted FFmpeg frames. `render/cancel_monitor.py` watches the worker's cancellation token across blocking FFmpeg input writes, encoder waits, ffprobe metadata/packet checks, ProRes frame decode and PCM decode; the child is killed and reaped before a cancelled operation is reported. PSD image compositing remains cooperative between poses. The output's existing full-frame ProRes and PCM fidelity gates remain unchanged.
+- The percent is a monotone stage-completion indicator, not elapsed-time extrapolation. Single export reaches 100% only after a public MOV commit. Batch MOVs enter a private stage and consume at most 90%; the remaining percentage covers combined OTIO and generation-wide publication. Public batch commit is a non-cancellable transaction protected by rollback.
+- A browser close/disconnect never proves backend termination or success. Avoid claiming cancellation on request acceptance alone; the server reports explicit running/cancelling/finalizing/success/failed/cancelled states.
+- Browser exports register a UUIDv4 with the progress registry **before** posting media work, making pre-start cancellation atomic and preventing a cancelled render from later starting. Terminal snapshots remain queryable for up to one hour across subsequent jobs. The batch coordinator notifies progress when its 10-minute idle lease expires, always under the media export lock. A disconnected batch client retains its editing lock while awaiting the authoritative terminal state; a cancellation request is finalized by the server after any in-flight worker exits. Session-scoped browser storage restores the progress ID after same-tab reload; no render or publish is inferred from a lost HTTP response.
+
 ## Diagnostics and tests
 
 - Separate pure unit tests from renderer/encoder integration tests and Playwright E2E tests.

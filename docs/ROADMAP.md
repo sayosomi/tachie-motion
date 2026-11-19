@@ -1,8 +1,15 @@
 # Roadmap
 
-**現在の状態：Phase 0とPhase 1のCLI、およびmainの統合プリセット編集・Mac Finder選択・単一WAVのnone/open書き出しは実装済み。新規・上書き・別名保存とDaVinci Resolveの透過・口パク・音声同期は2026年11月1日にMac Human PASS。aiueoの6口形レイヤー編集・静止プレビューはmainで対応済み。LAB駆動aiueoのMOV生成はIssue #27 / PR #28でmainへ統合済み（当時の個別OTIOは旧仕様）。**現行の製品Web UIでは単一書き出しがPCM内包MOVのみ、一括書き出しがMOV群＋全体OTIO 1本で、個別OTIOは生成しない（Issue #38 / PR #39、2026-11-19 main統合）。**CI・独立監査・Mac実機の書き出し／口パク表示／Resolve OTIO読み込みを確認済み。単一キャラクターの瞬き付きセリフMOV（Issue #34 / PR #35）は実装済み・CI／コード監査／Mac実PSD・DaVinci ResolveのHuman確認PASS。変更点タイムライン・複数キャラクター・待機モーションは未実装。制作プロジェクトJSON保存・復元、単一キャラ全体OTIOはPR #17・#19で実装済み。キャラクター設定JSONの独立保存・読み込みはIssue #44 / PR #45で実装済み。JSON往復の自動テストとMac Chrome保存UIのHuman UXはPASS。**
+**現在の状態：Phase 0とPhase 1のCLI、およびmainの統合プリセット編集・Mac Finder選択・単一WAVのnone/open書き出しは実装済み。新規・上書き・別名保存とDaVinci Resolveの透過・口パク・音声同期は2026年11月1日にMac Human PASS。aiueoの6口形レイヤー編集・静止プレビューはmainで対応済み。LAB駆動aiueoのMOV生成はIssue #27 / PR #28でmainへ統合済み（当時の個別OTIOは旧仕様）。**現行の製品Web UIでは単一書き出しがPCM内包MOVのみ、一括書き出しがMOV群＋全体OTIO 1本で、個別OTIOは生成しない（Issue #38 / PR #39、2026-11-19 main統合）。**CI・独立監査・Mac実機の書き出し／口パク表示／Resolve OTIO読み込みを確認済み。単一キャラクターの瞬き付きセリフMOV（Issue #34 / PR #35）は実装済み・CI／コード監査／Mac実PSD・DaVinci ResolveのHuman確認PASS。変更点タイムライン・複数キャラクター・待機モーションは未実装。制作プロジェクトJSON保存・復元、単一キャラ全体OTIOはPR #17・#19で実装済み。キャラクター設定JSONの独立保存・読み込みは既存機能として実装済み。JSON往復の自動テストとMac Chrome保存UIのHuman UXはPASS。**
 
 この文書は実装の進捗と今後の作業範囲を示します。確定した製品要件は [PRODUCT_SPEC.md](PRODUCT_SPEC.md)、実際に使えるコマンドは [README.md](../README.md) を参照してください。PoCで確認したことと、完成したアプリでできることは区別します。
+
+## Public Issue #44 — 書き出し進捗オーバーレイと安全なキャンセル（Draft PR #45、開発・検証中）
+
+- [ ] 個別／一括の両方で元画面全体を暗く覆い、中央に大きな％・進捗バー・対象WAV・処理段階を表示。Esc／外側クリックは不可。完了・失敗・キャンセル確定後に閉じる。
+- [ ] PythonとFastAPIに実進捗・トークン保護・協調キャンセルを追加。フレーム送信・ProRes独立検証・PCM結合・一括OTIO公開を区別し、検証・公開前に100%を示さない。
+- [ ] キャンセル時も既存MOV／OTIOと元PSD/WAV/LABを保護。一括の最終公開開始後はキャンセルを拒否し、公開トランザクション・復旧を中断しない。
+- [ ] Python実FFmpegテスト、Playwright E2E、CI、独立コード監査、Mac実PSDでの操作性Humanを別々に確認する。**Draft・未マージ。未実施の確認をPASS扱いしない。**
 
 ## Public Issue #42 — プリセット別サムネイル編集とWAV画像選択（PR #43、2026-11-19受け入れ）
 
@@ -52,10 +59,10 @@ PR #10は2026-11-06にマージ済み。1 WAV・1キャラクターのPCM入りM
 - [x] 最小ローカルWeb UIと旧試験版APIの基盤 — Issue #18（旧Private開発履歴） / PR #19（旧Private開発履歴）。旧試験版タブは後続PR #38で廃止し、APIは互換性のため維持。現行のプリセット基準「セリフ」画面でMac Human E2Eを確認済み。
 - [x] PSDツリー開閉、手動口・目割当、割当解除と静止画プレビュー — Issue #21（旧Private開発履歴） / PR #22（旧Private開発履歴）。瞬きMOVは未実装。
 - [x] **Mac FinderからのPSD/WAV/出力先選択** — Issue #20（旧Private開発履歴） / PR #39（旧Private開発履歴）。Mac Finder操作Human PASS、後続の正確なPR #39 HEADでブラウザ・Python CI SUCCESS。専用127.0.0.1:8766でOS選択を隔離し、直接パス入力は補助。ドラッグ＆ドロップとWindows Explorer連携は未実装。Android遠隔からFinderは使用不可。
-- [x] **キャラクター設定だけ**のバージョン付きJSON保存・読み込み（Issue #44 / PR #45、JSON往復の自動テストとMac Chrome保存ダイアログUXがPASS）。ブラウザ標準保存ダイアログ／ファイル選択でプリセットID・並び順・Open等の設定を保持し、元PSDのパス・fingerprint・レイヤーパス一致を確認してから反映。制作プロジェクト保存・PSDの移動先再関連付けは未実装。
+- [x] **キャラクター設定だけ**のバージョン付きJSON保存・読み込み（既存機能、JSON往復の自動テストとMac Chrome保存ダイアログUXがPASS）。ブラウザ標準保存ダイアログ／ファイル選択でプリセットID・並び順・Open等の設定を保持し、元PSDのパス・fingerprint・レイヤーパス一致を確認してから反映。制作プロジェクト保存・PSDの移動先再関連付けは未実装。
 - [ ] 上記のCLIとUIで共通の処理を使う自動テスト、およびmacOS/Windowsの必要な実機確認。
 
-**注意：** `tachie-prores-poc` は固定保持PNG状態用のPoCで、音量連動は `tachie-mouth-render` と新「セリフ」画面のopenが担当します。旧試験版タブは廃止済み、旧 `/api/export` は互換性のため残します。編集タイムラインや制作プロジェクト保存は未実装。キャラクターJSONはIssue #44で追加した別操作。
+**注意：** `tachie-prores-poc` は固定保持PNG状態用のPoCで、音量連動は `tachie-mouth-render` と新「セリフ」画面のopenが担当します。旧試験版タブは廃止済み、旧 `/api/export` は互換性のため残します。編集タイムラインや制作プロジェクト保存は未実装。キャラクターJSONの保存・読み込みは既存の別操作。
 
 ### Android接続の起動信頼性（Issue #29）
 
@@ -65,7 +72,7 @@ PR #10は2026-11-06にマージ済み。1 WAV・1キャラクターのPCM入りM
 
 - [x] 統合プリセットの内部データモデル — Issue #25（旧Private開発履歴） / PR #26（旧Private開発履歴）。ブラウザUIは後続のPR #28で実装、永続的JSON保存は未実装。
 
-- [x] プリセット一覧・詳細編集、レイヤーON/OFF・静止PSD合成プレビュー — Issue #27（旧Private開発履歴） / PR #28（旧Private開発履歴）。ブラウザ限定の自動復元はPR #32で追加。口のopen動画出力はPR #38で実装。プロファイルJSON保存はPR #45で実装、目の瞬きMOVは未実装。
+- [x] プリセット一覧・詳細編集、レイヤーON/OFF・静止PSD合成プレビュー — Issue #27（旧Private開発履歴） / PR #28（旧Private開発履歴）。ブラウザ限定の自動復元はPR #32で追加。口のopen動画出力はPR #38で実装。プロファイルJSON保存は既存機能として実装、目の瞬きMOVは未実装。
 - [ ] 表情＋ポーズ**統合プリセット**の管理画面（一覧／詳細ページ、サムネイル、作成・独立複製・名前変更・削除・ドラッグ＆ドロップ並び替え）と、各レイヤーのON/OFF・永続保存 — Issue #23（旧Private開発履歴）。
 - [ ] 1プリセットに独立して登録できるopen（閉口／開口）とaiueo（あ・い・う・え・お・ん）の**両**口形セット、複数レイヤーで構成する口・目状態、プレビューとレンダラーの一貫性 — Issue #23（旧Private開発履歴）。
 - [x] **aiueoの6口形レイヤー編集と静止プレビュー** — Public Issue #23 / PR #24。Openと独立した6口形の保存・静止プレビューを実装。旧「ここだけ」UIはHuman UX未PASSのため、後続Issue #25 / PR #26のPSDグループ割当UIに置き換えた。LAB駆動aiueo MOV/OTIOはPublic Issue #27 / PR #28で実装。目・瞬きのアニメーションは未実装。
@@ -80,7 +87,7 @@ PR #10は2026-11-06にマージ済み。1 WAV・1キャラクターのPCM入りM
 - [ ] 波形表示、再生、シーク、変更点の移動・削除・差し替え。
 
 - [x] **PCファースト**の横長プリセットカードと重なり回帰対策 — Issue #35（旧Private開発履歴） / PR #37（旧Private開発履歴）。現行の新「セリフ」画面（1 WAV、none/open）は Issue #36（旧Private開発履歴） / PR #38（旧Private開発履歴）で実装。Mac実PSD/WAV→Resolve Human PASSは後続PR #43で確認。
-- [x] Android実機フィードバックのUI改善と**ブラウザ限定の自動復元** — Issue #31（旧Private開発履歴） / PR #32（旧Private開発履歴）。PSD fingerprint検証付き復元、プリセットの名前重複防止、PCドラッグ取っ手＋スマホ↑↓、見出し簡素化。キャラクター設定のJSONファイル保存・読み込みはPR #45で実装済み。保存はChrome/Edgeの標準保存ダイアログ（保存名・場所を選択）を使用し、非対応ブラウザでは自動ダウンロードせずエラー。Mac Chromeで保存先・名前指定、保存通知、キャンセル操作のHuman UX PASS。JSON内容・復元の一致はPlaywrightで自動検証。
+- [x] Android実機フィードバックのUI改善と**ブラウザ限定の自動復元** — Issue #31（旧Private開発履歴） / PR #32（旧Private開発履歴）。PSD fingerprint検証付き復元、プリセットの名前重複防止、PCドラッグ取っ手＋スマホ↑↓、見出し簡素化。キャラクター設定のJSONファイル保存・読み込みは既存機能として実装済み。保存はChrome/Edgeの標準保存ダイアログ（保存名・場所を選択）を使用し、非対応ブラウザでは自動ダウンロードせずエラー。Mac Chromeで保存先・名前指定、保存通知、キャンセル操作のHuman UX PASS。JSON内容・復元の一致はPlaywrightで自動検証。
 
 ### レイヤー選択UIの改善（Issue #53、作業中）
 

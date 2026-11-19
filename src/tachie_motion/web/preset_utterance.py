@@ -21,6 +21,7 @@ from tachie_motion.psd.crop import write_fixed_crop_png
 from tachie_motion.psd.tree import walk_layers
 from tachie_motion.psd.visibility import parse_index_path, resolve_layer
 from tachie_motion.render.sequence import encode_prores_sequence
+from tachie_motion.web.export_progress import ExportProgress
 from tachie_motion.render.pcm_mux import mux_verified_pcm
 from tachie_motion.timeline.media import MovieTiming, WaveTiming
 from tachie_motion.timeline.otio_json import build_rounded_utterance, write_otio
@@ -122,12 +123,23 @@ def export_preset_utterance(
     eyes: dict | None = None, eye_groups: list[str] | None = None,
     blink_timing: dict | None = None,
     protect_otio_references: bool = False,
+    progress: tuple[ExportProgress, str] | None = None,
 ):
     """Generate a preset-backed PCM MOV with optional OTIO for callers that need it.
 
     Supports none/open/aiueo, with fresh blink timing variation per export.
     Timeline change points and multiple character tracks remain excluded.
     """
+    def report(stage: str, percent: int, frames: int = 0,
+               total_frames: int = 0) -> None:
+        if progress:
+            progress[0].update(progress[1], stage, percent, frames, total_frames)
+
+    def check_cancel() -> None:
+        if progress:
+            progress[0].check(progress[1])
+
+    report("素材と出力先を確認中", 0)
     if mode not in ("none", "open", "aiueo"):
         raise ValueError("Lip mode is not implemented")
     if type(blink_enabled) is not bool:
@@ -158,13 +170,17 @@ def export_preset_utterance(
                  mov, conflict_policy,
                  protect_otio_references=protect_otio_references))
 
+    check_cancel()
     psd, base = validated_snapshot(psd_path, fingerprint, layers)
+    report("PSDレイヤーを検証中", 7)
     closed_eye = (validate_closed_eye(psd, base, eyes, eye_groups, mouth_groups)
                   if blink_enabled else None)
     shapes = validate_open_mouth(psd, base, mouth, mouth_groups) if mode == "open" else None
     six = (validate_aiueo_mouth(psd, base, aiueo_mouth, mouth_groups)
            if mode == "aiueo" else None)
+    check_cancel()
     schedule = analyze_wav(wav, fps=fps)
+    report("WAV・フレーム構成を解析中", 12)
     if source_identity is not None:
         verify_wav_source(wav, source_identity)
     if six is not None:
@@ -196,6 +212,7 @@ def export_preset_utterance(
     cleanup_warning = None
     try:
         directory = Path(work.name)
+        report("PSD画像を合成中", 16)
         if closed_eye is not None:
             mouth_poses = (tuple(six[key] for key in AIUEO_KEYS) if six is not None
                            else ({}, shapes["opened"]) if shapes is not None
@@ -219,14 +236,30 @@ def export_preset_utterance(
                 png = directory / (state + ".png")
                 write_fixed_crop_png(psd, png, padding=16)
                 pngs.append(png)
+        check_cancel()
+        report("PSD画像合成完了", 25)
         if psd_snapshot_token(str(psd_path)) != fingerprint:
             raise ValueError("PSD changed during rendering; nothing was published")
         staged_mov = directory / "staged.mov"
-        report = encode_prores_sequence(pngs, indices, staged_mov, fps=fps)
-        if report.frames != len(indices) or report.decoded_frames != len(indices):
+        def on_frame(written: int, total: int) -> None:
+            report("映像フレームをFFmpegへ送信中",
+                   25 + (38 * written) // total, written, total)
+
+        report("ProRes映像をエンコード中", 25, 0, len(indices))
+        if progress:
+            encoded = encode_prores_sequence(
+                pngs, indices, staged_mov, fps=fps,
+                on_frame=on_frame,
+                on_verify=lambda: report("ProRes映像を独立検証中", 65),
+                check_cancel=check_cancel)
+        else:
+            encoded = encode_prores_sequence(pngs, indices, staged_mov, fps=fps)
+        report("映像の独立検証完了", 77, len(indices), len(indices))
+        if encoded.frames != len(indices) or encoded.decoded_frames != len(indices):
             raise RuntimeError("Encoded MOV frame count mismatch")
         if psd_snapshot_token(str(psd_path)) != fingerprint:
             raise ValueError("PSD changed during export; nothing was published")
+        report("PCM音声を結合・検証中", 80)
         # Reuse the already-verified compressed video packets. The mux is
         # separately checked for identical video packets and decoded PCM.
         pcm_mov = directory / "pcm.mov"
@@ -237,16 +270,19 @@ def export_preset_utterance(
             expected_channels=schedule.channels,
             expected_sample_width_bits=schedule.sample_width_bits,
             expected_pcm_sha256=schedule.pcm_sha256,
+            **({"check_cancel": check_cancel} if progress else {}),
         )
+        report("PCM音声の照合完了", 93)
         if source_identity is not None:
             # Nothing may reach the public output names after the WAV changes.
             verify_wav_source(wav, source_identity)
         if intervals is not None:
             verify_export_lab(wav, source_identity, intervals, lab_identity)
+        check_cancel()
         if otio is not None:
             # Optional internal pair writer; the production individual route passes otio=None.
             document = build_rounded_utterance(
-                pcm_mov, wav, MovieTiming(report.frames, fps),
+                pcm_mov, wav, MovieTiming(encoded.frames, fps),
                 WaveTiming(schedule.sample_count, schedule.sample_rate),
                 embedded_audio=True,
             )
@@ -264,6 +300,8 @@ def export_preset_utterance(
                 verify_wav_source(wav, source_identity)
             if intervals is not None:
                 verify_export_lab(wav, source_identity, intervals, lab_identity)
+            if progress:
+                progress[0].finalizing(progress[1], "MOV・OTIOを保存中")
             warning = publish_pair(
                 pcm_mov, staged_otio, mov, otio,
                 policy=conflict_policy, prior=prior,
@@ -272,10 +310,14 @@ def export_preset_utterance(
             # Solo route publishes only its MOV; batch follows with one shared OTIO.
             if intervals is not None:
                 verify_export_lab(wav, source_identity, intervals, lab_identity)
+            if progress and progress[0].kind(progress[1]) == "single":
+                progress[0].finalizing(progress[1], "MOVを保存中")
             warning = publish_single(
                 pcm_mov, mov, policy=conflict_policy, prior=prior,
                 protect_otio_references=protect_otio_references,
             )
+        if progress and progress[0].kind(progress[1]) == "batch":
+            report("MOVを一時生成・検証完了", 99)
         committed = True
     finally:
         try:
@@ -288,7 +330,7 @@ def export_preset_utterance(
                 + " saved, but temporary render files could not "
                 "be fully removed: " + work.name
             )
-    result = {"mov": str(mov), "frames": report.frames,
+    result = {"mov": str(mov), "frames": encoded.frames,
               "sample_count": schedule.sample_count, "sample_rate": schedule.sample_rate}
     if otio is not None:
         result["otio"] = str(otio)

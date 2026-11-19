@@ -4,6 +4,7 @@ All state-changing session methods run under app.state.export_lock. A session
 reserves the full set of destinations and binds each generated MOV inode to the
 final combined OTIO. Stale browser tabs cannot silently interleave output.
 """
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 import secrets
@@ -84,8 +85,9 @@ class Session:
 
 
 class BatchCoordinator:
-    def __init__(self):
+    def __init__(self, on_expire: Callable[[str], None] | None = None):
         self.active: Session | None = None
+        self.on_expire = on_expire
 
     def _current(self) -> Session | None:
         if self.active and time.monotonic() > self.active.deadline:
@@ -93,15 +95,23 @@ class BatchCoordinator:
             # for inspection; no public files are changed.
             session = self.active
             self.active = None
-            discard_stage(session.stage)
+            try:
+                discard_stage(session.stage)
+            finally:
+                if self.on_expire is not None:
+                    self.on_expire(session.token)
         return self.active
+
+    def expire_idle(self) -> None:
+        """Expire only when the caller holds the app export lock."""
+        self._current()
 
     def require_idle(self) -> None:
         if self._current() is not None:
             raise RuntimeError("Another batch is active; finish or cancel it first")
 
     def start(self, folder: Path, timeline_name: str, timeline_policy: str,
-              entries: list[dict]) -> str:
+              entries: list[dict], token: str | None = None) -> str:
         self.require_idle()
         names = [entry["basename"] for entry in entries]
         validate_names(names, timeline_name)
@@ -153,7 +163,7 @@ class BatchCoordinator:
             [item.basename + ".mov" for item in planned] +
             [timeline_name + ".otio"]))
         try:
-            token = secrets.token_urlsafe(32)
+            token = token if token is not None else secrets.token_urlsafe(32)
             self.active = Session(token, folder, timeline_name, timeline_policy,
                                   timeline_prior, planned, stage,
                                   time.monotonic() + IDLE_SECONDS)

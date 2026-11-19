@@ -1,6 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { assignOpenPair } from "./motion_helpers";
 
+// These browser scenarios mock MOV/OTIO completion. Reserve progress in the
+// same mock transport; never create an orphan job on the real local API.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/export-progress-reserve", (route) =>
+    route.fulfill({ json: { registered: true } }));
+});
+
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tmdoAAAAASUVORK5CYII=";
 const layers = [
   { path: "0", name: "face", kind: "group", visible: true, effective_visible: true, bbox: [0,0,64,64] },
@@ -76,9 +83,11 @@ test("new preset-backed none/open utterance workflow sends exact preset snapshot
       opened: [{ path: "0/0", visible: false }, { path: "0/1", visible: true }],
     },
   });
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("none");
   await expect(page.getByRole("status")).toHaveCount(0);
   await page.getByRole("button", { name: "MOVを書き出す" }).click();
+  await expect.poll(() => payloads.length).toBe(2);
   expect(payloads[1]).toMatchObject({ mode: "none" });
 });
 
@@ -141,6 +150,7 @@ test("existing single MOV offers overwrite by default and an editable separate f
   expect(requests[0]).toMatchObject({
     basename: "001_character_voice", conflict_policy: "overwrite",
   });
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
   await page.getByRole("radio", { name: "別名で書き出す" }).check();
   await expect(page.locator("#speech-save-as")).toHaveValue("001_character_voice_002");
   await page.locator("#speech-save-as").fill("speech_003");
@@ -181,6 +191,7 @@ test("same-stem legacy OTIO forbids MOV overwrite and requires a new name", asyn
   await expect(page.getByRole("radio", { name: "上書きする" })).toHaveCount(0);
   await expect(page.locator("#speech-save-as")).toHaveValue("001_character_voice_002");
   await page.getByRole("button", { name: "別名で書き出す" }).click();
+  await expect.poll(() => requests.length).toBe(1);
   expect(requests[0]).toMatchObject({
     basename: "001_character_voice_002", conflict_policy: "error",
   });
@@ -270,6 +281,7 @@ test("one WAV sends identical open-mouth render settings through single and all 
 
   await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect(page.getByText("書き出し完了・30フレーム")).toBeVisible();
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
   await page.getByRole("radio", { name: /^全件/ }).check();
   await expect(page.getByText("口パク「なし」が", { exact: false })).toHaveCount(0);
   await page.getByRole("button", { name: "全件を書き出す" }).click();
@@ -321,7 +333,7 @@ test("a fixed-expression preset exports none even when the WAV row selects open"
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
   await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeEnabled();
   await page.getByRole("button", { name: "MOVを書き出す" }).click();
-  expect(exports).toHaveLength(1);
+  await expect.poll(() => exports.length).toBe(1);
   expect(exports[0]).toMatchObject({ mode: "none", mouth: null, blink_enabled: false });
 });
 

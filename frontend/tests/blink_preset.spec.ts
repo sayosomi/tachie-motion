@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
+// These browser scenarios mock MOV/OTIO completion. Reserve progress in the
+// same mock transport; never create an orphan job on the real local API.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/export-progress-reserve", (route) =>
+    route.fulfill({ json: { registered: true } }));
+});
+
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tmdoAAAAASUVORK5CYII=";
 const source = "/tmp/blink-test.psd";
 const layers = [

@@ -20,6 +20,7 @@ from tachie_motion.web.output_destinations import validate_basename
 from tachie_motion.web.solo_output import validate_media_basename, single_destination, solo_destination_info
 from tachie_motion.web.combined_otio import create_combined_otio
 from tachie_motion.web.batch_session import BatchCoordinator, validate_names, has_foreign_otio
+from tachie_motion.web.export_progress import ExportProgress, ExportCancelled
 from tachie_motion.web.batch_publish import require_batch_recovery_clear
 from tachie_motion.web.service import (
     describe_psd, describe_wav, describe_wav_lab, load_psd, local_file, preview_mouth,
@@ -93,7 +94,16 @@ class PresetUtteranceRequest(BaseModel):
     basename: str
     fps: int = 30
     source_identity: str
+    progress_id: str | None = None
 
+
+class ExportProgressIdentifier(BaseModel):
+    token: str
+
+
+class ExportProgressReservation(ExportProgressIdentifier):
+    kind: str
+    total: int = 1
 
 
 class BatchNameRequest(BaseModel):
@@ -117,6 +127,7 @@ class BatchStartRequest(BaseModel):
     timeline_basename: str
     timeline_policy: str
     entries: list[BatchPlannedMedia]
+    progress_id: str | None = None
 
 
 class BatchIdentifier(BaseModel):
@@ -149,7 +160,10 @@ if TAILSCALE_ORIGIN is not None:
     allowed_hosts.append(urlsplit(TAILSCALE_ORIGIN).hostname)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 app.state.export_lock = asyncio.Lock()
-app.state.batch = BatchCoordinator()
+app.state.export_progress = ExportProgress()
+app.state.batch = BatchCoordinator(
+    on_expire=lambda token: app.state.export_progress.finish(token, "failed")
+)
 FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 if (FRONTEND_DIST / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
@@ -302,6 +316,75 @@ def preset_utterance_destination(payload: DestinationRequest):
         raise bad_request(exc) from exc
 
 
+@app.post("/api/export-progress-reserve")
+async def export_progress_reserve(payload: ExportProgressReservation):
+    # A new tab may have lost the old batch token. Reclaim its expired
+    # session before inspecting the progress registry, under the worker lock.
+    try:
+        await asyncio.wait_for(app.state.export_lock.acquire(), timeout=0.1)
+    except asyncio.TimeoutError:
+        raise HTTPException(409, "Another export is active") from None
+    try:
+        app.state.batch.expire_idle()
+        app.state.export_progress.reserve(payload.token, payload.kind, payload.total)
+        return {"registered": True}
+    except (ValueError, RuntimeError) as exc:
+        raise bad_request(exc) from exc
+    finally:
+        app.state.export_lock.release()
+
+
+@app.get("/api/export-progress/{token}")
+async def export_progress(token: str):
+    # An abandoned batch is expired only while no render owns export_lock.
+    # A progress poll must never wait behind the long-running media worker.
+    try:
+        # A zero-wait check followed by "async with" has a race: a new
+        # render can acquire the lock in between and freeze progress polling.
+        await asyncio.wait_for(app.state.export_lock.acquire(), timeout=0.01)
+    except asyncio.TimeoutError:
+        pass  # Rendering owns the lock; return the live snapshot immediately.
+    else:
+        try:
+            app.state.batch.expire_idle()
+        finally:
+            app.state.export_lock.release()
+    try:
+        return app.state.export_progress.snapshot(token)
+    except KeyError:
+        raise HTTPException(404, "Export progress is not available")
+
+
+async def _finish_cancelled_batch(token: str) -> None:
+    # Cancellation must finish even if the initiating browser lost its POST.
+    # The lock also prevents releasing a stage while its worker is still using it.
+    async with app.state.export_lock:
+        try:
+            status = app.state.export_progress.snapshot(token)["status"]
+        except KeyError:
+            return
+        if status == "cancelling" and app.state.batch.release(token):
+            app.state.export_progress.finish(token, "cancelled")
+
+
+@app.post("/api/export-cancel")
+async def export_cancel(payload: ExportProgressIdentifier):
+    # The progress lock is separate from export_lock, so cancellation can
+    # interrupt blocked FFmpeg and verification I/O without waiting for them.
+    try:
+        result = app.state.export_progress.request_cancel(payload.token)
+        if result["accepted"]:
+            try:
+                kind = app.state.export_progress.kind(payload.token)
+            except KeyError:
+                kind = None  # A browser UUID may be pre-cancelled before POST.
+            if kind == "batch":
+                asyncio.create_task(_finish_cancelled_batch(payload.token))
+        return result
+    except KeyError:
+        raise HTTPException(404, "Export progress is not available")
+
+
 @app.post("/api/preset-utterance-export")
 async def preset_utterance_export(payload: PresetUtteranceRequest):
     if payload.fps not in (24, 30, 60):
@@ -321,20 +404,40 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
         folder = folder.resolve(strict=True)
         async with app.state.export_lock:
             app.state.batch.require_idle()
-            return await asyncio.to_thread(
-                export_preset_utterance,
-                psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
-                layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
+            token = payload.progress_id
+            if token:
+                app.state.export_progress.start(token, "single")
+            try:
+                if token:
+                    app.state.export_progress.check(token)
+                result = await asyncio.to_thread(
+                    export_preset_utterance,
+                    psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
+                    layers=payload.layers, mouth=payload.mouth, mode=payload.mode,
                     aiueo_mouth=payload.aiueo_mouth, mouth_groups=payload.mouth_groups,
                     lab_source_identity=payload.lab_source_identity,
-                blink_enabled=payload.blink_enabled, eyes=payload.eyes,
-                eye_groups=payload.eye_groups, blink_timing=payload.blink_timing,
-                conflict_policy=payload.conflict_policy,
-                mov=folder / (payload.basename + ".mov"),
-                otio=None,  # Single utterance exports only PCM-in-MOV.
-                protect_otio_references=True,
-                fps=payload.fps, source_identity=payload.source_identity,
-            )
+                    blink_enabled=payload.blink_enabled, eyes=payload.eyes,
+                    eye_groups=payload.eye_groups, blink_timing=payload.blink_timing,
+                    conflict_policy=payload.conflict_policy,
+                    mov=folder / (payload.basename + ".mov"),
+                    otio=None,
+                    protect_otio_references=True,
+                    fps=payload.fps, source_identity=payload.source_identity,
+                    progress=(app.state.export_progress, token) if token else None,
+                )
+            except ExportCancelled:
+                if token:
+                    app.state.export_progress.finish(token, "cancelled")
+                raise
+            except Exception:
+                if token:
+                    app.state.export_progress.finish(token, "failed")
+                raise
+            if token:
+                app.state.export_progress.finish(token, "success")
+            return result
+    except ExportCancelled as exc:
+        raise HTTPException(409, str(exc)) from exc
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 
@@ -355,18 +458,48 @@ async def preset_batch_start(payload: BatchStartRequest):
         if not folder.is_absolute() or not folder.is_dir():
             raise ValueError("Output folder must already exist")
         async with app.state.export_lock:
+            app.state.export_progress.require_available(payload.progress_id)
             token = await asyncio.to_thread(
                 app.state.batch.start, folder, payload.timeline_basename,
-                payload.timeline_policy, [entry.model_dump() for entry in payload.entries])
+                payload.timeline_policy, [entry.model_dump() for entry in payload.entries],
+                payload.progress_id)
+            progress_started = False
+            try:
+                app.state.export_progress.start(token, "batch", len(payload.entries))
+                progress_started = True
+                app.state.export_progress.check(token)
+            except BaseException as exc:
+                app.state.batch.release(token)
+                if progress_started:
+                    app.state.export_progress.finish(
+                        token, "cancelled" if isinstance(exc, ExportCancelled) else "failed")
+                else:
+                    app.state.export_progress.fail_reservation(token)
+                raise
             return {"batch_id": token}
+    except ExportCancelled as exc:
+        if payload.progress_id:
+            app.state.export_progress.fail_reservation(payload.progress_id)
+        raise HTTPException(409, str(exc)) from exc
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
+        # A failed batch preflight must not strand its pending reservation.
+        if payload.progress_id:
+            app.state.export_progress.fail_reservation(payload.progress_id)
         raise bad_request(exc) from exc
 
 
 @app.post("/api/preset-batch-cancel")
 async def preset_batch_cancel(payload: BatchIdentifier):
     async with app.state.export_lock:
-        return {"released": app.state.batch.release(payload.batch_id)}
+        released = app.state.batch.release(payload.batch_id)
+        if released:
+            try:
+                state = app.state.export_progress.snapshot(payload.batch_id)["status"]
+                app.state.export_progress.finish(
+                    payload.batch_id, "cancelled" if state == "cancelling" else "failed")
+            except KeyError:
+                pass  # Backward-compatible session cleanup without a progress record.
+        return {"released": released}
 
 
 @app.post("/api/preset-batch-mov-destination")
@@ -410,18 +543,20 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
         if not folder.is_absolute() or not folder.is_dir():
             raise ValueError("Output folder must already exist")
         if payload.fps not in (24, 30, 60):
-            raise ValueError("FPS must be 24, 30 or 60")
+            raise ValueError("Unsupported FPS")
         psd = local_file(payload.psd, ".psd")
         wav = local_file(payload.wav, ".wav")
         canonical = folder.resolve(strict=True)
         async with app.state.export_lock:
             if payload.source_identity is None:
                 raise ValueError("Registered WAV identity is required for batch")
+            app.state.export_progress.check(payload.batch_id)
             app.state.batch.before(
                 payload.batch_id, payload.batch_index, canonical, payload.basename,
                 wav, payload.source_identity, payload.fps, payload.conflict_policy,
                 payload.lab_source_identity)
             try:
+                app.state.export_progress.item(payload.batch_id, payload.batch_index)
                 stage = app.state.batch.staged_folder(payload.batch_id)
                 result = await asyncio.to_thread(
                     export_preset_utterance,
@@ -434,15 +569,17 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
                     conflict_policy="error",
                     mov=stage / (payload.basename + ".mov"), otio=None,
                     fps=payload.fps, source_identity=payload.source_identity,
+                    progress=(app.state.export_progress, payload.batch_id),
                 )
                 app.state.batch.succeeded(payload.batch_id, payload.batch_index, result)
-                # The UI displays the planned final path, but the file is not
-                # visible there until the whole batch and OTIO are committed.
+                # Staged output is not yet publicly committed. Do not claim success.
                 return {**result, "mov": str(canonical / (payload.basename + ".mov")),
                         "staged": True}
-            except (ValueError, FileExistsError, OSError, RuntimeError, TypeError):
+            except (ExportCancelled, ValueError, FileExistsError, OSError, RuntimeError, TypeError):
                 app.state.batch.failed(payload.batch_id, payload.batch_index)
                 raise
+    except ExportCancelled as exc:
+        raise HTTPException(409, str(exc)) from exc
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 
@@ -457,6 +594,7 @@ async def preset_combined_otio(payload: CombinedOtioRequest):
         canonical = folder.resolve(strict=True)
         entries = [entry.model_dump() for entry in payload.entries]
         async with app.state.export_lock:
+            app.state.export_progress.timeline(payload.batch_id)
             expected = app.state.batch.before_timeline(
                 payload.batch_id, canonical, payload.basename,
                 payload.conflict_policy, entries)
@@ -466,8 +604,9 @@ async def preset_combined_otio(payload: CombinedOtioRequest):
                 entries, "error", expected_identities=expected,
                 reference_folder=canonical,
             )
-            # After every MOV and the OTIO have passed their own validators,
-            # publish the entire set, restoring old originals on failure.
+            # The final atomic cancellation gate: after this, the existing
+            # rollback transaction must run to completion without interruption.
+            app.state.export_progress.finalizing(payload.batch_id, "全体OTIO・MOVを公開中")
             warning = await asyncio.to_thread(app.state.batch.commit, payload.batch_id)
             # A cleanup problem AFTER publication must not turn successful
             # generation-wide commit into a false HTTP error and trigger a
@@ -477,6 +616,7 @@ async def preset_combined_otio(payload: CombinedOtioRequest):
                 app.state.batch.release(payload.batch_id)
             except OSError as error:
                 cleanup_warning = "Batch saved; staged-file cleanup requires inspection: " + str(error)
+            app.state.export_progress.finish(payload.batch_id, "success")
             published = {"otio": str(canonical / (payload.basename + ".otio")),
                          "entries": len(entries)}
             warnings = [value for value in (warning, result.get("warning"), cleanup_warning)
@@ -484,6 +624,8 @@ async def preset_combined_otio(payload: CombinedOtioRequest):
             if warnings:
                 published["warning"] = " ".join(warnings)
             return published
+    except ExportCancelled as exc:
+        raise HTTPException(409, str(exc)) from exc
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 
