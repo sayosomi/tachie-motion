@@ -31,6 +31,28 @@ class SoloOtioProtectionTests(unittest.TestCase):
         self.assertEqual(src.read_bytes(), b"SOURCE MOV")
         self.assertEqual(dst.read_bytes(), b"OTHER OWNER MOV")
 
+    def test_unicode_wav_name_preserved_in_alternate_suggestion(self):
+        name = "001_あんこもん た\u0301゙んもん"
+        original = self.folder / (name + ".mov")
+        original.write_bytes(b"EXISTING")
+        timeline = self.folder / "combined.otio"
+        timeline.write_bytes(b"FOREIGN TIMELINE")
+        probe = solo_destination_info(self.folder, name)
+        self.assertEqual(probe["state"], "unsafe")
+        self.assertEqual(probe["suggested_basename"], name + "_002")
+        self.assertEqual(original.read_bytes(), b"EXISTING")
+        self.assertEqual(timeline.read_bytes(), b"FOREIGN TIMELINE")
+
+    def test_unicode_collision_suffix_respects_utf8_budget(self):
+        # 60 Japanese characters take 180 bytes; the suffix needs room.
+        name = "あ" * 60
+        (self.folder / (name + ".mov")).write_bytes(b"EXISTING")
+        candidate = solo_destination_info(self.folder, name)["suggested_basename"]
+        self.assertTrue(candidate.endswith("_002"))
+        self.assertLessEqual(len(candidate.encode("utf-8")), 180)
+        self.assertTrue(candidate.startswith("あ"))
+        self.assertEqual((self.folder / (name + ".mov")).read_bytes(), b"EXISTING")
+
     def test_existing_mov_without_otio_allows_overwrite(self):
         self.mov.write_bytes(b"OLD MOV")
         self.assertEqual(solo_destination_info(self.folder, "speech")["state"], "complete")
