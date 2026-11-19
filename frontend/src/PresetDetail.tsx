@@ -5,6 +5,8 @@ import type { Layer } from "./LayerTree";
 import type { UnifiedPreset, AiueoKey } from "./presetModel";
 import { AIUEO_KEYS, AIUEO_LABELS, aiueoLayerRole, openLayerRole } from "./presetModel";
 import PresetImagePreview from "./PresetImagePreview";
+import ThumbnailEditor from "./ThumbnailEditor";
+import type { ThumbnailView } from "./thumbnailView";
 import MotionGroupSelector from "./MotionGroupSelector";
 import { isMouthLayer } from "./motionGroups";
 import { psdChoiceKind, psdParentPath, derivedEyeRadioGroupHides } from "./psdChoice";
@@ -42,6 +44,7 @@ type Props = {
   onAiueoChoiceChange: (key: AiueoKey, path: string, visible: boolean) => void;
   onClearMotionShape: (selection: "open" | "eyes" | AiueoKey) => void;
   onDelete: () => void;
+  onThumbnailSave: (view: ThumbnailView) => boolean;
 };
 
 type PreviewState = "base" | "closed" | "opened" | `aiueo-${AiueoKey}`
@@ -55,6 +58,7 @@ export default function PresetDetail({
   onNameDraftChange, onBack, onRename, onToggle, mouthGroups, eyeGroups,
   onMouthGroupsChange, onEyeGroupsChange, onMouthMotionChange, onBlinkChange,
   onEyeShapeChange, onOpenShapeChange, onAiueoChoiceChange, onClearMotionShape, onDelete,
+  onThumbnailSave,
   blinkTiming, onBlinkTimingChange,
 }: Props) {
   const [expanded, setExpanded] = useState<string[]>([]);
@@ -66,6 +70,9 @@ export default function PresetDetail({
   const [motionKind, setMotionKind] = useState<"mouth" | "eyes">("mouth");
   const [aiueoKey, setAiueoKey] = useState<AiueoKey>("a");
   const [shapePreview, setShapePreview] = useState<ShapePreview | null>(null);
+  const [editingThumbnail, setEditingThumbnail] = useState(false);
+
+  useEffect(() => { setEditingThumbnail(false); }, [preset.id]);
 
   useEffect(() => {
     setExpanded(layers.filter((layer) => layer.kind === "group").map((layer) => layer.path));
@@ -464,6 +471,14 @@ export default function PresetDetail({
       </section>
       <section className="panel preset-preview">
         <h2>プレビュー</h2>
+        <button type="button" className="secondary thumbnail-edit-toggle"
+          aria-pressed={editingThumbnail}
+          onClick={() => setEditingThumbnail((old) => !old)}>
+          {editingThumbnail ? "通常プレビューに戻る" : "サムネイルを編集"}
+        </button>
+        {editingThumbnail ? <ThumbnailEditor key={preset.id} presetId={preset.id}
+          name={preset.name} image={preview} saved={preset.thumbnail}
+          onSave={onThumbnailSave} /> : <>
         {(area === "normal" || (motionEnabled && selectedGroups.length > 0))
           && (selectedLayer || roleMode === "open" || motionKind === "eyes")
           && <p className="hint preset-selected-summary" aria-live="polite">
@@ -482,6 +497,7 @@ export default function PresetDetail({
           && !sourceChanged && <p className="hint warning">口のopenを指定してください</p>}
         {(area === "normal" || motionEnabled) &&
           <p className="hint">全体表示と{area === "motion" && motionKind === "eyes" ? "目元" : "口元"}の拡大を切り替えられます。拡大時はドラッグで移動できます。</p>}
+        </>}
       </section>
     </div>
   </div>;
