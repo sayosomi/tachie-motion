@@ -214,8 +214,9 @@ class SoloOtioProtectionTests(unittest.TestCase):
         outsider.write_bytes(b"THIRD-PARTY MOV")
         timeline = self.folder / "project.otio"
         from tachie_motion.web.atomic_rename import rename_noreplace
+        real_link = os.link
         def injected_link(source, destination):
-            result = os.link(source, destination)
+            result = real_link(source, destination)
             if Path(source) == self.stage and Path(destination) == self.mov:
                 timeline.write_bytes(b"OTIO ARRIVED")
             return result
