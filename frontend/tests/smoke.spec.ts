@@ -324,3 +324,52 @@ test("a fixed-expression preset exports none even when the WAV row selects open"
   expect(exports).toHaveLength(1);
   expect(exports[0]).toMatchObject({ mode: "none", mouth: null, blink_enabled: false });
 });
+
+test("solo MOV template follows WAV order and source Unicode, manual name stays pinned", async ({ page }) => {
+  await mockPsd(page);
+  await page.goto("/");
+  await page.locator("#preset-psd-path-advanced").evaluate(
+    (node) => { (node as HTMLDetailsElement).open = true; });
+  await page.locator("#preset-psd-path").fill("/tmp/character.psd");
+  await page.getByRole("button", { name: "読み込む", exact: true }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  const add = async (wav: string) => {
+    await page.locator("#speech-wav-path-advanced").evaluate(
+      (node) => { (node as HTMLDetailsElement).open = true; });
+    await page.locator("#speech-wav-path").fill(wav);
+    await page.getByRole("button", { name: "WAVを確認" }).click();
+  };
+  const firstWav = "/tmp/002_あんこもん た\u0301゙んもん.wav";
+  await add(firstWav);
+  await expect(page.locator("#speech-basename"))
+    .toHaveValue("001_character_002_あんこもん た\u0301゙んもん");
+  await add("/tmp/次の台詞.wav");
+  await expect(page.locator("#speech-basename"))
+    .toHaveValue("002_character_次の台詞");
+  await page.locator("#batch-character-name").fill("ずんだもん");
+  await expect(page.locator("#speech-basename"))
+    .toHaveValue("002_ずんだもん_次の台詞");
+  await page.locator("[data-utterance-id]").nth(1)
+    .getByRole("button", { name: /上へ:/ }).click();
+  await expect(page.locator("#speech-basename"))
+    .toHaveValue("001_ずんだもん_次の台詞");
+  await page.locator("#speech-basename").fill("手動 名前");
+  await page.locator("[data-utterance-id]").first()
+    .getByRole("button", { name: /下へ:/ }).click();
+  await expect(page.locator("#speech-basename")).toHaveValue("手動 名前");
+  await page.locator("[data-utterance-id]").first()
+    .locator(".utterance-item-select").click();
+  await expect(page.locator("#speech-basename"))
+    .toHaveValue("001_ずんだもん_002_あんこもん た\u0301゙んもん");
+  await page.locator("#batch-mov-template").fill("{番号}-{キャラ名}-{WAV名}");
+  await expect(page.locator("#speech-basename"))
+    .toHaveValue("001-ずんだもん-002_あんこもん た\u0301゙んもん");
+  await page.locator("[data-utterance-id]").nth(1)
+    .locator(".utterance-item-select").click();
+  await expect(page.locator("#speech-basename")).toHaveValue("手動 名前");
+  await page.getByRole("button", { name: "共通テンプレートに戻す" }).click();
+  await expect(page.locator("#speech-basename")).toHaveValue("002-ずんだもん-次の台詞");
+  await page.locator("#speech-basename").fill("invalid/name");
+  await expect(page.locator("#speech-basename")).toHaveValue("invalid/name");
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeDisabled();
+});
