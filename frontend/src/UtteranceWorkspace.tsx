@@ -91,6 +91,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const mounted = useRef(false);
   // Synchronous guard closes the gap before React commits exportingId state.
   const singleExportLock = useRef(false);
+  const singleUncertain = useRef(false);
   const labStatuses = useLabStatus(items, active, labRefreshVersion);
   const exportProgress = useExportProgress();
   const batch = useBatchUtteranceExport(draft, items, setItems,
@@ -114,6 +115,18 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
+
+  // If a fetch connection drops, keep edits locked until a real server
+  // terminal status arrives. A lost response does not imply a stopped worker.
+  useEffect(() => {
+    const phase = exportProgress.view?.phase;
+    if (!singleUncertain.current ||
+        (phase !== "success" && phase !== "failed" && phase !== "cancelled")) return;
+    singleUncertain.current = false;
+    singleExportLock.current = false;
+    setExportingId(null);
+    setProbeVersion((previous) => previous + 1);
+  }, [exportProgress.view?.phase]);
 
   // Keep the WAV list mounted across the Presets/Speech tabs. Refresh the
   // character snapshot when returning; reject changed PSDs, do not reuse a stale draft.
@@ -402,6 +415,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   async function exportUtterance() {
     if (!draft || !current || !selected || !canExport || isEditBusy()) return;
     singleExportLock.current = true;
+    singleUncertain.current = false;
     const itemId = current.id;
     const token = crypto.randomUUID();
     setExportingId(itemId);
@@ -417,15 +431,23 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         item.id === itemId ? { ...item, result, error: "" } : item));
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      exportProgress.settle(reason.includes("書き出しをキャンセルしました")
-        ? "cancelled" : "failed", reason);
-      if (mounted.current) setItems((previous) => previous.map((item) =>
-        item.id === itemId ? { ...item, result: null, error: reason } : item));
+      if (err instanceof TypeError || (err instanceof DOMException && err.name === "AbortError")) {
+        singleUncertain.current = true;
+        exportProgress.uncertain(
+          "通信が切れました。サーバー処理の結果を確認中です。出力先を確認するまで再実行しないでください。");
+      } else {
+        exportProgress.settle(reason.includes("書き出しをキャンセルしました")
+          ? "cancelled" : "failed", reason);
+        if (mounted.current) setItems((previous) => previous.map((item) =>
+          item.id === itemId ? { ...item, result: null, error: reason } : item));
+      }
     } finally {
-      singleExportLock.current = false;
-      if (mounted.current) {
-        setExportingId(null);
-        setProbeVersion((previous) => previous + 1);
+      if (!singleUncertain.current) {
+        singleExportLock.current = false;
+        if (mounted.current) {
+          setExportingId(null);
+          setProbeVersion((previous) => previous + 1);
+        }
       }
     }
   }
