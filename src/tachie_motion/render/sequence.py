@@ -5,7 +5,7 @@ video frame's expected source-state index to the independent decode verifier.
 Packet reuse is intentionally not enabled for variable-duration schedules.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 import os
 from pathlib import Path
 import subprocess
@@ -18,6 +18,8 @@ from tachie_motion.render.probe import ProresReport, inspect_prores
 def encode_prores_sequence(
     pngs: Sequence[Path], indices: Sequence[int], output: Path, *,
     fps: int = 30, ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe",
+    on_frame: Callable[[int, int], None] | None = None,
+    check_cancel: Callable[[], None] | None = None,
 ) -> ProresReport:
     """Stream scheduled frames and atomically publish only verified media."""
     if output.suffix.lower() != ".mov":
@@ -52,8 +54,13 @@ def encode_prores_sequence(
             raise RuntimeError(f"Could not start FFmpeg: {exc}") from exc
         try:
             assert proc.stdin is not None
-            for index in indices:
+            tick = max(1, args_count // 100)
+            for number, index in enumerate(indices, 1):
+                if check_cancel:
+                    check_cancel()
                 proc.stdin.write(states[index])
+                if on_frame and (number % tick == 0 or number == args_count):
+                    on_frame(number, args_count)
             proc.stdin.close()
             proc.stdin = None
             _, errors = proc.communicate()
@@ -79,11 +86,15 @@ def encode_prores_sequence(
                 "FFmpeg scheduled encode failed: "
                 + errors.decode("utf-8", "replace")[-1500:]
             )
+        if check_cancel:
+            check_cancel()
         report = inspect_prores(
             temp, expected_size=dimensions, expected_frames=args_count,
             expected_fps=fps, ffmpeg=ffmpeg, ffprobe=ffprobe,
             source_states=states, state_indices=indices,
         )
+        if check_cancel:
+            check_cancel()
         os.link(temp, output)  # Exclusive and atomic; never replace.
         return report
     finally:
