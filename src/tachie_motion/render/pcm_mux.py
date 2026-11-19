@@ -4,6 +4,7 @@ No video re-encode, AAC conversion, WAV edits, or implicit audio padding.
 Only completed and independently verified mux outputs may be published.
 """
 
+from collections.abc import Callable
 import hashlib
 import json
 import os
@@ -18,18 +19,37 @@ _AUDIO_CODECS = {1: "pcm_s8", 2: "pcm_s16le", 3: "pcm_s24le", 4: "pcm_s32le"}
 _AUDIO_FORMATS = {1: "s8", 2: "s16le", 3: "s24le", 4: "s32le"}
 
 
-def _command(args: list[str]) -> bytes:
+def _command(args: list[str], *,
+             check_cancel: Callable[[], None] | None = None) -> bytes:
     try:
-        proc = subprocess.run(
-            args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
-        )
+        if check_cancel is None:
+            done = subprocess.run(
+                args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            output, errors, code = done.stdout, done.stderr, done.returncode
+        else:
+            check_cancel()
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+            try:
+                while True:
+                    try:
+                        output, errors = proc.communicate(timeout=0.2)
+                        break
+                    except subprocess.TimeoutExpired:
+                        check_cancel()
+                check_cancel()
+            except BaseException:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.communicate()
+                raise
+            code = proc.returncode
     except OSError as exc:
         raise RuntimeError(f"Could not run media tool: {exc}") from exc
-    if proc.returncode:
-        raise RuntimeError("Media tool failed: " + proc.stderr.decode(
+    if code:
+        raise RuntimeError("Media tool failed: " + errors.decode(
             "utf-8", "replace")[-1600:])
-    return proc.stdout
-
+    return output
 
 def _streams(path: Path, ffprobe: str) -> list[dict]:
     data = _command([ffprobe, "-v", "error", "-show_streams", "-of", "json",
@@ -72,7 +92,8 @@ def _source_pcm_digest(wav: Path, width: int) -> tuple[int, str, str]:
     return total, decoded_digest.hexdigest(), source_digest.hexdigest()
 
 
-def _decoded_pcm_digest(mov: Path, width: int, ffmpeg: str) -> tuple[int, str]:
+def _decoded_pcm_digest(mov: Path, width: int, ffmpeg: str, *,
+                        check_cancel: Callable[[], None] | None = None) -> tuple[int, str]:
     args = [
         ffmpeg, "-v", "error", "-nostdin", "-i", str(mov),
         "-map", "0:a:0", "-vn", "-c:a", _AUDIO_CODECS[width],
@@ -89,6 +110,8 @@ def _decoded_pcm_digest(mov: Path, width: int, ffmpeg: str) -> tuple[int, str]:
     try:
         assert proc.stdout is not None
         while data := proc.stdout.read(1024 * 1024):
+            if check_cancel:
+                check_cancel()
             size += len(data)
             digest.update(data)
         errors = proc.stderr.read() if proc.stderr else b""
@@ -115,6 +138,7 @@ def mux_verified_pcm(
     expected_sample_width_bits: int | None = None,
     expected_pcm_sha256: str | None = None,
     ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe",
+    check_cancel: Callable[[], None] | None = None,
 ) -> None:
     """Publish a MOV only if audio samples and video packet bytes are identical.
 
@@ -149,6 +173,8 @@ def mux_verified_pcm(
         wav, sample_rate=rate, channels=channels, sample_width=width,
         sample_count=samples,
     )
+    if check_cancel:
+        check_cancel()
     source_stat = wav.stat()
     expected_data = _source_pcm_digest(wav, width)
     if expected_pcm_sha256 is not None and expected_data[2] != expected_pcm_sha256:
@@ -159,6 +185,8 @@ def mux_verified_pcm(
     packet_hashes = _video_packets(silent_mov, ffprobe)
     if not packet_hashes:
         raise ValueError("Silent MOV has no video packets")
+    if check_cancel:
+        check_cancel()
     output.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(
         prefix=".tachie-pcm-", suffix=".mov", dir=output.parent,
@@ -166,13 +194,17 @@ def mux_verified_pcm(
     os.close(fd)
     stage = Path(name)
     try:
-        _command([
+        cmd = [
             ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
             "-i", str(silent_mov), "-i", str(wav),
             "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
             "-c:a", _AUDIO_CODECS[width], "-map_metadata", "-1",
             "-map_chapters", "-1", "-f", "mov", "-y", str(stage),
-        ])
+        ]
+        if check_cancel:
+            _command(cmd, check_cancel=check_cancel)
+        else:
+            _command(cmd)
         streams = _streams(stage, ffprobe)
         if len(streams) != 2:
             raise RuntimeError("Mux output must contain exactly one video and one audio stream")
@@ -196,7 +228,11 @@ def mux_verified_pcm(
             raise RuntimeError("Mux PCM codec, sample rate or channels differ")
         if int(audio.get("start_pts", -1)) != 0 or int(audio.get("duration_ts", -1)) != samples:
             raise RuntimeError("Mux shifted, padded or shortened audio timing")
-        if _decoded_pcm_digest(stage, width, ffmpeg) != expected_data[:2]:
+        if check_cancel:
+            decoded = _decoded_pcm_digest(stage, width, ffmpeg, check_cancel=check_cancel)
+        else:
+            decoded = _decoded_pcm_digest(stage, width, ffmpeg)
+        if decoded != expected_data[:2]:
             raise RuntimeError("Mux lost, duplicated or modified PCM samples")
         if expected_pcm_sha256 is not None and (
             _source_pcm_digest(wav, width)[2] != expected_pcm_sha256
@@ -208,6 +244,8 @@ def mux_verified_pcm(
             source_stat.st_size, source_stat.st_mtime_ns,
         ):
             raise ValueError("Source WAV changed during mux")
+        if check_cancel:
+            check_cancel()
         os.link(stage, output)  # No-clobber publication, including symlinks.
     finally:
         stage.unlink(missing_ok=True)
