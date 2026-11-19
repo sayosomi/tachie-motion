@@ -66,7 +66,11 @@ export function useExportProgress() {
         setView((previous) => {
           if (!previous || previous.token !== token || terminal(previous.phase)) return previous;
           return {
-            ...previous, phase: state.status, stage: state.stage,
+            ...previous,
+            phase: previous.phase === "cancelling" && state.status === "running"
+              ? "cancelling" : state.status,
+            stage: previous.phase === "cancelling" && state.status === "running"
+              ? "キャンセル処理中" : state.stage,
             percent: Math.max(previous.percent, Math.min(100, state.percent)),
             index: state.index, frames: state.frames, frameTotal: state.frame_total,
             connectionError: false,
