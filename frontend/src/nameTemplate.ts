@@ -1,4 +1,4 @@
-import { wavFilename } from "./utteranceItems";
+import { wavFilename, type UtteranceItem } from "./utteranceItems";
 
 /** A deliberately small file naming language: no functions or escape syntax. */
 export const DEFAULT_MOV_TEMPLATE = "{番号}_{キャラ名}_{WAV名}";
@@ -65,6 +65,17 @@ export function movName(template: string, order: number, wavPath: string,
     キャラ名: characterName,
     プロジェクト名: projectName,
   });
+}
+
+/** Single and batch MOVs share the same numbering/template convention.
+ * Explicit per-WAV edits are retained through reordering and template edits. */
+export function soloMovName(
+  item: Pick<UtteranceItem, "wavPath" | "basename" | "basenameEdited">,
+  order: number, naming: BatchNaming,
+): string {
+  return item.basenameEdited ? validateOutputName(item.basename) :
+    movName(naming.movTemplate, order, item.wavPath,
+      naming.characterName, naming.projectName);
 }
 
 export function otioName(template: string, projectName: string): string {
