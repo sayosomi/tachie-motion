@@ -20,6 +20,17 @@ class SoloOtioProtectionTests(unittest.TestCase):
         self.stage = self.folder / "stage.mov"
         self.stage.write_bytes(b"NEW MOV")
 
+    def test_native_no_replace_move_preserves_existing_destination(self):
+        from tachie_motion.web.atomic_rename import rename_noreplace
+        src = self.folder / "original.mov"
+        dst = self.folder / "occupied.mov"
+        src.write_bytes(b"SOURCE MOV")
+        dst.write_bytes(b"OTHER OWNER MOV")
+        with self.assertRaises(FileExistsError):
+            rename_noreplace(src, dst)
+        self.assertEqual(src.read_bytes(), b"SOURCE MOV")
+        self.assertEqual(dst.read_bytes(), b"OTHER OWNER MOV")
+
     def test_existing_mov_without_otio_allows_overwrite(self):
         self.mov.write_bytes(b"OLD MOV")
         self.assertEqual(solo_destination_info(self.folder, "speech")["state"], "complete")
