@@ -4,6 +4,7 @@ import { AIUEO_KEYS } from "./presetModel";
 import { validMotionGroups } from "./motionGroups";
 import { validatePsdChoices } from "./psdChoice";
 import { validBlinkTiming } from "./blinkTiming";
+import { validThumbnailView } from "./thumbnailView";
 
 // Portable, explicit character settings. Never a project snapshot or reload draft.
 export const CHARACTER_PROFILE_FORMAT = "tachie-motion-character-profile";
@@ -67,7 +68,7 @@ function paired(value: unknown, keys: string[], allowed: Set<string>): Record<st
 }
 
 function preset(value: unknown, allowed: Set<string>): UnifiedPreset {
-  fields(value, ["id", "name", "base", "blinkEnabled"], ["openMouth", "aiueoMouth", "eyes", "mouthMotionEnabled"]);
+  fields(value, ["id", "name", "base", "blinkEnabled"], ["openMouth", "aiueoMouth", "eyes", "mouthMotionEnabled", "thumbnail"]);
   // Preset IDs are opaque stable identifiers, not necessarily UUIDs.
   // Reject Object.prototype property names because UI state indexes drafts
   // and previews by ID using ordinary JavaScript records.
@@ -80,6 +81,9 @@ function preset(value: unknown, allowed: Set<string>): UnifiedPreset {
   if (Object.hasOwn(value, "mouthMotionEnabled") &&
       typeof value.mouthMotionEnabled !== "boolean") {
     throw new Error("キャラクター設定JSONの口パク切替が不正です");
+  }
+  if (Object.hasOwn(value, "thumbnail") && !validThumbnailView(value.thumbnail)) {
+    throw new Error("キャラクター設定JSONのサムネイル設定が不正です");
   }
   state(value.base, allowed, true);
   if (Object.hasOwn(value, "openMouth")) {
