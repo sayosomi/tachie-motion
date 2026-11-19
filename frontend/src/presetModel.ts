@@ -1,6 +1,7 @@
 import type { Layer } from "./LayerTree";
 import type { MotionGroups } from "./motionGroups";
 import { DEFAULT_BLINK_TIMING, type BlinkTiming } from "./blinkTiming";
+import { validThumbnailView, type ThumbnailView } from "./thumbnailView";
 import { applyChoice, choiceChanges, initialChoiceVisibility } from "./psdChoice";
 
 export type Visibility = { path: string; visible: boolean };
@@ -8,6 +9,8 @@ export type Shape = Visibility[];
 export type UnifiedPreset = {
   id: string;
   name: string;
+  /** Display-only crop metadata; never used by the animation renderer. */
+  thumbnail?: ThumbnailView;
   base: Visibility[];
   openMouth?: { closed: Shape; opened: Shape };
   aiueoMouth?: { a: Shape; i: Shape; u: Shape; e: Shape; o: Shape; n: Shape };
@@ -90,6 +93,14 @@ export function renamePreset(current: Presets, id: string, name: string): Preset
   if (!trimmed) throw new Error("プリセット名を入力してください");
   if (nameTaken(current, trimmed, id)) throw new Error("同じ名前のプリセットがあります");
   return { ...current, items: current.items.map((item) => item.id === id ? { ...item, name: trimmed } : item) };
+}
+
+/** Save thumbnail coordinates only on the stable preset ID. */
+export function setPresetThumbnail(current: Presets, id: string, view: ThumbnailView): Presets {
+  if (!validThumbnailView(view)) throw new Error("サムネイルの設定が不正です");
+  if (!current.items.some((item) => item.id === id)) throw new Error("Unknown preset");
+  return { ...current, items: current.items.map((item) =>
+    item.id === id ? { ...item, thumbnail: { ...view } } : item) };
 }
 
 export function toggleBaseLayer(current: Presets, id: string, path: string): Presets {
