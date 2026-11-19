@@ -6,8 +6,11 @@ Keep original targets in an exclusive recovery directory until publication succe
 from pathlib import Path
 import os
 import re
+import secrets
 import stat
 import unicodedata
+
+from tachie_motion.web.atomic_rename import rename_noreplace
 
 
 def validate_media_basename(name: str) -> str:
@@ -139,29 +142,27 @@ def solo_destination_info(folder: Path, basename: str) -> dict:
     raise ValueError("No unused output name available")
 
 
-def _cleanup_owned_recovery(backup: Path, expected: dict[str, tuple]) -> None:
-    """Remove only our verified backup links; never recursively delete a directory.
+def _archive_owned_recovery(backup: Path, expected: dict[str, tuple]) -> Path:
+    """Retain the verified old MOV in a uniquely named archive; delete nothing.
 
-    Unexpected, swapped, or non-regular entries must remain for manual review.
-    In particular, an unrelated writer's file must not be removed just because
-    it appeared under our recovery directory.
+    With a same-user external writer, no pathname identity check followed by
+    unlink is safe. A completed archive is intentionally excluded from
+    interrupted-recovery detection, so later exports remain usable.
     """
-    entries = {item.name for item in backup.iterdir()}
-    if entries != set(expected):
+    if {item.name for item in backup.iterdir()} != set(expected):
         raise RuntimeError("Unexpected recovery entries; manual recovery required")
     for name, identity in expected.items():
         if _identity(backup / name) != identity:
             raise RuntimeError("Recovery file changed; manual recovery required")
-    for name, identity in expected.items():
-        if _identity(backup / name) != identity:
-            raise RuntimeError("Recovery file changed during cleanup")
-        (backup / name).unlink()
-    backup.rmdir()  # Fails safely if an external file arrived during cleanup.
+    archived = backup.parent / (
+        "." + backup.name.lstrip(".") + "-retained-" + secrets.token_hex(12))
+    rename_noreplace(backup, archived)  # no replacement and no file deletion
+    return archived
 
 
 def publish_single(staged: Path, target: Path, *, policy: str, prior,
                    protect_otio_references: bool = False) -> str | None:
-    """Exclusive publication with hardlink rollback and non-destructive cleanup."""
+    """Exclusive publication; all displaced generations stay recoverable."""
     if _recovery_paths(target):
         raise RuntimeError("Previous export needs recovery: " +
                            ", ".join(map(str, _recovery_paths(target))))
@@ -174,7 +175,7 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
     if prior is None:
         if policy != "error":
             raise ValueError("No existing output was approved for overwrite")
-        os.link(staged, target)  # exclusive; cannot replace an existing target
+        os.link(staged, target)  # exclusive; cannot replace a competing file
         return None
     if policy != "overwrite":
         raise FileExistsError("Existing output not approved for overwrite")
@@ -184,61 +185,57 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
     saved = backup / "saved"
     removed = backup / "removed"
     failed = backup / "uncommitted"
-    created = {}
+    created: dict[str, tuple] = {}
     published = False
     unexpected = False
     try:
-        os.link(target, saved)  # exclusive; fails if an outsider occupied saved
+        os.link(target, saved)  # exclusive; retains original inode
         created["saved"] = prior
         if _identity(target) != prior:
             raise FileExistsError("Output changed before overwrite")
         if protect_otio_references and _other_otio_may_reference(target):
             raise ValueError("Another OTIO appeared during export; MOV was not overwritten")
-        # link+unlink is used instead of rename so a third-party 'removed'
-        # cannot be overwritten. Both links must still match the approved MOV.
-        os.link(target, removed)
-        created["removed"] = prior
-        if _identity(target) != prior or _identity(removed) != prior:
+
+        # A native no-replace rename moves exactly the current source inode.
+        # If an outsider swapped target, their MOV moves to removed untouched,
+        # and the mismatch prevents publishing the new MOV.
+        rename_noreplace(target, removed)
+        created["removed"] = _identity(removed)
+        if created["removed"] != prior:
             unexpected = True
-            raise FileExistsError("Concurrent target change; original preserved")
-        os.unlink(target)
-        if _identity(removed) != prior:
-            unexpected = True
-            raise FileExistsError("Concurrent target change; original preserved")
+            raise FileExistsError("Concurrent target change; moved file retained")
         if protect_otio_references and _other_otio_may_reference(target):
             raise ValueError("Another OTIO appeared during publication; restoring original MOV")
-        os.link(staged, target)  # exclusive; never clobber a competing file
+        os.link(staged, target)  # exclusive creation of new MOV
         published = True
         if protect_otio_references and _other_otio_may_reference(target):
             raise ValueError("Another OTIO appeared as MOV was published; restoring original MOV")
     except BaseException:
         try:
             if published:
-                staged_identity = _identity(staged)
-                if staged_identity is None or _identity(target) != staged_identity:
-                    raise RuntimeError("Published MOV changed; manual recovery required")
-                # Never rename over an outsider's uncommitted file.
-                # On collision, retain target and backup for manual recovery.
-                os.link(target, failed)
-                created["uncommitted"] = staged_identity
-                if _identity(target) != staged_identity or _identity(failed) != staged_identity:
-                    raise RuntimeError("Published MOV changed; manual recovery required")
-                os.unlink(target)
+                # Atomic rename, not a check-then-unlink. A concurrent writer's
+                # replacement is retained in the recovery directory, never
+                # destroyed, and forces manual review.
+                rename_noreplace(target, failed)
+                created["uncommitted"] = _identity(failed)
+                if created["uncommitted"] != _identity(staged):
+                    unexpected = True
             if _identity(target) is None:
                 if _identity(saved) != prior:
                     raise RuntimeError("Original backup changed; manual recovery required")
-                os.link(saved, target)  # exclusive: cannot replace an outsider
+                os.link(saved, target)  # exclusive; cannot replace an outsider
             if _identity(target) != prior or unexpected:
                 raise RuntimeError("Concurrent changes need manual recovery")
         except BaseException as error:
             raise RuntimeError("Overwrite recovery required: " + str(backup)) from error
         try:
-            _cleanup_owned_recovery(backup, created)
+            _archive_owned_recovery(backup, created)
         except (OSError, ValueError, RuntimeError) as error:
             raise RuntimeError("Backup cleanup required: " + str(backup)) from error
         raise
+
     try:
-        _cleanup_owned_recovery(backup, created)
+        archive = _archive_owned_recovery(backup, created)
     except (OSError, ValueError, RuntimeError):
         return "Export saved; inspect recovery directory: " + str(backup)
-    return None
+    return "Export saved; previous MOV retained for manual cleanup: " + str(archive)
