@@ -72,9 +72,15 @@ test("thumbnail crop is persisted and reused by the preset list without changing
   expect(after.thumbnail?.centerY).toBeLessThan(0.5);
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const card = page.locator(".preset-card").first();
-  const width = await card.locator("img").evaluate((img) => parseFloat((img as HTMLImageElement).style.width));
-  const stageWidth = await card.locator(".preset-card-image").evaluate((node) => node.clientWidth);
-  expect(width).toBeGreaterThan(stageWidth);
+  // The data-URL image's natural dimensions arrive after the card first mounts.
+  // Wait for thumbnail layout rather than inspecting the initial 0px style.
+  await expect.poll(async () => {
+    const width = await card.locator("img").evaluate(
+      (img) => parseFloat((img as HTMLImageElement).style.width));
+    const stageWidth = await card.locator(".preset-card-image").evaluate(
+      (node) => node.clientWidth);
+    return width - stageWidth;
+  }).toBeGreaterThan(0);
   await page.reload();
   await expect(page.locator(".preset-card")).toHaveCount(1);
   expect((await savedDraft(page)).collection.items[0].thumbnail).toEqual(after.thumbnail);
