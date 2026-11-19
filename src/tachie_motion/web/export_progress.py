@@ -1,17 +1,29 @@
-"""Thread-safe live progress and cooperative cancellation for local exports.
+"""Thread-safe progress snapshots, retained results and cooperative cancellation.
 
-A token identifies one run; a terminal snapshot is retained until the next
-export starts. No media bytes, source paths or user filenames are stored.
-The export lock protects media operations; this separate lock allows progress
-polls and cancel requests while the render worker holds that export lock.
+An opaque token names one export. Finished results remain queryable across
+subsequent exports for one hour. Only canonical browser UUIDs can reserve a
+pre-start cancellation; arbitrary or already-completed tokens cannot be reused.
+No file paths, media bytes or filenames are kept by this registry.
 """
 from dataclasses import dataclass, field
 import re
+import time
 from threading import Event, Lock
 
 
 class ExportCancelled(Exception):
-    """Cancellation was confirmed before any public publication began."""
+    """Worker has acknowledged cancellation before publication."""
+
+
+_ID = re.compile(r"[A-Za-z0-9_-]{20,100}")
+_BROWSER_ID = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+)
+_TERMINAL_SECONDS = 3600
+_PRESTART_SECONDS = 90
+_MAX_RETAINED = 64
+_MAX_PRESTART = 64
+_TERMINAL = ("success", "failed", "cancelled")
 
 
 @dataclass
@@ -27,39 +39,67 @@ class _Job:
     frame_total: int = 0
     cancel: Event = field(default_factory=Event)
     finalizing: bool = False
+    completed_at: float = 0.0
 
 
 class ExportProgress:
-    """Single active export, shared by the solo and sequential batch routes."""
+    """One active writer and bounded, time-limited terminal snapshots."""
 
     def __init__(self):
         self._lock = Lock()
         self._job: _Job | None = None
+        self._history: dict[str, _Job] = {}
+        self._prestart: dict[str, float] = {}
+
+    def _prune(self) -> None:
+        now = time.monotonic()
+        self._history = {
+            key: job for key, job in self._history.items()
+            if now - job.completed_at < _TERMINAL_SECONDS
+        }
+        self._prestart = {
+            key: until for key, until in self._prestart.items() if now < until
+        }
 
     def start(self, token: str, kind: str, total: int = 1) -> None:
-        if (type(token) is not str or not re.fullmatch(r"[A-Za-z0-9_-]{20,100}", token)
+        if (type(token) is not str or _ID.fullmatch(token) is None
                 or kind not in ("single", "batch")
                 or type(total) is not int or not 1 <= total <= 2000):
             raise ValueError("Invalid export progress identity")
         with self._lock:
-            if self._job and self._job.status in ("running", "cancelling", "finalizing"):
+            self._prune()
+            if self._job and self._job.status not in _TERMINAL:
                 raise RuntimeError("Another export is active")
-            if self._job and self._job.token == token:
+            if (self._job and self._job.token == token) or token in self._history:
                 raise RuntimeError("Export progress identity was already used")
-            self._job = _Job(token=token, kind=kind, total=total)
+            if self._job is not None:
+                self._history[self._job.token] = self._job
+                if len(self._history) > _MAX_RETAINED:
+                    oldest = min(self._history, key=lambda k:
+                                 self._history[k].completed_at)
+                    del self._history[oldest]
+            job = _Job(token=token, kind=kind, total=total)
+            if self._prestart.pop(token, None) is not None:
+                job.cancel.set()
+                job.status = "cancelling"
+                job.stage = "キャンセル処理中"
+            self._job = job
 
     def _current(self, token: str) -> _Job:
-        job = self._job
-        if job is None or job.token != token:
-            raise KeyError("Export progress is not available")
-        return job
+        if self._job and self._job.token == token:
+            return self._job
+        if token in self._history:
+            return self._history[token]
+        raise KeyError("Export progress is not available")
 
     def kind(self, token: str) -> str:
         with self._lock:
+            self._prune()
             return self._current(token).kind
 
     def snapshot(self, token: str) -> dict:
         with self._lock:
+            self._prune()
             job = self._current(token)
             return {
                 "status": job.status, "stage": job.stage,
@@ -72,7 +112,19 @@ class ExportProgress:
 
     def request_cancel(self, token: str) -> dict:
         with self._lock:
-            job = self._current(token)
+            self._prune()
+            try:
+                job = self._current(token)
+            except KeyError:
+                # Only a browser-generated UUIDv4 is eligible for cancellation
+                # before the POST is registered. The opaque server-issued batch
+                # tokens and arbitrary IDs are not registered by this route.
+                if (type(token) is not str or _BROWSER_ID.fullmatch(token) is None
+                        or len(self._prestart) >= _MAX_PRESTART):
+                    raise
+                self._prestart[token] = time.monotonic() + _PRESTART_SECONDS
+                return {"status": "cancelling", "accepted": True,
+                        "can_cancel": True}
             if job.status == "running" and not job.finalizing:
                 job.cancel.set()
                 job.status = "cancelling"
@@ -108,7 +160,7 @@ class ExportProgress:
             job = self._current(token)
             if job.cancel.is_set():
                 raise ExportCancelled("書き出しをキャンセルしました")
-            if job.status not in ("running",):
+            if job.status != "running":
                 raise RuntimeError("Cannot update a completed export")
             if type(item_percent) is not int or not 0 <= item_percent <= 99:
                 raise ValueError("Invalid export percent")
@@ -116,11 +168,14 @@ class ExportProgress:
                       (90 * (job.index * 100 + item_percent)) // (job.total * 100))
             job.percent = max(job.percent, mapped)
             job.stage = stage
-            job.frames = frames
-            job.frame_total = frame_total
+            # Keep the last measured count while switching to PCM/OTIO steps.
+            # A new batch item explicitly resets this in item().
+            if frame_total:
+                job.frames = frames
+                job.frame_total = frame_total
 
     def finalizing(self, token: str, stage: str) -> None:
-        """This is the last cancellation gate before public file mutation."""
+        """Last atomic cancellation gate before public files are modified."""
         with self._lock:
             job = self._current(token)
             if job.cancel.is_set():
@@ -144,14 +199,15 @@ class ExportProgress:
             job.index = job.total - 1
 
     def finish(self, token: str, outcome: str) -> None:
-        if outcome not in ("success", "failed", "cancelled"):
+        if outcome not in _TERMINAL:
             raise ValueError("Invalid export result")
         with self._lock:
             job = self._current(token)
-            if job.status in ("success", "failed", "cancelled"):
+            if job.status in _TERMINAL:
                 return
             job.status = outcome
             job.finalizing = True
+            job.completed_at = time.monotonic()
             if outcome == "success":
                 job.percent = 100
                 job.stage = "書き出し完了"

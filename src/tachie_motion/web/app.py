@@ -122,6 +122,7 @@ class BatchStartRequest(BaseModel):
     timeline_basename: str
     timeline_policy: str
     entries: list[BatchPlannedMedia]
+    progress_id: str | None = None
 
 
 class BatchIdentifier(BaseModel):
@@ -154,8 +155,10 @@ if TAILSCALE_ORIGIN is not None:
     allowed_hosts.append(urlsplit(TAILSCALE_ORIGIN).hostname)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 app.state.export_lock = asyncio.Lock()
-app.state.batch = BatchCoordinator()
 app.state.export_progress = ExportProgress()
+app.state.batch = BatchCoordinator(
+    on_expire=lambda token: app.state.export_progress.finish(token, "failed")
+)
 FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 if (FRONTEND_DIST / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
@@ -309,19 +312,44 @@ def preset_utterance_destination(payload: DestinationRequest):
 
 
 @app.get("/api/export-progress/{token}")
-def export_progress(token: str):
+async def export_progress(token: str):
+    # An abandoned batch is expired only while no render owns export_lock.
+    # A progress poll must never wait behind the long-running media worker.
+    if not app.state.export_lock.locked():
+        async with app.state.export_lock:
+            app.state.batch.expire_idle()
     try:
         return app.state.export_progress.snapshot(token)
     except KeyError:
         raise HTTPException(404, "Export progress is not available")
 
 
+async def _finish_cancelled_batch(token: str) -> None:
+    # Cancellation must finish even if the initiating browser lost its POST.
+    # The lock also prevents releasing a stage while its worker is still using it.
+    async with app.state.export_lock:
+        try:
+            status = app.state.export_progress.snapshot(token)["status"]
+        except KeyError:
+            return
+        if status == "cancelling" and app.state.batch.release(token):
+            app.state.export_progress.finish(token, "cancelled")
+
+
 @app.post("/api/export-cancel")
-def export_cancel(payload: ExportProgressIdentifier):
-    # Do not acquire export_lock: the media worker holds it while encoding.
-    # Cancellation signals its cooperative checkpoints, not just browser fetch.
+async def export_cancel(payload: ExportProgressIdentifier):
+    # The progress lock is separate from export_lock, so cancellation can
+    # interrupt blocked FFmpeg and verification I/O without waiting for them.
     try:
-        return app.state.export_progress.request_cancel(payload.token)
+        result = app.state.export_progress.request_cancel(payload.token)
+        if result["accepted"]:
+            try:
+                kind = app.state.export_progress.kind(payload.token)
+            except KeyError:
+                kind = None  # A browser UUID may be pre-cancelled before POST.
+            if kind == "batch":
+                asyncio.create_task(_finish_cancelled_batch(payload.token))
+        return result
     except KeyError:
         raise HTTPException(404, "Export progress is not available")
 
@@ -349,6 +377,8 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
             if token:
                 app.state.export_progress.start(token, "single")
             try:
+                if token:
+                    app.state.export_progress.check(token)
                 result = await asyncio.to_thread(
                     export_preset_utterance,
                     psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
@@ -399,13 +429,19 @@ async def preset_batch_start(payload: BatchStartRequest):
         async with app.state.export_lock:
             token = await asyncio.to_thread(
                 app.state.batch.start, folder, payload.timeline_basename,
-                payload.timeline_policy, [entry.model_dump() for entry in payload.entries])
+                payload.timeline_policy, [entry.model_dump() for entry in payload.entries],
+                payload.progress_id)
             try:
                 app.state.export_progress.start(token, "batch", len(payload.entries))
-            except Exception:
+                app.state.export_progress.check(token)
+            except BaseException as exc:
                 app.state.batch.release(token)
+                if isinstance(exc, ExportCancelled):
+                    app.state.export_progress.finish(token, "cancelled")
                 raise
             return {"batch_id": token}
+    except ExportCancelled as exc:
+        raise HTTPException(409, str(exc)) from exc
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 
