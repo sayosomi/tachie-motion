@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 
 from tachie_motion.render.prores import ffmpeg_args, read_rgba_states
+from tachie_motion.render.cancel_monitor import ProcessCancelWatcher
 from tachie_motion.render.probe import ProresReport, inspect_prores
 
 
@@ -53,35 +54,43 @@ def encode_prores_sequence(
             )
         except OSError as exc:
             raise RuntimeError(f"Could not start FFmpeg: {exc}") from exc
-        try:
-            assert proc.stdin is not None
-            tick = max(1, args_count // 100)
-            for number, index in enumerate(indices, 1):
-                if check_cancel:
-                    check_cancel()
-                proc.stdin.write(states[index])
-                if on_frame and (number % tick == 0 or number == args_count):
-                    on_frame(number, args_count)
-            proc.stdin.close()
-            proc.stdin = None
-            _, errors = proc.communicate()
-        except (BrokenPipeError, OSError) as exc:
-            if proc.stdin is not None:
+        with ProcessCancelWatcher(proc, check_cancel) as watcher:
+            try:
+                assert proc.stdin is not None
+                tick = max(1, args_count // 100)
+                for number, index in enumerate(indices, 1):
+                    watcher.check()
+                    proc.stdin.write(states[index])
+                    if on_frame and (number % tick == 0 or number == args_count):
+                        on_frame(number, args_count)
                 proc.stdin.close()
                 proc.stdin = None
-            _, errors = proc.communicate()
-            raise RuntimeError(
-                "FFmpeg stopped accepting scheduled frames: "
-                + errors.decode("utf-8", "replace")[-1500:]
-            ) from exc
-        except Exception:
-            if proc.poll() is None:
-                proc.kill()
-            if proc.stdin is not None:
-                proc.stdin.close()
-                proc.stdin = None
-            proc.communicate()
-            raise
+                while True:
+                    try:
+                        _, errors = proc.communicate(timeout=0.2)
+                        break
+                    except subprocess.TimeoutExpired:
+                        watcher.check()
+                watcher.check()
+            except (BrokenPipeError, OSError) as exc:
+                watcher.check()
+                if proc.stdin is not None:
+                    proc.stdin.close()
+                    proc.stdin = None
+                _, errors = proc.communicate()
+                raise RuntimeError(
+                    "FFmpeg stopped accepting scheduled frames: "
+                    + errors.decode("utf-8", "replace")[-1500:]
+                ) from exc
+            except BaseException:
+                if proc.poll() is None:
+                    proc.kill()
+                if proc.stdin is not None:
+                    proc.stdin.close()
+                    proc.stdin = None
+                proc.communicate()
+                watcher.check()
+                raise
         if proc.returncode != 0:
             raise RuntimeError(
                 "FFmpeg scheduled encode failed: "
@@ -95,6 +104,7 @@ def encode_prores_sequence(
             temp, expected_size=dimensions, expected_frames=args_count,
             expected_fps=fps, ffmpeg=ffmpeg, ffprobe=ffprobe,
             source_states=states, state_indices=indices,
+            check_cancel=check_cancel,
         )
         if check_cancel:
             check_cancel()

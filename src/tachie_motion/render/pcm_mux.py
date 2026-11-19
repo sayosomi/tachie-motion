@@ -14,6 +14,7 @@ import tempfile
 import wave
 
 from tachie_motion.audio.wav_integrity import validate_pcm_header
+from tachie_motion.render.cancel_monitor import ProcessCancelWatcher
 
 _AUDIO_CODECS = {1: "pcm_s8", 2: "pcm_s16le", 3: "pcm_s24le", 4: "pcm_s32le"}
 _AUDIO_FORMATS = {1: "s8", 2: "s16le", 3: "s24le", 4: "s32le"}
@@ -51,20 +52,22 @@ def _command(args: list[str], *,
             "utf-8", "replace")[-1600:])
     return output
 
-def _streams(path: Path, ffprobe: str) -> list[dict]:
+def _streams(path: Path, ffprobe: str, *,
+             check_cancel: Callable[[], None] | None = None) -> list[dict]:
     data = _command([ffprobe, "-v", "error", "-show_streams", "-of", "json",
-                     str(path)])
+                     str(path)], check_cancel=check_cancel)
     return json.loads(data)["streams"]
 
 
-def _video_packets(path: Path, ffprobe: str) -> list[tuple[str, int, int, int]]:
+def _video_packets(path: Path, ffprobe: str, *,
+                   check_cancel: Callable[[], None] | None = None) -> list[tuple[str, int, int, int]]:
     """Compare every packet's bytes AND exact decode/presentation timeline."""
     data = _command([
         ffprobe, "-v", "error", "-select_streams", "v:0",
         "-show_packets", "-show_data_hash", "sha256",
         "-show_entries", "packet=data_hash,pts,dts,duration",
         "-of", "json", str(path),
-    ])
+    ], check_cancel=check_cancel)
     packets = json.loads(data)["packets"]
     try:
         return [
@@ -76,13 +79,16 @@ def _video_packets(path: Path, ffprobe: str) -> list[tuple[str, int, int, int]]:
         raise ValueError("Missing or invalid video packet timing") from exc
 
 
-def _source_pcm_digest(wav: Path, width: int) -> tuple[int, str, str]:
+def _source_pcm_digest(wav: Path, width: int, *,
+                       check_cancel: Callable[[], None] | None = None) -> tuple[int, str, str]:
     """Return decoded-MOV identity and original raw-WAV PCM digest."""
     decoded_digest = hashlib.sha256()
     source_digest = hashlib.sha256()
     total = 0
     with wave.open(str(wav), "rb") as source:
         while chunk := source.readframes(16384):
+            if check_cancel:
+                check_cancel()
             source_digest.update(chunk)
             if width == 1:
                 # WAV 8-bit PCM is unsigned; MOV pcm_s8 uses signed samples.
@@ -105,26 +111,33 @@ def _decoded_pcm_digest(mov: Path, width: int, ffmpeg: str, *,
         )
     except OSError as exc:
         raise RuntimeError(f"Could not run FFmpeg: {exc}") from exc
-    digest = hashlib.sha256()
-    size = 0
-    try:
-        assert proc.stdout is not None
-        while data := proc.stdout.read(1024 * 1024):
-            if check_cancel:
-                check_cancel()
-            size += len(data)
-            digest.update(data)
-        errors = proc.stderr.read() if proc.stderr else b""
-        code = proc.wait()
-    except BaseException:
-        proc.kill()
-        proc.communicate()
-        raise
-    finally:
-        if proc.stdout:
-            proc.stdout.close()
-        if proc.stderr:
-            proc.stderr.close()
+    with ProcessCancelWatcher(proc, check_cancel) as watcher:
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            assert proc.stdout is not None
+            while True:
+                watcher.check()
+                data = proc.stdout.read(1024 * 1024)
+                watcher.check()
+                if not data:
+                    break
+                size += len(data)
+                digest.update(data)
+            errors = proc.stderr.read() if proc.stderr else b""
+            code = proc.wait()
+            watcher.check()
+        except BaseException:
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate()
+            watcher.check()
+            raise
+        finally:
+            if proc.stdout:
+                proc.stdout.close()
+            if proc.stderr:
+                proc.stderr.close()
     if code:
         raise RuntimeError("Decoded PCM verification failed: " + errors.decode(
             "utf-8", "replace")[-1600:])
@@ -176,13 +189,13 @@ def mux_verified_pcm(
     if check_cancel:
         check_cancel()
     source_stat = wav.stat()
-    expected_data = _source_pcm_digest(wav, width)
+    expected_data = _source_pcm_digest(wav, width, check_cancel=check_cancel)
     if expected_pcm_sha256 is not None and expected_data[2] != expected_pcm_sha256:
         raise ValueError("WAV PCM changed after animation analysis")
-    video_before = _streams(silent_mov, ffprobe)
+    video_before = _streams(silent_mov, ffprobe, check_cancel=check_cancel)
     if len(video_before) != 1 or video_before[0]["codec_name"] != "prores":
         raise ValueError("Expected one silent ProRes video stream")
-    packet_hashes = _video_packets(silent_mov, ffprobe)
+    packet_hashes = _video_packets(silent_mov, ffprobe, check_cancel=check_cancel)
     if not packet_hashes:
         raise ValueError("Silent MOV has no video packets")
     if check_cancel:
@@ -205,7 +218,7 @@ def mux_verified_pcm(
             _command(cmd, check_cancel=check_cancel)
         else:
             _command(cmd)
-        streams = _streams(stage, ffprobe)
+        streams = _streams(stage, ffprobe, check_cancel=check_cancel)
         if len(streams) != 2:
             raise RuntimeError("Mux output must contain exactly one video and one audio stream")
         video, audio = streams
@@ -219,7 +232,7 @@ def mux_verified_pcm(
         if (
             tuple(video.get(key) for key in video_fields)
             != tuple(video_before[0].get(key) for key in video_fields)
-            or packet_hashes != _video_packets(stage, ffprobe)
+            or packet_hashes != _video_packets(stage, ffprobe, check_cancel=check_cancel)
         ):
             raise RuntimeError("Mux changed ProRes packets or video timing")
         if (
@@ -235,7 +248,7 @@ def mux_verified_pcm(
         if decoded != expected_data[:2]:
             raise RuntimeError("Mux lost, duplicated or modified PCM samples")
         if expected_pcm_sha256 is not None and (
-            _source_pcm_digest(wav, width)[2] != expected_pcm_sha256
+            _source_pcm_digest(wav, width, check_cancel=check_cancel)[2] != expected_pcm_sha256
         ):
             raise ValueError("WAV PCM changed during mux")
         after = wav.stat()

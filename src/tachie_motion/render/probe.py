@@ -5,7 +5,9 @@ from fractions import Fraction
 import json
 from pathlib import Path
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+
+from tachie_motion.render.cancel_monitor import ProcessCancelWatcher
 
 from tachie_motion.render.frame_validation import verify_decoded_frames
 
@@ -31,17 +33,40 @@ class ProresReport:
     max_block_rgb_pixels: int
 
 
-def _capture(args: list[str]) -> bytes:
+def _capture(args: list[str], *,
+             check_cancel: Callable[[], None] | None = None) -> bytes:
     try:
-        result = subprocess.run(
-            args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
-        )
+        if check_cancel is None:
+            result = subprocess.run(
+                args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
+            )
+            output, errors, code = result.stdout, result.stderr, result.returncode
+        else:
+            check_cancel()
+            proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+            with ProcessCancelWatcher(proc, check_cancel) as watcher:
+                try:
+                    while True:
+                        try:
+                            output, errors = proc.communicate(timeout=0.2)
+                            break
+                        except subprocess.TimeoutExpired:
+                            watcher.check()
+                    watcher.check()
+                except BaseException:
+                    if proc.poll() is None:
+                        proc.kill()
+                    proc.communicate()
+                    watcher.check()
+                    raise
+            code = proc.returncode
     except OSError as exc:
         raise RuntimeError(f"Could not start media inspection tool: {exc}") from exc
-    if result.returncode:
-        message = result.stderr.decode("utf-8", "replace")[-2000:]
+    if code:
+        message = errors.decode("utf-8", "replace")[-2000:]
         raise RuntimeError(f"Media inspection failed: {message}")
-    return result.stdout
+    return output
 
 
 def inspect_prores(
@@ -55,6 +80,7 @@ def inspect_prores(
     source_states: Sequence[bytes] | None = None,
     frames_per_state: int = 0,
     state_indices: Sequence[int] | None = None,
+    check_cancel: Callable[[], None] | None = None,
 ) -> ProresReport:
     """Check stream metadata, decode every frame, and compare with source if supplied.
 
@@ -69,7 +95,7 @@ def inspect_prores(
         "stream=codec_name,profile,pix_fmt,width,height,nb_frames,r_frame_rate",
         "-of", "json",
         str(video),
-    ])
+    ], check_cancel=check_cancel)
     try:
         streams = json.loads(data)["streams"]
         stream = streams[0]
@@ -99,7 +125,7 @@ def inspect_prores(
             "-show_entries", "stream=nb_read_frames",
             "-of", "json",
             str(video),
-        ])
+        ], check_cancel=check_cancel)
         try:
             frames = int(json.loads(counted)["streams"][0]["nb_read_frames"])
         except (KeyError, IndexError, ValueError, TypeError, json.JSONDecodeError) as exc:
@@ -132,6 +158,7 @@ def inspect_prores(
         source_states=source_states,
         frames_per_state=frames_per_state,
         state_indices=state_indices,
+        check_cancel=check_cancel,
     )
 
     return ProresReport(

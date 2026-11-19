@@ -5,7 +5,8 @@ buffered in Python memory. ProRes color is lossy, so use bounded mean
 absolute error on visible RGB, and alpha over the complete image.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from tachie_motion.render.cancel_monitor import ProcessCancelWatcher
 from pathlib import Path
 import subprocess
 import tempfile
@@ -43,6 +44,7 @@ def verify_decoded_frames(
     state_indices: Sequence[int] | None = None,
     max_alpha_mean_error: float = 3.0,
     max_rgb_mean_error: float = 20.0,
+    check_cancel: Callable[[], None] | None = None,
 ) -> tuple[int, int, int, float, float, int, float, float, int, int]:
     """Decode every frame and check per-frame alpha + source-state fidelity.
 
@@ -96,95 +98,101 @@ def verify_decoded_frames(
             )
         except OSError as exc:
             raise RuntimeError(f"Unable to start FFmpeg decoder: {exc}") from exc
-        try:
-            assert proc.stdout is not None
-            for index in range(count):
-                raw_frame = _read_exact(proc.stdout, frame_bytes)
-                state_index = (
-                    state_indices[index] if state_indices is not None
-                    else (index // frames_per_state if source_states is not None else None)
-                )
-                # Every frame is still decoded and compared byte-for-byte.
-                # If the RGBA bytes AND expected state match the previously
-                # validated frame, all fidelity checks would have exactly
-                # the same results. Reuse that proof without rescanning
-                # millions of pixels for each repeated animation hold.
-                # A single corrupted frame cannot pass this comparison.
-                if (
-                    last_decoded is not None
-                    and state_index == last_state_index
-                    and raw_frame == last_decoded
-                ):
-                    decoded += 1
-                    continue
-                last_decoded, last_state_index = raw_frame, state_index
-                actual = Image.frombytes("RGBA", dimensions, raw_frame)
-                alpha = actual.getchannel("A")
-                minimum, maximum = alpha.getextrema()
-                min_alpha = min(min_alpha, minimum)
-                max_alpha = max(max_alpha, maximum)
-                if minimum == 255 or maximum == 0:
-                    raise RuntimeError(
-                        f"Decoded frame {index}: alpha lost or fully transparent"
+        with ProcessCancelWatcher(proc, check_cancel) as watcher:
+            try:
+                assert proc.stdout is not None
+                for index in range(count):
+                    watcher.check()
+                    raw_frame = _read_exact(proc.stdout, frame_bytes)
+                    watcher.check()
+                    state_index = (
+                        state_indices[index] if state_indices is not None
+                        else (index // frames_per_state if source_states is not None else None)
                     )
-                if source_states is not None:
-                    assert state_index is not None
-                    original = expected_images[state_index]
-                    original_alpha = original.getchannel("A")
-                    alpha_diff = ImageChops.difference(alpha, original_alpha)
-                    alpha_error = ImageStat.Stat(alpha_diff).mean[0]
-                    peak_alpha_error = max(peak_alpha_error, alpha_error)
-                    if alpha_error > max_alpha_mean_error:
+                    # Every frame is still decoded and compared byte-for-byte.
+                    # If the RGBA bytes AND expected state match the previously
+                    # validated frame, all fidelity checks would have exactly
+                    # the same results. Reuse that proof without rescanning
+                    # millions of pixels for each repeated animation hold.
+                    # A single corrupted frame cannot pass this comparison.
+                    if (
+                        last_decoded is not None
+                        and state_index == last_state_index
+                        and raw_frame == last_decoded
+                    ):
+                        decoded += 1
+                        continue
+                    last_decoded, last_state_index = raw_frame, state_index
+                    actual = Image.frombytes("RGBA", dimensions, raw_frame)
+                    alpha = actual.getchannel("A")
+                    minimum, maximum = alpha.getextrema()
+                    min_alpha = min(min_alpha, minimum)
+                    max_alpha = max(max_alpha, maximum)
+                    if minimum == 255 or maximum == 0:
                         raise RuntimeError(
-                            f"Decoded frame {index}: alpha fidelity mismatch"
-                            f" (MAE={alpha_error:.3f})"
+                            f"Decoded frame {index}: alpha lost or fully transparent"
                         )
-                    visible = original_alpha.point(
-                        lambda value: 255 if value >= 128 else 0
-                    )
-                    if visible.getbbox() is not None:
-                        rgb_diff = ImageChops.difference(
-                            actual.convert("RGB"), original.convert("RGB")
-                        )
-                        rgb_error = max(ImageStat.Stat(rgb_diff, mask=visible).mean)
-                        peak_rgb_error = max(peak_rgb_error, rgb_error)
-                        if rgb_error > max_rgb_mean_error:
+                    if source_states is not None:
+                        assert state_index is not None
+                        original = expected_images[state_index]
+                        original_alpha = original.getchannel("A")
+                        alpha_diff = ImageChops.difference(alpha, original_alpha)
+                        alpha_error = ImageStat.Stat(alpha_diff).mean[0]
+                        peak_alpha_error = max(peak_alpha_error, alpha_error)
+                        if alpha_error > max_alpha_mean_error:
                             raise RuntimeError(
-                                f"Decoded frame {index}: RGB content mismatch"
-                                f" (MAE={rgb_error:.3f})"
+                                f"Decoded frame {index}: alpha fidelity mismatch"
+                                f" (MAE={alpha_error:.3f})"
                             )
-                    # F-06/F-07: full-frame block checks also cover
-                    # invariant semi-transparent objects, low-alpha color
-                    # changes, and outlines far outside change-tile halos.
-                    block_alpha, block_rgb = check_frame_blocks(
-                        actual, original, frame_index=index
-                    )
-                    peak_block_alpha = max(peak_block_alpha, block_alpha)
-                    peak_block_rgb = max(peak_block_rgb, block_rgb)
-                    # F-05: ensure a tiny changing mouth/eye is not diluted by
-                    # a large unchanged body in the whole-frame mean.
-                    local_alpha, local_rgb = check_changed_tiles(
-                        actual, original, tiles, frame_index=index
-                    )
-                    peak_local_alpha = max(peak_local_alpha, local_alpha)
-                    peak_local_rgb = max(peak_local_rgb, local_rgb)
-                decoded += 1
-            # An additional decoded frame would mean metadata and stream disagree.
-            if proc.stdout.read(1):
-                raise RuntimeError("Decoded more frames than expected")
-            proc.stdout.close()
-            ret = proc.wait()
-            if ret:
-                errors.seek(0)
-                err = errors.read().decode("utf-8", "replace")[-2000:]
-                raise RuntimeError(f"FFmpeg decode failed ({ret}): {err}")
-        except Exception:
-            if proc.poll() is None:
-                proc.kill()
-            if proc.stdout is not None and not proc.stdout.closed:
+                        visible = original_alpha.point(
+                            lambda value: 255 if value >= 128 else 0
+                        )
+                        if visible.getbbox() is not None:
+                            rgb_diff = ImageChops.difference(
+                                actual.convert("RGB"), original.convert("RGB")
+                            )
+                            rgb_error = max(ImageStat.Stat(rgb_diff, mask=visible).mean)
+                            peak_rgb_error = max(peak_rgb_error, rgb_error)
+                            if rgb_error > max_rgb_mean_error:
+                                raise RuntimeError(
+                                    f"Decoded frame {index}: RGB content mismatch"
+                                    f" (MAE={rgb_error:.3f})"
+                                )
+                        # F-06/F-07: full-frame block checks also cover
+                        # invariant semi-transparent objects, low-alpha color
+                        # changes, and outlines far outside change-tile halos.
+                        block_alpha, block_rgb = check_frame_blocks(
+                            actual, original, frame_index=index
+                        )
+                        peak_block_alpha = max(peak_block_alpha, block_alpha)
+                        peak_block_rgb = max(peak_block_rgb, block_rgb)
+                        # F-05: ensure a tiny changing mouth/eye is not diluted by
+                        # a large unchanged body in the whole-frame mean.
+                        local_alpha, local_rgb = check_changed_tiles(
+                            actual, original, tiles, frame_index=index
+                        )
+                        peak_local_alpha = max(peak_local_alpha, local_alpha)
+                        peak_local_rgb = max(peak_local_rgb, local_rgb)
+                    decoded += 1
+                # An additional decoded frame would mean metadata and stream disagree.
+                watcher.check()
+                if proc.stdout.read(1):
+                    raise RuntimeError("Decoded more frames than expected")
                 proc.stdout.close()
-            proc.wait()
-            raise
+                ret = proc.wait()
+                watcher.check()
+                if ret:
+                    errors.seek(0)
+                    err = errors.read().decode("utf-8", "replace")[-2000:]
+                    raise RuntimeError(f"FFmpeg decode failed ({ret}): {err}")
+            except BaseException:
+                if proc.poll() is None:
+                    proc.kill()
+                if proc.stdout is not None and not proc.stdout.closed:
+                    proc.stdout.close()
+                proc.wait()
+                watcher.check()
+                raise
     return (
         decoded, min_alpha, max_alpha,
         peak_alpha_error, peak_rgb_error,
