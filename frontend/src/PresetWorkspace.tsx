@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BlinkTiming } from "./blinkTiming";
 import type { Layer } from "./LayerTree";
 import PresetDetail from "./PresetDetail";
+import PresetThumbnail from "./PresetThumbnail";
 import NativeFilePicker from "./NativeFilePicker";
 import { PreviewSourceChangedError, useBrowserPreview } from "./useBrowserPreview";
 import {
@@ -10,7 +11,7 @@ import {
   setBaseLayerChoice, setAiueoPsdChoice, setOpenPsdChoice, setMouthMotionEnabled,
   setEyePsdChoice, setBlinkEnabled, clearMotionSelection,
   type AiueoKey,
-  type Presets, type UnifiedPreset, withDefaultBlinkTiming,
+  type Presets, type UnifiedPreset, withDefaultBlinkTiming, setPresetThumbnail,
 } from "./presetModel";
 import { matchesSource, persistMissingBlinkTiming, PresetDraftChangedError, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
@@ -545,6 +546,8 @@ export default function PresetWorkspace() {
         updatePresets(setAiueoPsdChoice(collection, active.id, psd.layers, key, path, visible))}
       onClearMotionShape={(selection) =>
          updatePresets(clearMotionSelection(collection, active.id, selection))}
+       onThumbnailSave={(view) =>
+         updatePresets(setPresetThumbnail(collection, active.id, view))}
        onDelete={() => remove(active.id)}
     /> : psd && <section className="panel preset-list-section">
       <div className="preset-list-header">
@@ -564,11 +567,10 @@ export default function PresetWorkspace() {
               const source = e.dataTransfer.getData("text/x-tachie-preset");
               if (source) updatePresets(reorderPresets(collection, source, preset.id));
             }}>
-            <div className="preset-card-image">
-              {thumb ? <img src={thumb} alt={preset.name + " のプレビュー"} /> :
-                <span>{sourceChanged ? "PSDを再読み込みしてください" :
-                  cache?.error || "プレビューを更新中…"}</span>}
-            </div>
+            <PresetThumbnail className="preset-card-image" image={thumb}
+              view={preset.thumbnail} alt={preset.name + " のサムネイル"}
+              fallback={sourceChanged ? "PSDを再読み込みしてください" :
+                cache?.error || "プレビューを更新中…"} />
             <div className="preset-card-body">
               <div className="preset-card-title">
                 <button type="button" className="preset-drag-handle" draggable
