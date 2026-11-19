@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
+// These browser scenarios mock MOV/OTIO completion. Reserve progress in the
+// same mock transport; never create an orphan job on the real local API.
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/export-progress-reserve", (route) =>
+    route.fulfill({ json: { registered: true } }));
+});
+
 /** Image-backed chooser selects by stable preset ID. */
 const presetTrigger = (scope: import("@playwright/test").Locator) =>
   scope.locator(".utterance-row-preset .preset-picker-trigger");
