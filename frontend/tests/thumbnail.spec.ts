@@ -40,24 +40,23 @@ async function savedDraft(page: Page) {
 }
 
 async function editAndSave(page: Page) {
-  await page.getByRole("button", { name: "サムネイルを編集" }).click();
-  const editor = page.locator(".thumbnail-editor");
-  await expect(editor.locator("img")).toBeVisible();
-  const range = page.getByRole("slider", { name: "サムネイル倍率" });
-  await range.focus();
-  await range.press("ArrowRight");
-  await range.press("ArrowRight");
-  await range.press("ArrowRight");
-  await range.press("ArrowRight");
-  await expect(editor.locator("output")).toHaveText("2.00×");
-  const bounds = await editor.locator(".thumbnail-edit-stage").boundingBox();
-  expect(bounds).not.toBeNull();
-  const box = bounds!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const stage = page.locator(".preset-image-viewport");
+  await expect(stage.locator("img")).toBeVisible();
+  const box = await stage.boundingBox();
+  expect(box).not.toBeNull();
+  expect(Math.abs(box!.width / box!.height - 4 / 3)).toBeLessThan(0.01);
+  const controls = page.locator(".preset-image-controls");
+  await controls.getByRole("button", { name: "拡大" }).click();
+  await controls.getByRole("button", { name: "拡大" }).click();
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("2×");
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 + 35, box.y + box.height / 2 + 18, { steps: 3 });
+  await page.mouse.move(box!.x + box!.width / 2 + 35,
+    box!.y + box!.height / 2 + 18, { steps: 3 });
   await page.mouse.up();
-  await page.getByRole("button", { name: "サムネイルを保存" }).click();
+  await controls.getByRole("button", { name: "サムネにする" }).click();
+  await expect(page.locator(".preset-preview [role=status]"))
+    .toContainText("この表示範囲をサムネイルに保存しました");
 }
 
 test("thumbnail crop is persisted and reused by the preset list without changing PSD base", async ({ page }) => {
@@ -65,11 +64,16 @@ test("thumbnail crop is persisted and reused by the preset list without changing
   const before = await savedDraft(page);
   expect(before.collection.items[0].thumbnail).toBeUndefined();
   await page.getByRole("button", { name: "詳細を編集" }).click();
+  const controls = page.locator(".preset-image-controls");
+  await expect(controls.getByRole("button", { name: "サムネにする" })).toBeEnabled();
   await editAndSave(page);
   await expect.poll(async () => (await savedDraft(page)).collection.items[0].thumbnail?.zoom).toBe(2);
   const after = (await savedDraft(page)).collection.items[0];
   expect(after.thumbnail?.centerX).toBeLessThan(0.5);
   expect(after.thumbnail?.centerY).toBeLessThan(0.5);
+  const savedThumbnail = after.thumbnail;
+  await page.locator(".preset-image-controls").getByRole("button", { name: "拡大" }).click();
+  expect((await savedDraft(page)).collection.items[0].thumbnail).toEqual(savedThumbnail);
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const card = page.locator(".preset-card").first();
   // The data-URL image's natural dimensions arrive after the card first mounts.
