@@ -213,9 +213,10 @@ test("single success poll preceding lost POST response releases the edit lock", 
   });
   await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect(page.getByRole("dialog", { name: "書き出し完了" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeDisabled();
+  const exportButton = page.locator(".utterance-export-panel .export-execution button.primary");
+  await expect(exportButton).toBeDisabled();
   rejectResponse();
-  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeEnabled();
+  await expect(exportButton).toBeEnabled();
   await expect(page.getByRole("dialog", { name: "書き出し完了" })).toBeVisible();
   expect(requests).toBe(1);
 });
