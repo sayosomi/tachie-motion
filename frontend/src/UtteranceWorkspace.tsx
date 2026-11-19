@@ -98,9 +98,18 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     () => setProbeVersion((previous) => previous + 1),
     active && exportScope === "all" && !projectBusy && !exportingId,
     naming, () => projectBusyRef.current || singleExportLock.current, labStatuses,
-    { begin: exportProgress.begin, settle: exportProgress.settle });
+    { begin: exportProgress.begin, settle: exportProgress.settle,
+      uncertain: exportProgress.uncertain,
+      terminalPhase: exportProgress.view?.phase === "success" ||
+        exportProgress.view?.phase === "failed" ||
+        exportProgress.view?.phase === "cancelled"
+        ? exportProgress.view.phase : null });
   const playback = useWavPlayback(items);
-  const editingLocked = batch.running || batch.isBusy() || !!exportingId || projectBusy;
+  const modalPhase = exportProgress.view?.phase;
+  const exportStillActive = !!modalPhase && modalPhase !== "success" &&
+    modalPhase !== "failed" && modalPhase !== "cancelled";
+  const editingLocked = batch.running || batch.isBusy() || !!exportingId ||
+    projectBusy || exportStillActive;
   const projectLock = (locked: boolean) => {
     projectBusyRef.current = locked;
     if (locked) catalogEpoch.current++; // Invalidate any older asynchronous WAV addition.

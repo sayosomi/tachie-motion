@@ -27,8 +27,36 @@ type ServerProgress = {
 const terminal = (phase: ExportPhase) =>
   phase === "success" || phase === "failed" || phase === "cancelled";
 
+const STORAGE_KEY = "tachie-motion-active-export-progress";
+
+function restoreView(): ExportProgressView | null {
+  try {
+    const stored = window.sessionStorage.getItem(STORAGE_KEY);
+    if (!stored) return null;
+    const data = JSON.parse(stored) as { token?: unknown; names?: unknown };
+    if (typeof data.token !== "string" ||
+        !/^[A-Za-z0-9_-]{20,100}$/.test(data.token) ||
+        !Array.isArray(data.names) || data.names.length < 1 ||
+        data.names.length > 2000 ||
+        !data.names.every((name) => typeof name === "string" &&
+          name.length <= 1024)) return null;
+    return { token: data.token, names: data.names, phase: "running",
+      stage: "サーバーの処理状態を再確認中", percent: 0, index: 1,
+      frames: 0, frameTotal: 0, detail: "",
+      connectionError: false };
+  } catch { return null; }
+}
+
 export function useExportProgress() {
-  const [view, setView] = useState<ExportProgressView | null>(null);
+  const [view, setView] = useState<ExportProgressView | null>(restoreView);
+
+  useEffect(() => {
+    try {
+      if (!view || terminal(view.phase)) window.sessionStorage.removeItem(STORAGE_KEY);
+      else window.sessionStorage.setItem(STORAGE_KEY,
+        JSON.stringify({ token: view.token, names: view.names }));
+    } catch { /* Storage is optional: server-side safety does not depend on it. */ }
+  }, [view?.token, view?.phase, view?.names]);
 
   const begin = useCallback((token: string, names: string[]) => {
     setView({

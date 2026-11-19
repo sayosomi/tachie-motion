@@ -61,6 +61,8 @@ export type BatchConflictChoice = "overwrite" | "rename";
 type ExportProgressCallbacks = {
   begin: (token: string, names: string[]) => void;
   settle: (outcome: "success" | "failed" | "cancelled", detail?: string) => void;
+  uncertain: (detail: string) => void;
+  terminalPhase: "success" | "failed" | "cancelled" | null;
 };
 const cancelledByServer = (error: unknown) =>
   error instanceof Error && error.message.includes("書き出しをキャンセルしました");
@@ -194,6 +196,20 @@ export function useBatchUtteranceExport(
   const [reviewError, setReviewError] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const busy = useRef(false);
+  const uncertainRun = useRef(false);
+  useEffect(() => {
+    if (!uncertainRun.current || !overlay.terminalPhase) return;
+    // A lost response never releases the edit lock. Only a confirmed
+    // terminal server status can conclude an uncertain batch.
+    uncertainRun.current = false;
+    busy.current = false;
+    setRunning(false);
+    setSummary(overlay.terminalPhase === "success"
+      ? "サーバーで完了を確認しました。通信が切れたため出力フォルダの成果物をご確認ください。"
+      : overlay.terminalPhase === "cancelled"
+        ? "サーバーが中断を確認しました。旧ファイルは保護されています。"
+        : "書き出しの終了を確認しました。出力先・復旧情報をご確認ください。");
+  }, [overlay.terminalPhase]);
   const key = snapshotKey(draft, items, naming) + "|" + conflictChoice +
     "|" + JSON.stringify(items.map((item) => [
       item.id, item.mode === "aiueo"
@@ -222,10 +238,12 @@ export function useBatchUtteranceExport(
   async function run() {
     if (busy.current || otherBusy() || running || !draft || items.length === 0 || !displayed) return;
     busy.current = true;
+    uncertainRun.current = false;
     setRunning(true);
     setSummary("");
     setProgress("出力先と保存名を再確認中…");
     let sessionId: string | null = null;
+    let transportUnknown = false;
     let outcome: "success" | "failed" | "cancelled" | null = null;
     let outcomeDetail = "";
     try {
@@ -241,7 +259,11 @@ export function useBatchUtteranceExport(
         setSummary("一括書き出しをキャンセルしました。");
         return;
       }
+      // Client-side UUID survives a lost batch-start response.
+      sessionId = crypto.randomUUID();
+      overlay.begin(sessionId, plans.map((plan) => wavFilename(plan.item.wavPath)));
       const session = await post<{ batch_id: string }>("preset-batch-start", {
+        progress_id: sessionId,
         output_dir: timeline.canonicalOutputDir,
         timeline_basename: timeline.basename,
         timeline_policy: timeline.conflict_policy,
@@ -253,10 +275,12 @@ export function useBatchUtteranceExport(
           conflict_policy: plan.conflict_policy,
         })),
       });
-      sessionId = session.batch_id;
-      if (!sessionId) throw new Error("一括書き出しのセッションを開始できません");
-      overlay.begin(sessionId, plans.map((plan) =>
-        wavFilename(plan.item.wavPath)));
+      if (!session.batch_id) throw new Error("一括書き出しのセッションを開始できません");
+      if (sessionId !== session.batch_id) {
+        // Older mocked sessions return a server-generated ID.
+        sessionId = session.batch_id;
+        overlay.begin(sessionId, plans.map((plan) => wavFilename(plan.item.wavPath)));
+      }
       let successes = 0;
       let failures = 0;
       const complete: { basename: string; frames: number; fps: number;
@@ -332,6 +356,18 @@ export function useBatchUtteranceExport(
         (notes.length ? " ／ 注意：" + notes.join(" ") : ""));
       onFinished();
     } catch (error) {
+      if (sessionId && (error instanceof TypeError ||
+          (error instanceof DOMException && error.name === "AbortError"))) {
+        transportUnknown = true;
+        uncertainRun.current = true;
+        overlay.uncertain("通信が切れました。サーバーの停止・公開状態を確認中です。");
+        setSummary("書き出し結果は未確定です。サーバーの確認まで再実行できません。");
+        // The server finishes cancellation independently after its worker
+        // exits. Failure to deliver this request keeps the UI locked.
+        try { await post("export-cancel", { token: sessionId }); }
+        catch { /* Progress polling resumes after connectivity returns. */ }
+        return;
+      }
       outcome = cancelledByServer(error) ? "cancelled" : "failed";
       outcomeDetail = error instanceof Error ? error.message : String(error);
       setSummary(outcome === "cancelled"
@@ -341,12 +377,19 @@ export function useBatchUtteranceExport(
     } finally {
       // Release the server-wide lease on every completion/cancel/failure path.
       // A stale tab cannot release a different session's unpredictable token.
-      if (sessionId) {
+      if (sessionId && !transportUnknown) {
         try {
           const release = await post<{ released: boolean }>("preset-batch-cancel",
             { batch_id: sessionId });
-          if (!release.released && outcome !== "success")
-            throw new Error("一括処理のロック解除を確認できません");
+          if (!release.released && outcome !== "success") {
+            // The independent cancel request may have released this same
+            // lease before the originating request returned.
+            const reply = await fetch("/api/export-progress/" +
+              encodeURIComponent(sessionId));
+            const state = reply.ok ? await reply.json() as { status: string } : null;
+            if (state?.status !== "cancelled" && state?.status !== "failed")
+              throw new Error("一括処理のロック解除を確認できません");
+          }
           if (outcome) overlay.settle(outcome, outcomeDetail);
         } catch {
           overlay.settle("failed",
@@ -355,9 +398,11 @@ export function useBatchUtteranceExport(
             " ／ サーバー側の一括ロック解除を確認できません。再実行する前に状態を確認してください。");
         }
       }
-      setProgress("");
-      busy.current = false;
-      setRunning(false);
+      if (!transportUnknown) {
+        setProgress("");
+        busy.current = false;
+        setRunning(false);
+      }
     }
   }
   return { running, isBusy: () => busy.current, progress, summary, run,
