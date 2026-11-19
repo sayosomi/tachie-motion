@@ -64,6 +64,12 @@ async function visibleCrop(frame: Locator) {
   });
 }
 
+function previewPan(transform: string): { x: number; y: number } {
+  const match = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(transform);
+  if (!match) throw new Error("Preview transform missing pan: " + transform);
+  return { x: Number(match[1]), y: Number(match[2]) };
+}
+
 async function wheelBurst(frame: Locator, deltas: number[], x: number, y: number) {
   // Dispatch all events before yielding: React cannot commit a render
   // between these wheel events.
@@ -187,12 +193,16 @@ test("rapid wheel bursts, reversal and drag use the latest synchronous view", as
   const center = await visibleCrop(stage);
   expect((center.left + center.right) / 2).toBeCloseTo(0.5 + 32 / (box!.width * 2), 2);
   const firstTransform = await stage.locator("img").evaluate((img) => img.style.transform);
-  expect(firstTransform).toContain("translate(-32px, -24px)");
+  const firstPan = previewPan(firstTransform);
+  expect(firstPan.x).toBeCloseTo(-32, 2);
+  expect(firstPan.y).toBeCloseTo(-24, 2);
 
   await wheelBurst(stage, [-40, 30, 70], x, y);
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.5×");
   const reverseTransform = await stage.locator("img").evaluate((img) => img.style.transform);
-  expect(reverseTransform).toContain("translate(-16px, -12px)");
+  const reversedPan = previewPan(reverseTransform);
+  expect(reversedPan.x).toBeCloseTo(-16, 2);
+  expect(reversedPan.y).toBeCloseTo(-12, 2);
 
   // A wheel event while the left button is held terminates the old drag.
   await page.mouse.move(x, y);
