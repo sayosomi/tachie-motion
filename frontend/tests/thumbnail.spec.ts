@@ -120,8 +120,10 @@ test("wheel zoom anchors at cursor, stays in preview and saves only on explicit 
   expect((await savedDraft(page)).collection.items[0].thumbnail).toEqual(saved);
   await page.mouse.wheel(0, 100);
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.5×");
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.mouse.move(5, 5);
   await page.mouse.wheel(0, 300);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.5×");
   await stage.hover();
   await page.mouse.wheel(0, -900);
