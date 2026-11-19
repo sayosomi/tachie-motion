@@ -289,7 +289,7 @@ def wav_playback(payload: FileRequest):
 @app.post("/api/preset-utterance-destination")
 def preset_utterance_destination(payload: DestinationRequest):
     try:
-        validate_basename(payload.basename)
+        validate_media_basename(payload.basename)
         folder = Path(payload.output_dir).expanduser()
         if not folder.is_absolute() or not folder.is_dir():
             raise ValueError("Output folder must already exist")
@@ -306,8 +306,10 @@ def preset_utterance_destination(payload: DestinationRequest):
 async def preset_utterance_export(payload: PresetUtteranceRequest):
     if payload.fps not in (24, 30, 60):
         raise HTTPException(400, "FPS must be 24, 30 or 60")
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", payload.basename, re.ASCII):
-        raise HTTPException(400, "Output basename must use 1-64 ASCII letters, digits, - or _")
+    try:
+        validate_media_basename(payload.basename)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     if payload.conflict_policy not in ("error", "overwrite"):
         raise HTTPException(400, "Unsupported output conflict policy")
     folder = Path(payload.output_dir).expanduser()
