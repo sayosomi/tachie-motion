@@ -12,13 +12,19 @@ import { useBatchUtteranceExport } from "./useBatchUtteranceExport";
 import { exportPayload, exportReady, aiueoMouthReady } from "./utteranceExportRequest";
 import { blinkFrames } from "./blinkTiming";
 import type { UnifiedPreset } from "./presetModel";
+import { PreviewSourceChangedError, useBrowserPreview } from "./useBrowserPreview";
 import { matchesSource, persistMissingBlinkTiming, PresetDraftChangedError, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
 import {
   createUtterance, moveUtterance, reorderUtterances, updateUtterance,
   type ExportData, type UtteranceItem, type WavData,
 } from "./utteranceItems";
 
-type PsdData = { fingerprint: string; layers: Layer[] };
+type PsdData = {
+  fingerprint: string; layers: Layer[];
+  width?: number; height?: number; source_identity?: string;
+};
+type ThumbnailCacheEntry = { signature: string; image?: string; error?: string };
+const previewSignature = (preset: UnifiedPreset) => JSON.stringify(preset.base);
 type Destination = {
   state: "available" | "complete" | "partial" | "unsafe" | "recovery_required";
   suggested_basename: string;
@@ -49,6 +55,8 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
 }) {
   const [draft, setDraft] = useState<PresetDraft | null>(null);
   const [psdLayers, setPsdLayers] = useState<Layer[]>([]);
+  const [psdPreview, setPsdPreview] = useState<PsdData | null>(null);
+  const [thumbnailCache, setThumbnailCache] = useState<Record<string, ThumbnailCacheEntry>>({});
   const [naming, setNaming] = useState<BatchNaming>(initialNaming());
   const [projectBusy, setProjectBusy] = useState(false);
   const projectBusyRef = useRef(false);
@@ -57,6 +65,12 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const [pendingPath, setPendingPath] = useState("");
   const [defaultOutputDir, setDefaultOutputDir] = useState("");
   const [startupError, setStartupError] = useState("");
+  const { renderer: thumbRenderer, sourceChanged: thumbnailSourceChanged,
+    loading: thumbnailLoading, verifySource: verifyThumbnailSource } = useBrowserPreview(
+    active ? draft?.path ?? "" : "", draft?.fingerprint ?? "",
+    psdPreview?.source_identity ?? "", psdPreview?.width ?? 0,
+    psdPreview?.height ?? 0, psdPreview?.layers ?? null,
+  );
   const [presetStatus, setPresetStatus] = useState<"loading" | "ready" | "error">("loading");
   const [addError, setAddError] = useState("");
   const [addingCount, setAddingCount] = useState(0);
@@ -104,6 +118,8 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     setStartupError("");
     setPresetStatus("loading");
     setDraft(null); // Block export until the returning preset snapshot is revalidated.
+    setPsdPreview(null);
+    setThumbnailCache({});
     const load = async () => {
       try {
         const saved = readPresetDraft();
@@ -133,6 +149,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         if (cancelled) return;
         setDraft(restored);
         setPsdLayers(psd.layers);
+        setPsdPreview(psd);
         setPresetStatus("ready");
         setDefaultOutputDir(health.default_output_dir);
         setNaming((previous) => ({
@@ -151,6 +168,66 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     void load();
     return () => { cancelled = true; };
   }, [active]);
+
+  // Reuse the exact PSD-validated base preview for each choice. Only the crop
+  // numbers are persisted; PNG data stays in this view's transient memory.
+  const pendingThumbnail = draft?.collection.items.find((preset) => {
+    const cached = thumbnailCache[preset.id];
+    return !cached || cached.signature !== previewSignature(preset);
+  });
+  useEffect(() => {
+    if (!active || !draft || !psdPreview || !pendingThumbnail ||
+        thumbnailSourceChanged || thumbnailLoading) return;
+    const preset = pendingThumbnail;
+    const signature = previewSignature(preset);
+    let cancelled = false;
+    void (async () => {
+      try {
+        let image: string;
+        if (thumbRenderer) {
+          try { image = await thumbRenderer.render(preset.base); }
+          catch (err) {
+            if (err instanceof PreviewSourceChangedError) throw err;
+            await verifyThumbnailSource();
+            image = (await post<{ preview: string }>("preset-preview", {
+              path: draft.path, fingerprint: draft.fingerprint,
+              source_identity: psdPreview.source_identity, layers: preset.base,
+            })).preview;
+          }
+        } else {
+          await verifyThumbnailSource();
+          image = (await post<{ preview: string }>("preset-preview", {
+            path: draft.path, fingerprint: draft.fingerprint,
+            source_identity: psdPreview.source_identity, layers: preset.base,
+          })).preview;
+        }
+        if (!cancelled) setThumbnailCache((previous) => ({
+          ...previous, [preset.id]: { signature, image },
+        }));
+      } catch (err) {
+        if (!cancelled && !(err instanceof PreviewSourceChangedError)) {
+          setThumbnailCache((previous) => ({
+            ...previous, [preset.id]: {
+              signature, error: err instanceof Error ? err.message : String(err),
+            },
+          }));
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [active, draft, psdPreview, pendingThumbnail?.id,
+    pendingThumbnail && previewSignature(pendingThumbnail), thumbRenderer,
+    thumbnailSourceChanged, thumbnailLoading, verifyThumbnailSource]);
+
+  const presetImages: Record<string, string> = {};
+  if (!thumbnailSourceChanged && draft && psdPreview) {
+    for (const preset of draft.collection.items) {
+      const cached = thumbnailCache[preset.id];
+      if (cached?.signature === previewSignature(preset) && cached.image) {
+        presetImages[preset.id] = cached.image;
+      }
+    }
+  }
 
   // Commit a validated project snapshot only after the browser storage write
   // succeeds. Failed imports leave WAV rows and preset recovery untouched.
@@ -177,6 +254,8 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     setActiveId(project.selectedId);
     setDraft(nextDraft);
     setPsdLayers(inspected.psd.layers);
+    setPsdPreview(inspected.psd);
+    setThumbnailCache({});
     setPresetStatus("ready");
     setStartupError("");
     setAddError("");
@@ -360,7 +439,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} labStatuses={labStatuses}
       onRecheckLabs={() => setLabRefreshVersion((previous) => previous + 1)}
-      presets={draft?.collection.items ?? []}
+      presets={draft?.collection.items ?? []} presetImages={presetImages}
       projectControls={<ProjectActions
         draft={draft} layers={psdLayers} items={items} selectedId={activeId} naming={naming}
         disabled={editingLocked || addingCount > 0 || presetStatus === "loading"}

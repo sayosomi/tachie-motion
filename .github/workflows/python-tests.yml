@@ -38,12 +38,15 @@ jobs:
 
       - name: Install system FFmpeg
         run: |
-          # Azure's APT mirror has stalled FFmpeg installs in the Python 3.12 job.
-          # Keep a non-Azure mirror (as in the proven Web UI workflow).
-          sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
-          test -s /etc/apt/apt-mirrors.txt
-          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=1 update
-          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=1 install -y --no-install-recommends ffmpeg
+          # Mirrorlist fallback selected a very slow EC2 mirror, and the
+          # 20-minute job limit cancelled Python 3.12 during its tests.
+          # Use the same bounded official mirror as the passing Web UI CI.
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            test "$(cat /etc/apt/apt-mirrors.txt)" = 'https://archive.ubuntu.com/ubuntu/'
+            timeout 180s sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=1 update
+            timeout 600s sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=1 install -y --no-install-recommends ffmpeg
+          fi
           ffmpeg -hide_banner -encoders | grep prores_ks
           ffprobe -version | head -n 1
 

@@ -27,7 +27,7 @@ test("preset-first list, detail ON/OFF, copy, reorder and refresh recovery", asy
   await expect(page.getByRole("heading", { name: "一覧" })).toBeVisible();
   await expect(page.locator("[data-preset-id]")).toHaveCount(1);
   const firstId = await page.locator("[data-preset-id]").first().getAttribute("data-preset-id");
-  await expect(page.getByAltText("通常 のプレビュー")).toBeVisible();
+  await expect(page.getByAltText("通常 のサムネイル")).toBeVisible();
 
   await page.getByRole("button", { name: "＋ 作成" }).click();
   await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();

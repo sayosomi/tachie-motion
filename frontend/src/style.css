@@ -300,7 +300,9 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 
 /* Preset detail: absolute image positioning prevents a tall PSD's intrinsic
    grid min-size from pushing its mouth below the clipped 360px viewport. */
-.preset-image-viewport { position:relative; min-height:0; min-width:0; }
+.preset-image-viewport { position:relative; min-height:0; min-width:0;
+  width:min(100%,480px); height:auto; aspect-ratio:4 / 3;
+  box-sizing:border-box; margin-inline:auto; }
 .preset-image-viewport img { position:absolute; inset:0; display:block; width:100%;
   height:100%; max-width:none; object-fit:contain; transform-origin:center center;
   pointer-events:none; user-select:none; -webkit-user-drag:none; }
@@ -530,3 +532,33 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .preset-error-toast > span { flex:1; min-width:0; overflow-wrap:anywhere; }
 .preset-error-toast > button { flex:none; padding:5px 10px; min-height:30px;
   margin:0; border-color:#aa7c78; }
+
+/* Issue #42: display-only preset thumbnails share the same source-relative crop. */
+.thumbnail-frame { position:relative; overflow:hidden; min-width:0; min-height:0; }
+.thumbnail-frame img { position:absolute; max-width:none; max-height:none;
+  object-fit:fill; pointer-events:none; user-select:none; -webkit-user-drag:none; }
+.thumbnail-frame .thumbnail-fallback { position:absolute; inset:0; display:grid;
+  place-items:center; text-align:center; font-size:11px; padding:5px;
+  overflow-wrap:anywhere; color:#35465c; }
+.preset-picker { min-width:0; position:relative; }
+.preset-picker-trigger { display:flex; gap:8px; align-items:center; width:100%; min-width:0;
+  text-align:left; padding:3px 7px; min-height:46px; border:1px solid #587083;
+  border-radius:6px; background:#203448; color:#e3eef7; cursor:pointer; }
+.preset-picker-trigger:focus-visible { outline:2px solid #8bd8c5; outline-offset:2px; }
+.preset-picker-name { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; font-size:12px; }
+.preset-picker-thumb { width:40px; height:30px; flex:0 0 40px; aspect-ratio:4 / 3;
+  border:1px solid #708699; border-radius:4px; background:#dce3e9; }
+.preset-picker-options { display:flex; flex-direction:column; gap:3px; min-width:0;
+  max-height:230px; overflow-y:auto; padding:5px; margin-top:5px;
+  border:1px solid #516e82; border-radius:7px; background:#172b3d; }
+.preset-picker-option { display:flex; gap:8px; align-items:center; width:100%; min-width:0;
+  padding:4px 5px; margin:0; text-align:left; color:inherit; font-size:12px;
+  border:1px solid transparent; border-radius:5px; background:transparent; cursor:pointer; }
+.preset-picker-option span:nth-child(2) { flex:1; min-width:0; overflow-wrap:anywhere; }
+.preset-picker-option:hover,.preset-picker-option:focus-visible { background:#315066; }
+.preset-picker-option[aria-pressed="true"] { border-color:#88d2b9; background:#234a55; }
+.preset-picker-option:focus-visible { outline:2px solid #a8e8d4; outline-offset:-2px; }
+
+/* Keep the source crop consistent between the 4:3 preview and thumbnails. */
+.preset-card-image.thumbnail-frame { min-height:0; height:auto; aspect-ratio:4 / 3; align-self:center; width:100%; }
