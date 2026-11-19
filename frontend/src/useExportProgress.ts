@@ -69,9 +69,12 @@ export function useExportProgress() {
     detail = "") => {
     setView((previous) => previous ? {
       ...previous,
-      phase: previous.phase === "success" ? "success" : outcome,
-      percent: outcome === "success" ? 100 : previous.percent,
-      stage: outcome === "success" ? "書き出し完了" :
+      // A server-confirmed terminal outcome wins over a late HTTP error.
+      phase: terminal(previous.phase) ? previous.phase : outcome,
+      percent: terminal(previous.phase) ? previous.percent :
+        outcome === "success" ? 100 : previous.percent,
+      stage: terminal(previous.phase) ? previous.stage :
+        outcome === "success" ? "書き出し完了" :
         outcome === "cancelled" ? "書き出しをキャンセルしました" : "書き出しに失敗しました",
       detail: detail || previous.detail,
     } : null);

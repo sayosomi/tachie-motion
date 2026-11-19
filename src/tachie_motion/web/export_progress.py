@@ -107,6 +107,9 @@ class ExportProgress:
         self._validate_identity(token, kind, total)
         with self._lock:
             self._prune()
+            if (self._job and self._job.token == token and
+                    self._job.cancel.is_set() and self._job.status == "cancelled"):
+                raise ExportCancelled("書き出しをキャンセルしました")
             if self._job and self._job.token == token and self._job.reserved:
                 if self._job.cancel.is_set() or self._job.status == "cancelled":
                     raise ExportCancelled("書き出しをキャンセルしました")

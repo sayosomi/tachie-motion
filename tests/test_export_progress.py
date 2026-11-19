@@ -20,6 +20,10 @@ from PIL import Image
 from tachie_motion.render.pcm_mux import _command
 from tachie_motion.render.sequence import encode_prores_sequence
 from tachie_motion.web.export_progress import ExportCancelled, ExportProgress
+from tachie_motion.render.probe import _capture
+from tachie_motion.render.frame_validation import verify_decoded_frames
+from tachie_motion.render.pcm_mux import _decoded_pcm_digest
+from tachie_motion.web.batch_session import BatchCoordinator, Session
 
 
 TOKEN = "p" * 32
@@ -63,6 +67,48 @@ class ExportProgressTests(unittest.TestCase):
         self.assertEqual(100, self.jobs.snapshot(TOKEN)["percent"])
         self.assertFalse(self.jobs.request_cancel(TOKEN)["accepted"])
 
+    def test_browser_reservation_cancelled_before_worker_is_never_started(self):
+        token = "12345678-1234-4234-9234-1234567890ab"
+        self.jobs.reserve(token, "single")
+        self.assertEqual("running", self.jobs.snapshot(token)["status"])
+        reply = self.jobs.request_cancel(token)
+        self.assertTrue(reply["accepted"])
+        self.assertEqual("cancelled", self.jobs.snapshot(token)["status"])
+        with self.assertRaises(ExportCancelled):
+            self.jobs.start(token, "single")
+        self.assertNotEqual(100, self.jobs.snapshot(token)["percent"])
+
+    def test_reservation_expiry_cannot_start_an_abandoned_worker(self):
+        token = "12345678-1234-4234-9234-1234567890ab"
+        self.jobs.reserve(token, "single")
+        self.jobs._job.reserved_until = time.monotonic() - 1
+        self.assertEqual("failed", self.jobs.snapshot(token)["status"])
+        with self.assertRaises(RuntimeError):
+            self.jobs.start(token, "single")
+        self.jobs.start(OTHER, "single")
+
+    def test_frame_count_remains_visible_after_pcm_stage(self):
+        self.jobs.start(TOKEN, "single")
+        self.jobs.update(TOKEN, "ProRes処理中", 40, 8, 20)
+        self.jobs.update(TOKEN, "PCM照合中", 80)
+        state = self.jobs.snapshot(TOKEN)
+        self.assertEqual((8, 20), (state["frames"], state["frame_total"]))
+
+    def test_abandoned_batch_expiry_releases_lease_and_progress(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.jobs.start(TOKEN, "batch", 2)
+            coordinator = BatchCoordinator(
+                on_expire=lambda token: self.jobs.finish(token, "failed"))
+            coordinator.active = Session(
+                TOKEN, Path(tmp), "timeline", "error", None, [],
+                Path(tmp) / ".stage", time.monotonic() - 1)
+            with patch("tachie_motion.web.batch_session.discard_stage"):
+                coordinator.require_idle()
+            self.assertIsNone(coordinator.active)
+            self.assertEqual("failed", self.jobs.snapshot(TOKEN)["status"])
+            self.jobs.start(OTHER, "batch", 1)
+            self.assertEqual("failed", self.jobs.snapshot(TOKEN)["status"])
+
     def test_cancel_at_publication_boundary_wins_before_commit(self):
         self.jobs.start(TOKEN, "single")
         self.jobs.request_cancel(TOKEN)
@@ -95,8 +141,8 @@ class ExportProgressTests(unittest.TestCase):
             self.jobs.finish(OTHER, "success")
         self.jobs.finish(TOKEN, "failed")
         self.jobs.start(OTHER, "batch", 1)
-        with self.assertRaises(KeyError):
-            self.jobs.snapshot(TOKEN)
+        # Previous results remain observable after the next job starts.
+        self.assertEqual("failed", self.jobs.snapshot(TOKEN)["status"])
         with self.assertRaises(ValueError):
             self.jobs.start("short", "single")
 
@@ -144,6 +190,99 @@ class ExportProcessCancellationTests(unittest.TestCase):
             self.assertFalse(list(root.glob(".tachie-sequence-*.mov")))
             self.assertTrue(png.exists())
 
+
+    def test_cancel_in_encoder_wait_after_all_frames_submitted(self):
+        cancel = threading.Event()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            png, output = root / "source.png", root / "output.mov"
+            Image.new("RGBA", (8, 8), (120, 20, 30, 120)).save(png)
+            timer = None
+
+            def on_frame(count, total):
+                nonlocal timer
+                if count == total:
+                    timer = threading.Timer(0.2, cancel.set)
+                    timer.start()
+
+            def check():
+                if cancel.is_set():
+                    raise ExportCancelled("cancelled")
+
+            # This process consumes all input frames then blocks in the wait.
+            fake_encoder = [sys.executable, "-c",
+                            "import sys,time; sys.stdin.buffer.read(); time.sleep(12)"]
+            started = time.monotonic()
+            try:
+                with patch("tachie_motion.render.sequence.ffmpeg_args",
+                           return_value=fake_encoder):
+                    with self.assertRaises(ExportCancelled):
+                        encode_prores_sequence(
+                            [png], [0] * 3, output, fps=24,
+                            on_frame=on_frame, check_cancel=check)
+            finally:
+                if timer:
+                    timer.cancel()
+            self.assertLess(time.monotonic() - started, 5)
+            self.assertFalse(output.exists())
+            self.assertFalse(list(root.glob(".tachie-sequence-*")))
+
+    def test_cancel_while_ffprobe_is_blocked(self):
+        cancel = threading.Event()
+
+        def check():
+            if cancel.is_set():
+                raise ExportCancelled("cancelled")
+
+        timer = threading.Timer(0.2, cancel.set)
+        timer.start()
+        try:
+            with self.assertRaises(ExportCancelled):
+                _capture([sys.executable, "-c", "import time; time.sleep(12)"],
+                         check_cancel=check)
+        finally:
+            timer.cancel()
+
+    def test_cancel_while_prores_decoder_pipe_is_blocked(self):
+        cancel = threading.Event()
+
+        def check():
+            if cancel.is_set():
+                raise ExportCancelled("cancelled")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "ffmpeg"
+            fake.write_text("#!" + sys.executable + "\nimport time\ntime.sleep(12)\n")
+            fake.chmod(0o755)
+            timer = threading.Timer(0.2, cancel.set)
+            timer.start()
+            try:
+                with self.assertRaises(ExportCancelled):
+                    verify_decoded_frames(Path(tmp) / "unused.mov",
+                        dimensions=(2, 2), count=1, ffmpeg=str(fake),
+                        check_cancel=check)
+            finally:
+                timer.cancel()
+
+    def test_cancel_while_pcm_decoder_pipe_is_blocked(self):
+        cancel = threading.Event()
+
+        def check():
+            if cancel.is_set():
+                raise ExportCancelled("cancelled")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "ffmpeg"
+            fake.write_text("#!" + sys.executable + "\nimport time\ntime.sleep(12)\n")
+            fake.chmod(0o755)
+            timer = threading.Timer(0.2, cancel.set)
+            timer.start()
+            try:
+                with self.assertRaises(ExportCancelled):
+                    _decoded_pcm_digest(Path(tmp) / "unused.mov", 2,
+                                        str(fake), check_cancel=check)
+            finally:
+                timer.cancel()
 
 @unittest.skipUnless(TestClient is not None, "FastAPI test extra unavailable")
 class ExportProgressApiTests(unittest.TestCase):

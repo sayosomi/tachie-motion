@@ -23,6 +23,9 @@ class ProcessCancelWatcher:
             except BaseException:
                 if self.proc.poll() is None:
                     self.proc.kill()
+                # __enter__ failed before the caller acquired the watcher:
+                # it must reap the child itself to avoid leaving a zombie.
+                self.proc.communicate()
                 raise
             self.thread = Thread(target=self._watch, daemon=True)
             self.thread.start()
