@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
+import type { ThumbnailView } from "./thumbnailView";
 
 type Point = { x: number; y: number };
 type Props = {
@@ -9,18 +10,20 @@ type Props = {
   focus?: Point;
   focusLabel?: string;
   selectedFocus?: Point;
+  onThumbnailSave?: (view: ThumbnailView) => boolean;
 };
 
 const LEVELS = [1, 1.5, 2, 3, 4, 6, 8];
 
 export default function PresetImagePreview({
-  image, alt, error, focus, focusLabel = "口元へ", selectedFocus,
+  image, alt, error, focus, focusLabel = "口元へ", selectedFocus, onThumbnailSave,
 }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const img = useRef<HTMLImageElement>(null);
   const drag = useRef<{ id: number; x: number; y: number; start: Point } | null>(null);
   const [level, setLevel] = useState(0);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
+  const [savedMessage, setSavedMessage] = useState("");
   const zoom = LEVELS[level];
 
   function geometry() {
@@ -47,18 +50,21 @@ export default function PresetImagePreview({
   }
 
   function changeZoom(step: number) {
+    setSavedMessage("");
     const next = Math.max(0, Math.min(LEVELS.length - 1, level + step));
     setLevel(next);
     setPan((previous) => bound(previous, LEVELS[next]));
   }
 
   function fitAll() {
+    setSavedMessage("");
     drag.current = null;
     setLevel(0);
     setPan({ x: 0, y: 0 });
   }
 
   function focusAt(target?: Point) {
+    setSavedMessage("");
     const g = geometry();
     if (!g || !target) return;
     const last = LEVELS.length - 1;
@@ -75,6 +81,7 @@ export default function PresetImagePreview({
 
   function pointerDown(event: PointerEvent<HTMLDivElement>) {
     if (!image || zoom === 1 || event.button !== 0) return;
+    setSavedMessage("");
     drag.current = {
       id: event.pointerId, x: event.clientX, y: event.clientY, start: pan,
     };
@@ -103,10 +110,22 @@ export default function PresetImagePreview({
     const delta = { ArrowLeft: [24, 0], ArrowRight: [-24, 0],
       ArrowUp: [0, 24], ArrowDown: [0, -24] }[event.key];
     if (!delta) return;
+    setSavedMessage("");
     event.preventDefault();
     setPan((previous) => bound({
       x: previous.x + delta[0], y: previous.y + delta[1],
     }, zoom));
+  }
+
+  function saveThumbnail() {
+    const g = geometry();
+    if (!g || !image || !onThumbnailSave) return;
+    const view: ThumbnailView = {
+      zoom,
+      centerX: Math.max(0, Math.min(1, 0.5 - pan.x / (g.sourceWidth * g.fit * zoom))),
+      centerY: Math.max(0, Math.min(1, 0.5 - pan.y / (g.sourceHeight * g.fit * zoom))),
+    };
+    if (onThumbnailSave(view)) setSavedMessage("この表示範囲をサムネイルに保存しました");
   }
 
   return <>
@@ -125,7 +144,10 @@ export default function PresetImagePreview({
       </button>
       <button type="button" className="secondary" onClick={() => focusAt(selectedFocus)}
         disabled={!image || !selectedFocus}>選択位置へ</button>
+      {onThumbnailSave && <button type="button" onClick={saveThumbnail}
+        disabled={!image}>サムネにする</button>}
     </div>
+    {savedMessage && <p role="status" className="hint">{savedMessage}</p>}
     <div ref={viewport} className="preview-stage preset-image-viewport"
       tabIndex={image && zoom > 1 ? 0 : -1}
       role="group" aria-label="立ち絵プレビュー。拡大時はドラッグか矢印キーで移動"
