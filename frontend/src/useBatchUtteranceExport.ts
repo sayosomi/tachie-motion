@@ -260,7 +260,11 @@ export function useBatchUtteranceExport(
         return;
       }
       // Client-side UUID survives a lost batch-start response.
-      sessionId = crypto.randomUUID();
+      const preferredToken = crypto.randomUUID();
+      await post<{ registered: boolean }>("export-progress-reserve", {
+        token: preferredToken, kind: "batch", total: plans.length,
+      });
+      sessionId = preferredToken;
       overlay.begin(sessionId, plans.map((plan) => wavFilename(plan.item.wavPath)));
       const session = await post<{ batch_id: string }>("preset-batch-start", {
         progress_id: sessionId,

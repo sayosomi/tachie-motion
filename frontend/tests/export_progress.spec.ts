@@ -29,6 +29,8 @@ async function setup(page: Page) {
     route.fulfill({ json: { state: "available", canonical_output_dir: "/tmp/output" } }));
   await page.route("**/api/preset-batch-cancel", (route) =>
     route.fulfill({ json: { released: true } }));
+  await page.route("**/api/export-progress-reserve", (route) =>
+    route.fulfill({ json: { registered: true } }));
   await page.goto("/");
   await page.locator("#preset-psd-path-advanced").evaluate((node) => {
     (node as HTMLDetailsElement).open = true;

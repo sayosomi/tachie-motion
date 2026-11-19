@@ -427,10 +427,15 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     singleUncertain.current = false;
     const itemId = current.id;
     const token = crypto.randomUUID();
+    let submitted = false;
     setExportingId(itemId);
     setItems((previous) => updateUtterance(previous, itemId, {}));
-    exportProgress.begin(token, [wavFilename(current.wavPath)]);
     try {
+      await post("export-progress-reserve", {
+        token, kind: "single", total: 1,
+      });
+      exportProgress.begin(token, [wavFilename(current.wavPath)]);
+      submitted = true;
       const payload = exportPayload(draft, current, selected, outputBasename, conflictPolicy,
         labStatuses[current.id]?.source_identity);
       const result = await post<ExportData>("preset-utterance-export",
@@ -440,7 +445,8 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         item.id === itemId ? { ...item, result, error: "" } : item));
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      if (err instanceof TypeError || (err instanceof DOMException && err.name === "AbortError")) {
+      if (submitted && (err instanceof TypeError ||
+          (err instanceof DOMException && err.name === "AbortError"))) {
         singleUncertain.current = true;
         exportProgress.uncertain(
           "通信が切れました。サーバー処理の結果を確認中です。出力先を確認するまで再実行しないでください。");
