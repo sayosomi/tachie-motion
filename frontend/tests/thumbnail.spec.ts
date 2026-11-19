@@ -42,36 +42,22 @@ async function savedDraft(page: Page) {
 async function editAndSave(page: Page) {
   const stage = page.locator(".preset-image-viewport");
   await expect(stage.locator("img")).toBeVisible();
-  const box = await stage.boundingBox();
-  expect(box).not.toBeNull();
-  expect(Math.abs(box!.width / box!.height - 4 / 3)).toBeLessThan(0.01);
   const controls = page.locator(".preset-image-controls");
   await controls.getByRole("button", { name: "拡大" }).click();
   await controls.getByRole("button", { name: "拡大" }).click();
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("2×");
-  await stage.evaluate((node) => {
-    const trace: string[] = [];
-    (window as Window & { __thumbTrace?: string[] }).__thumbTrace = trace;
-    for (const type of ["pointerdown", "pointermove", "pointerup"]) {
-      node.addEventListener(type, (event) => {
-        const p = event as PointerEvent;
-        trace.push(type + ":" + p.clientX + "," + p.clientY + ":" + p.button);
-      });
-    }
-  });
+
+  // Obtain viewport coordinates AFTER clicking zoom controls: Playwright can
+  // scroll the page to those buttons, invalidating earlier bounding boxes.
+  const box = await stage.boundingBox();
+  expect(box).not.toBeNull();
+  expect(Math.abs(box!.width / box!.height - 4 / 3)).toBeLessThan(0.01);
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.down();
   await page.mouse.move(box!.x + box!.width / 2 + 35,
     box!.y + box!.height / 2 + 18, { steps: 3 });
   await page.mouse.up();
-  console.log("THUMB_DRAG_TRACE", await stage.evaluate((node) => ({
-    trace: (window as Window & { __thumbTrace?: string[] }).__thumbTrace,
-    stage: [node.clientWidth, node.clientHeight],
-    natural: [(node.querySelector("img") as HTMLImageElement)?.naturalWidth,
-      (node.querySelector("img") as HTMLImageElement)?.naturalHeight],
-    transform: (node.querySelector("img") as HTMLImageElement)?.style.transform,
-  })));
-
+  await expect(stage.locator("img")).not.toHaveAttribute("style", /translate\\(0px, 0px\\)/);
   await controls.getByRole("button", { name: "サムネにする" }).click();
   await expect(page.locator(".preset-preview [role=status]"))
     .toContainText("この表示範囲をサムネイルに保存しました");
