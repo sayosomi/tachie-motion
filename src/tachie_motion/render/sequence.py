@@ -19,6 +19,7 @@ def encode_prores_sequence(
     pngs: Sequence[Path], indices: Sequence[int], output: Path, *,
     fps: int = 30, ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe",
     on_frame: Callable[[int, int], None] | None = None,
+    on_verify: Callable[[], None] | None = None,
     check_cancel: Callable[[], None] | None = None,
 ) -> ProresReport:
     """Stream scheduled frames and atomically publish only verified media."""
@@ -88,6 +89,8 @@ def encode_prores_sequence(
             )
         if check_cancel:
             check_cancel()
+        if on_verify:
+            on_verify()
         report = inspect_prores(
             temp, expected_size=dimensions, expected_frames=args_count,
             expected_fps=fps, ffmpeg=ffmpeg, ffprobe=ffprobe,
