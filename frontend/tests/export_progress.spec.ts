@@ -182,7 +182,9 @@ test("lost batch MOV response never advances or unlocks until server terminal", 
   await page.getByRole("button", { name: "全件を書き出す" }).click();
   await expect.poll(() => cancelRequested).toBe(true);
   await expect(page.getByRole("dialog", { name: "書き出し中" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeDisabled();
+  // During a batch run the button changes its accessible name to 書き出し中…. 
+  await expect(page.locator(".utterance-export-panel .export-execution button.primary"))
+    .toBeDisabled();
   await expect(page.getByRole("button", { name: "編集画面に戻る" })).toHaveCount(0);
   expect(renders).toBe(1);
   expect(otio).toBe(0);

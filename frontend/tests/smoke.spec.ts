@@ -87,6 +87,7 @@ test("new preset-backed none/open utterance workflow sends exact preset snapshot
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("none");
   await expect(page.getByRole("status")).toHaveCount(0);
   await page.getByRole("button", { name: "MOVを書き出す" }).click();
+  await expect.poll(() => payloads.length).toBe(2);
   expect(payloads[1]).toMatchObject({ mode: "none" });
 });
 
@@ -190,6 +191,7 @@ test("same-stem legacy OTIO forbids MOV overwrite and requires a new name", asyn
   await expect(page.getByRole("radio", { name: "上書きする" })).toHaveCount(0);
   await expect(page.locator("#speech-save-as")).toHaveValue("001_character_voice_002");
   await page.getByRole("button", { name: "別名で書き出す" }).click();
+  await expect.poll(() => requests.length).toBe(1);
   expect(requests[0]).toMatchObject({
     basename: "001_character_voice_002", conflict_policy: "error",
   });
@@ -331,7 +333,7 @@ test("a fixed-expression preset exports none even when the WAV row selects open"
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
   await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeEnabled();
   await page.getByRole("button", { name: "MOVを書き出す" }).click();
-  expect(exports).toHaveLength(1);
+  await expect.poll(() => exports.length).toBe(1);
   expect(exports[0]).toMatchObject({ mode: "none", mouth: null, blink_enabled: false });
 });
 
