@@ -22,6 +22,7 @@ export type WavPlaybackControls = {
 export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackControls {
   const audio = useRef<HTMLAudioElement>(null);
   const pending = useRef<AbortController | null>(null);
+  const waveformPending = useRef<AbortController | null>(null);
   const objectUrl = useRef<string | null>(null);
   const source = useRef<Source | null>(null);
   const generation = useRef(0);
@@ -37,6 +38,8 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
   const [status, setStatus] = useState("");
 
   function discardSource() {
+    waveformPending.current?.abort();
+    waveformPending.current = null;
     pending.current?.abort();
     pending.current = null;
     const previousUrl = objectUrl.current;
@@ -89,6 +92,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
     return () => {
       generation.current++;
       pending.current?.abort();
+      waveformPending.current?.abort();
       if (audio.current) audio.current.pause();
       if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
     };
@@ -127,11 +131,16 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
       const player = audio.current;
       if (!player) return;
       player.src = url;
-      // A delayed decode must not affect the active source or delay playback.
-      void decodeWavPeaks(wav).then((peaks) => {
-        if (epoch === generation.current && source.current?.id === item.id) {
+      // The display-only analysis is cancellable and never holds up playback.
+      const waveformController = new AbortController();
+      waveformPending.current = waveformController;
+      void decodeWavPeaks(wav, waveformController.signal).then((peaks) => {
+        if (!waveformController.signal.aborted && epoch === generation.current &&
+            source.current?.id === item.id) {
           setWaveform(peaks ? { sourceId: item.id, peaks } : null);
         }
+      }).finally(() => {
+        if (waveformPending.current === waveformController) waveformPending.current = null;
       });
       await player.play();
       if (epoch === generation.current) {
