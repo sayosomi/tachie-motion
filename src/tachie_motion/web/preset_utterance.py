@@ -249,7 +249,9 @@ def export_preset_utterance(
         if progress:
             encoded = encode_prores_sequence(
                 pngs, indices, staged_mov, fps=fps,
-                on_frame=on_frame, check_cancel=check_cancel)
+                on_frame=on_frame,
+                on_verify=lambda: report("ProRes映像を独立検証中", 65),
+                check_cancel=check_cancel)
         else:
             encoded = encode_prores_sequence(pngs, indices, staged_mov, fps=fps)
         report("映像の独立検証完了", 77, len(indices), len(indices))
