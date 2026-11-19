@@ -6,9 +6,11 @@ Keep original targets in an exclusive recovery directory until publication succe
 from pathlib import Path
 import os
 import re
-import shutil
+import secrets
 import stat
 import unicodedata
+
+from tachie_motion.web.atomic_rename import rename_noreplace
 
 
 def validate_media_basename(name: str) -> str:
@@ -72,15 +74,65 @@ def _recovery_paths(path: Path) -> tuple[Path, ...]:
             recovery_directories(path.parent))
 
 
-def initial_single_identity(path: Path, policy: str):
+def _other_otio_may_reference(path: Path) -> bool:
+    """Conservative guard: any OTIO in the output folder may reference this MOV.
+
+    Names do not establish the referenced media. The single-utterance route
+    opts into this guard; existing batch operations retain their own policy.
+    """
+    return (path.suffix.lower() == ".mov" and
+            any(item.suffix.lower() == ".otio" for item in path.parent.iterdir()))
+
+
+def _has_equivalent_mov_name(path: Path) -> bool:
+    """Protect NFD/NFC and case variants of a single MOV's destination."""
+    key = unicodedata.normalize("NFC", path.name).casefold()
+    return any(
+        entry.name != path.name and
+        unicodedata.normalize("NFC", entry.name).casefold() == key
+        for entry in path.parent.iterdir()
+    )
+
+
+def _refuse_equivalent_mov_name(path: Path) -> None:
+    if _has_equivalent_mov_name(path):
+        raise ValueError("Equivalent Unicode output filename appeared; refusing publication")
+
+
+def _recover_new_mov_collision(staged: Path, target: Path) -> None:
+    """Quarantine a just-published new MOV; never unlink a shared pathname.
+
+    Leave the recovery directory blocking subsequent attempts. If another
+    writer replaced the MOV before the atomic move, their inode is retained
+    rather than removed, and manual review is mandatory.
+    """
+    backup = recovery(target)
+    try:
+        backup.mkdir(mode=0o700, exist_ok=False)
+        failed = backup / "uncommitted"
+        rename_noreplace(target, failed)
+        if _identity(failed) != _identity(staged):
+            raise RuntimeError("Published MOV changed during recovery")
+    except BaseException as error:
+        raise RuntimeError("New MOV recovery requires manual review: " + str(backup)) from error
+    raise RuntimeError("Equivalent Unicode MOV detected; new MOV retained for manual recovery: " +
+                       str(backup))
+
+
+def initial_single_identity(path: Path, policy: str, *,
+                            protect_otio_references: bool = False):
     if policy not in ("error", "overwrite"):
         raise ValueError("Unsupported output conflict policy")
     if _recovery_paths(path):
         raise RuntimeError("Previous export needs recovery: " +
                            ", ".join(map(str, _recovery_paths(path))))
+    if protect_otio_references and _has_equivalent_mov_name(path):
+        raise ValueError("Equivalent Unicode output filename exists; choose another name")
     if _has_sibling_file(path):
         raise ValueError("Output name belongs to a MOV/OTIO pair; choose another name")
     prior = _identity(path)
+    if prior is not None and protect_otio_references and _other_otio_may_reference(path):
+        raise ValueError("Another OTIO may reference this MOV; choose another output name")
     if prior is None and policy == "overwrite":
         raise ValueError("No existing file to overwrite")
     if prior is not None and policy == "error":
@@ -88,31 +140,107 @@ def initial_single_identity(path: Path, policy: str):
     return prior
 
 
-def single_destination(path: Path) -> dict:
+def single_destination(path: Path, *, protect_otio_references: bool = False) -> dict:
     if _recovery_paths(path):
         return {"state": "recovery_required"}
+    if protect_otio_references and _has_equivalent_mov_name(path):
+        return {"state": "unsafe"}
     if _has_sibling_file(path):
         return {"state": "unsafe"}
     try:
         existing = _identity(path)
     except ValueError:
         return {"state": "unsafe"}
+    if existing is not None and protect_otio_references and _other_otio_may_reference(path):
+        return {"state": "unsafe"}
     return {"state": "complete" if existing is not None else "available"}
 
 
-def publish_single(staged: Path, target: Path, *, policy: str, prior) -> str | None:
-    """Exclusive creation for fresh files, hardlink-backed rollback for overwrite."""
+def solo_destination_info(folder: Path, basename: str) -> dict:
+    """Preflight one PCM MOV and offer a safe alternate basename.
+
+    A same-stem OTIO is left untouched and protects any existing MOV that
+    it could reference. The alternate is advisory; publication rechecks.
+    """
+    validate_media_basename(basename)
+    from tachie_motion.web.batch_publish import recovery_directories
+    # Recovery blocks the entire folder: no alternate basename can work.
+    if recovery_directories(folder):
+        return {"state": "recovery_required", "suggested_basename": "",
+                "folder_recovery_required": True}
+    state = single_destination(folder / (basename + ".mov"),
+                               protect_otio_references=True)["state"]
+    if state == "available":
+        return {"state": state, "suggested_basename": basename}
+    for number in range(2, 10002):
+        suffix = f"_{number:03d}"
+        # Preserve combining-mark sequences when shortening NFD WAV names.
+        # Never rewrite or normalize the retained prefix.
+        max_chars = 120 - len(suffix)
+        max_bytes = 180 - len(suffix.encode("utf-8"))
+        prefix = ""
+        used_chars = used_bytes = 0
+        clusters: list[str] = []
+        for char in basename:
+            if clusters and unicodedata.category(char).startswith("M"):
+                clusters[-1] += char
+            else:
+                clusters.append(char)
+        for cluster in clusters:
+            length, size = len(cluster), len(cluster.encode("utf-8"))
+            if used_chars + length > max_chars or used_bytes + size > max_bytes:
+                break
+            prefix += cluster
+            used_chars += length
+            used_bytes += size
+        candidate = prefix + suffix
+        validate_media_basename(candidate)
+        if single_destination(folder / (candidate + ".mov"),
+                              protect_otio_references=True)["state"] == "available":
+            return {"state": state, "suggested_basename": candidate}
+    raise ValueError("No unused output name available")
+
+
+def _archive_owned_recovery(backup: Path, expected: dict[str, tuple]) -> Path:
+    """Retain the verified old MOV in a uniquely named archive; delete nothing.
+
+    With a same-user external writer, no pathname identity check followed by
+    unlink is safe. A completed archive is intentionally excluded from
+    interrupted-recovery detection, so later exports remain usable.
+    """
+    if {item.name for item in backup.iterdir()} != set(expected):
+        raise RuntimeError("Unexpected recovery entries; manual recovery required")
+    for name, identity in expected.items():
+        if _identity(backup / name) != identity:
+            raise RuntimeError("Recovery file changed; manual recovery required")
+    archived = backup.parent / (
+        "." + backup.name.lstrip(".") + "-retained-" + secrets.token_hex(12))
+    rename_noreplace(backup, archived)  # no replacement and no file deletion
+    return archived
+
+
+def publish_single(staged: Path, target: Path, *, policy: str, prior,
+                   protect_otio_references: bool = False) -> str | None:
+    """Exclusive publication; all displaced generations stay recoverable."""
     if _recovery_paths(target):
         raise RuntimeError("Previous export needs recovery: " +
                            ", ".join(map(str, _recovery_paths(target))))
+    if protect_otio_references and _has_equivalent_mov_name(target):
+        raise ValueError("Equivalent Unicode output filename appeared; refusing publication")
     if _has_sibling_file(target):
         raise ValueError("Output is paired with another file; refusing single-file overwrite")
     if _identity(target) != prior:
         raise FileExistsError("Output changed while rendering; nothing published")
+    if prior is not None and protect_otio_references and _other_otio_may_reference(target):
+        raise ValueError("Another OTIO appeared before publication; MOV was not overwritten")
     if prior is None:
         if policy != "error":
             raise ValueError("No existing output was approved for overwrite")
-        os.link(staged, target)  # fails with EEXIST; cannot replace a competing file
+        if protect_otio_references:
+            _refuse_equivalent_mov_name(target)
+        os.link(staged, target)  # exclusive; cannot replace a competing file
+        if protect_otio_references and _has_equivalent_mov_name(target):
+            _recover_new_mov_collision(staged, target)
         return None
     if policy != "overwrite":
         raise FileExistsError("Existing output not approved for overwrite")
@@ -122,39 +250,63 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior) -> str | N
     saved = backup / "saved"
     removed = backup / "removed"
     failed = backup / "uncommitted"
-    moved = False
+    created: dict[str, tuple] = {}
     published = False
     unexpected = False
     try:
-        os.link(target, saved)
+        os.link(target, saved)  # exclusive; retains original inode
+        created["saved"] = prior
         if _identity(target) != prior:
             raise FileExistsError("Output changed before overwrite")
-        os.rename(target, removed)
-        moved = True
-        if _identity(removed) != prior:
+        if protect_otio_references:
+            _refuse_equivalent_mov_name(target)
+            if _other_otio_may_reference(target):
+                raise ValueError("Another OTIO appeared during export; MOV was not overwritten")
+
+        # A native no-replace rename moves exactly the current source inode.
+        # If an outsider swapped target, their MOV moves to removed untouched,
+        # and the mismatch prevents publishing the new MOV.
+        rename_noreplace(target, removed)
+        created["removed"] = _identity(removed)
+        if created["removed"] != prior:
             unexpected = True
-            raise FileExistsError("Concurrent target change; original preserved")
-        os.link(staged, target)  # exclusive; never clobber a competing file
+            raise FileExistsError("Concurrent target change; moved file retained")
+        if protect_otio_references:
+            _refuse_equivalent_mov_name(target)
+            if _other_otio_may_reference(target):
+                raise ValueError("Another OTIO appeared during publication; restoring original MOV")
+        os.link(staged, target)  # exclusive creation of new MOV
         published = True
+        if protect_otio_references:
+            _refuse_equivalent_mov_name(target)
+            if _other_otio_may_reference(target):
+                raise ValueError("Another OTIO appeared as MOV was published; restoring original MOV")
     except BaseException:
         try:
             if published:
-                os.rename(target, failed)
-                if _identity(failed) != _identity(staged):
+                # Atomic rename, not a check-then-unlink. A concurrent writer's
+                # replacement is retained in the recovery directory, never
+                # destroyed, and forces manual review.
+                rename_noreplace(target, failed)
+                created["uncommitted"] = _identity(failed)
+                if created["uncommitted"] != _identity(staged):
                     unexpected = True
-            if _identity(target) is None and saved.exists():
-                os.link(saved, target)
+            if _identity(target) is None:
+                if _identity(saved) != prior:
+                    raise RuntimeError("Original backup changed; manual recovery required")
+                os.link(saved, target)  # exclusive; cannot replace an outsider
             if _identity(target) != prior or unexpected:
                 raise RuntimeError("Concurrent changes need manual recovery")
         except BaseException as error:
             raise RuntimeError("Overwrite recovery required: " + str(backup)) from error
         try:
-            shutil.rmtree(backup)
-        except OSError as error:
+            _archive_owned_recovery(backup, created)
+        except (OSError, ValueError, RuntimeError) as error:
             raise RuntimeError("Backup cleanup required: " + str(backup)) from error
         raise
+
     try:
-        shutil.rmtree(backup)
-    except OSError:
+        archive = _archive_owned_recovery(backup, created)
+    except (OSError, ValueError, RuntimeError):
         return "Export saved; inspect recovery directory: " + str(backup)
-    return None
+    return "Export saved; previous MOV retained for manual cleanup: " + str(archive)

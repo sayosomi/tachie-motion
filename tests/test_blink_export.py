@@ -115,7 +115,7 @@ class BlinkExportApiTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")
-    def test_none_mode_blinks_without_altering_pcm_and_otio(self):
+    def test_none_mode_blinks_without_altering_pcm_and_no_individual_otio(self):
         result = self.post()
         self.assertEqual(result.status_code, 200, result.text)
         self.assertEqual(result.json()["frames"], 4)
@@ -125,12 +125,8 @@ class BlinkExportApiTests(unittest.TestCase):
         self.assertEqual(frames[0], frames[2])
         self.assertEqual(frames[1], frames[3])
         self.assertNotEqual(frames[0], frames[1])
-        doc = json.loads((self.root / "blink.otio").read_text("utf-8"))
-        self.assertEqual(
-            doc["tracks"]["children"][1]["children"][0][
-                "media_references"]["DEFAULT_MEDIA"]["target_url"],
-            str(mov.resolve()),
-        )
+        self.assertNotIn("otio", result.json())
+        self.assertFalse((self.root / "blink.otio").exists())
         self.assertEqual(
             subprocess.run([
                 "ffprobe", "-v", "error", "-select_streams", "a:0",

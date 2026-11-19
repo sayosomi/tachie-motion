@@ -1,4 +1,4 @@
-import { wavFilename } from "./utteranceItems";
+import { wavFilename, type UtteranceItem } from "./utteranceItems";
 
 /** A deliberately small file naming language: no functions or escape syntax. */
 export const DEFAULT_MOV_TEMPLATE = "{番号}_{キャラ名}_{WAV名}";
@@ -34,6 +34,29 @@ export function validateOutputName(value: string): string {
   return value;
 }
 
+/** Reserve room for a shared generation suffix without splitting NFD
+ * combining sequences (or other grapheme clusters). Keep original bytes. */
+export function suffixedOutputName(name: string, suffix: string): string {
+  validateOutputName(name);
+  if (!suffix) return name;
+  const encoder = new TextEncoder();
+  const maxCharacters = 120 - [...suffix].length;
+  const maxBytes = 180 - encoder.encode(suffix).length;
+  const segments = new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(name);
+  let prefix = "";
+  let usedCharacters = 0;
+  let usedBytes = 0;
+  for (const { segment } of segments) {
+    const length = [...segment].length;
+    const bytes = encoder.encode(segment).length;
+    if (usedCharacters + length > maxCharacters || usedBytes + bytes > maxBytes) break;
+    prefix += segment;
+    usedCharacters += length;
+    usedBytes += bytes;
+  }
+  return validateOutputName(prefix + suffix);
+}
+
 export function expandName(template: string, values: Record<string, string>,
   timeline = false): string {
   if (!template || template.length > 512) throw new Error("名前テンプレートが不正です");
@@ -65,6 +88,17 @@ export function movName(template: string, order: number, wavPath: string,
     キャラ名: characterName,
     プロジェクト名: projectName,
   });
+}
+
+/** Single and batch MOVs share the same numbering/template convention.
+ * Explicit per-WAV edits are retained through reordering and template edits. */
+export function soloMovName(
+  item: Pick<UtteranceItem, "wavPath" | "basename" | "basenameEdited">,
+  order: number, naming: BatchNaming,
+): string {
+  return item.basenameEdited ? validateOutputName(item.basename) :
+    movName(naming.movTemplate, order, item.wavPath,
+      naming.characterName, naming.projectName);
 }
 
 export function otioName(template: string, projectName: string): string {

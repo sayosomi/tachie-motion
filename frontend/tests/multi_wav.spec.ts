@@ -161,7 +161,7 @@ test("earlier concurrent WAV failure remains visible after a newer WAV succeeds"
   await expect(page.locator("[data-utterance-id]").first().locator("small").first())
     .toHaveText(newerPath);
   await expect(page.locator(".utterance-item-select[aria-current=true]")).toContainText("後行.wav");
-  await expect(page.locator("#speech-basename")).toHaveValue("speech_002");
+  await expect(page.locator("#speech-basename")).toHaveValue("001_character_後行");
 });
 
 test("failed addition preserves selected export and the PCM MOV endpoint receives that WAV once", async ({ page }) => {
@@ -177,7 +177,7 @@ test("failed addition preserves selected export and the PCM MOV endpoint receive
   await page.route("**/api/preset-utterance-export", (route) => {
     exports.push(route.request().postDataJSON() as Record<string, unknown>);
     return route.fulfill({ json: {
-      mov: "/tmp/output/speech_001.mov", otio: "/tmp/output/speech_001.otio",
+      mov: "/tmp/output/001_character_voice 日本語.mov",
       frames: 30, sample_count: 1000,
     } });
   });
@@ -188,13 +188,13 @@ test("failed addition preserves selected export and the PCM MOV endpoint receive
   await expect(page.getByRole("alert").filter({ hasText: "WAVが見つかりません" })).toBeVisible();
   await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
   await expect(page.locator("[data-utterance-id]").first().locator("small").first()).toHaveText(path);
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeEnabled();
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeEnabled();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect(page.getByText("書き出し完了・30フレーム")).toBeVisible();
   expect(exports).toHaveLength(1);
   expect(exports[0].wav).toBe(path);
   expect(exports[0].mode).toBe("none");
-  expect(exports[0].basename).toBe("speech_001");
+  expect(exports[0].basename).toBe("001_character_voice 日本語");
   expect(exports[0].conflict_policy).toBe("error");
 });
 
@@ -606,7 +606,7 @@ test("single export locks every WAV's edits and new additions when selection cha
     exported++;
     await new Promise<void>((resolve) => { release = resolve; });
     await route.fulfill({ json: {
-      mov: "/tmp/output/speech_001.mov", otio: "/tmp/output/speech_001.otio",
+      mov: "/tmp/output/speech_001.mov",
       frames: 30, sample_count: 800,
     } });
   });
@@ -616,7 +616,7 @@ test("single export locks every WAV's edits and new additions when selection cha
   await addWav(page, "/tmp/b.wav");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
   await page.locator("[data-utterance-id]").first().locator(".utterance-item-select").click();
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect.poll(() => Boolean(release)).toBe(true);
   await page.locator("[data-utterance-id]").nth(1).locator(".utterance-item-select").click();
   await expect(page.locator('[data-selected="true"] .utterance-row-preset select')).toBeDisabled();
@@ -746,7 +746,7 @@ test("a drag started before single export cannot reorder after the export lock e
   await page.route("**/api/preset-utterance-export", async (route) => {
     await new Promise<void>((resolve) => { releaseExport = resolve; });
     await route.fulfill({ json: {
-      mov: "/tmp/output/speech_001.mov", otio: "/tmp/output/speech_001.otio",
+      mov: "/tmp/output/speech_001.mov",
       frames: 30, sample_count: 800,
     } });
   });
@@ -772,7 +772,7 @@ test("a drag started before single export cannot reorder after the export lock e
   });
   await expect(rows.first()).toHaveAttribute("data-drop-target", "true");
   await rows.first().locator(".utterance-item-select").click();
-  await page.getByRole("button", { name: "MOVとOTIOを書き出す" }).click();
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect.poll(() => Boolean(releaseExport)).toBe(true);
   await expect(rows.nth(1).locator(".utterance-drag-handle")).toBeDisabled();
   await expect(rows.first()).toHaveAttribute("data-drop-target", "false");
@@ -998,7 +998,7 @@ test("preset verification failure is not displayed as a missing assigned preset"
   await expect(page.getByRole("alert")).toContainText("PSDが変更");
   await expect(preset.locator("option:checked")).toHaveText("プリセットを確認できません");
   await expect(preset).toBeDisabled();
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeDisabled();
 });
 
 
@@ -1019,7 +1019,7 @@ test("removing the selected-WAV panel retains row details, list bulk apply, and 
   await expect(apply).toBeEnabled();
   await expect(exportPanel.getByText("選択中のWAV：second.wav")).toBeVisible();
   await expect(exportPanel.locator("#speech-fps")).toHaveValue("30");
-  await expect(exportPanel.locator("#speech-basename")).toHaveValue("speech_002");
+  await expect(exportPanel.locator("#speech-basename")).toHaveValue("002_character_second");
 
   // The only state change from bulk apply is preset/mode; each WAV retains save settings.
   await page.locator(".utterance-item").first().locator(".utterance-item-select").click();
@@ -1042,7 +1042,7 @@ test("removing the selected-WAV panel retains row details, list bulk apply, and 
   await list.locator(".utterance-item").first().locator(".utterance-row-mode select")
     .selectOption("open");
   await expect(exportPanel.getByText("開いた口のレイヤーを明示選択", { exact: false })).toBeVisible();
-  await expect(exportPanel.getByRole("button", { name: "MOVとOTIOを書き出す" }))
+  await expect(exportPanel.getByRole("button", { name: "MOVを書き出す" }))
     .toBeDisabled();
 });
 
@@ -1149,6 +1149,118 @@ test("batch alternate-name choice uses one shared suffix across MOVs and OTIO", 
 });
 
 
+
+for (const sample of [
+  {
+    label: "180 UTF-8 bytes with Japanese and decomposed Unicode",
+    source: ["あ".repeat(60), "e\u0301".repeat(60)],
+    resolved: ["あ".repeat(58) + "_002", "e\u0301".repeat(58) + "_002"],
+  },
+  {
+    label: "120 Unicode characters with ASCII",
+    source: ["a".repeat(120), "b".repeat(120)],
+    resolved: ["a".repeat(116) + "_002", "b".repeat(116) + "_002"],
+  },
+  {
+    label: "mixed Japanese and NFD at the byte boundary",
+    source: ["あ".repeat(58) + "e\u0301Z", "b".repeat(120)],
+    resolved: ["あ".repeat(58) + "_002", "b".repeat(116) + "_002"],
+  },
+]) {
+  test("batch rename respects " + sample.label + " for two MOVs and the combined OTIO",
+    async ({ page }) => {
+      await page.route("**/api/wav", (route) => route.fulfill({ json: {
+        samples: 800, sample_rate: 8000, duration_seconds: 0.1,
+      } }));
+      await openSpeech(page);
+      await page.locator("#batch-mov-template").fill("{WAV名}");
+      const checked: Array<{ basenames: string[]; timeline_basename: string }> = [];
+      await page.route("**/api/preset-batch-check-names", (route) => {
+        const body = route.request().postDataJSON() as {
+          basenames: string[]; timeline_basename: string;
+        };
+        const names = [...body.basenames, body.timeline_basename];
+        if (names.some((name) => [...name].length > 120 ||
+            new TextEncoder().encode(name).length > 180)) {
+          return route.fulfill({ status: 422, json: { detail: "Filename exceeds API limit" } });
+        }
+        checked.push(body);
+        return route.fulfill({ json: { valid: true } });
+      });
+      for (const basename of sample.source) await addWav(page, "/tmp/" + basename + ".wav");
+      await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+      await page.route("**/api/preset-batch-mov-destination", (route) => {
+        const body = route.request().postDataJSON() as { basename: string };
+        return route.fulfill({ json: {
+          state: body.basename.endsWith("_002") ? "available" : "complete",
+          canonical_output_dir: "/tmp/output",
+        } });
+      });
+      await page.route("**/api/preset-combined-otio-destination", (route) => {
+        const body = route.request().postDataJSON() as { basename: string };
+        return route.fulfill({ json: {
+          state: body.basename.endsWith("_002") ? "available" : "complete",
+          canonical_output_dir: "/tmp/output",
+        } });
+      });
+      let startPayload: {
+        timeline_basename: string; entries: Array<{ basename: string }>
+      } | undefined;
+      await page.route("**/api/preset-batch-start", (route) => {
+        startPayload = route.request().postDataJSON() as typeof startPayload;
+        return route.fulfill({ json: { batch_id: "suffix-session" } });
+      });
+      let timelinePayload: {
+        basename: string; entries: Array<{ basename: string }>
+      } | undefined;
+      await page.route("**/api/preset-combined-otio", (route) => {
+        timelinePayload = route.request().postDataJSON() as typeof timelinePayload;
+        return route.fulfill({ json: {
+          otio: "/tmp/output/" + timelinePayload!.basename + ".otio",
+          entries: timelinePayload!.entries.length,
+        } });
+      });
+      await page.getByRole("radio", { name: /^全件/ }).check();
+      await page.getByRole("radio", { name: /別名で保存/ }).check();
+      for (const [index, basename] of sample.resolved.entries()) {
+        await expect(page.locator(".export-plan-items li").nth(index))
+          .toContainText(basename + ".mov");
+      }
+      await expect(page.locator(".batch-timeline-plan")).toContainText("project_002.otio");
+      await expect(page.getByText("書き出し予定を確認済み（上書き 0 件）")).toBeVisible();
+      expect(checked.some((body) =>
+        body.timeline_basename === "project_002" &&
+        JSON.stringify(body.basenames) === JSON.stringify(sample.resolved))).toBe(true);
+      await page.getByRole("button", { name: "全件を書き出す" }).click();
+      await expect(page.getByText("一括書き出し完了：MOV 2件／全体OTIO", { exact: false }))
+        .toBeVisible();
+      expect(startPayload?.timeline_basename).toBe("project_002");
+      expect(startPayload?.entries.map((entry) => entry.basename)).toEqual(sample.resolved);
+      expect(timelinePayload?.basename).toBe("project_002");
+      expect(timelinePayload?.entries.map((entry) => entry.basename)).toEqual(sample.resolved);
+    });
+}
+
+test("batch rename fails closed when different raw names collapse after truncation",
+  async ({ page }) => {
+    await page.route("**/api/wav", (route) => route.fulfill({ json: {
+      samples: 800, sample_rate: 8000, duration_seconds: 0.1,
+    } }));
+    await openSpeech(page);
+    await page.locator("#batch-mov-template").fill("{WAV名}");
+    await addWav(page, "/tmp/" + "a".repeat(119) + "X.wav");
+    await addWav(page, "/tmp/" + "a".repeat(119) + "Y.wav");
+    await page.route("**/api/preset-batch-mov-destination", (route) =>
+      route.fulfill({ json: { state: "complete", canonical_output_dir: "/tmp/output" } }));
+    await page.route("**/api/preset-combined-otio-destination", (route) =>
+      route.fulfill({ json: { state: "complete", canonical_output_dir: "/tmp/output" } }));
+    await page.getByRole("radio", { name: /^全件/ }).check();
+    await page.getByRole("radio", { name: /別名で保存/ }).check();
+    await expect(page.getByText("MOVの保存名が重複します（別名の短縮後）", { exact: false }))
+      .toBeVisible();
+    await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeDisabled();
+  });
+
 test("LAB status is shown per WAV without enabling unimplemented aiueo export", async ({ page }) => {
   await page.route("**/api/wav", (route) => route.fulfill({
     json: { samples: 1000, sample_rate: 1000, duration_seconds: 1,
@@ -1202,7 +1314,7 @@ test("aiueo requires valid LAB and all six preset shapes before export", async (
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("aiueo");
   await expect(page.locator('[data-selected="true"] .utterance-row-mode select')).toHaveValue("aiueo");
   await expect(page.getByText("6口形すべてを明示選択してください。", { exact: false })).toBeVisible();
-  await expect(page.getByRole("button", { name: "MOVとOTIOを書き出す" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeDisabled();
   await addWav(page, "/tmp/missing.wav");
   await expect(page.locator('[data-selected="true"] [data-lab-status="missing"]')).toBeVisible();
   await expect(page.locator('[data-selected="true"] .utterance-row-mode option[value="aiueo"]'))

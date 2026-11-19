@@ -16,8 +16,8 @@ from tachie_motion.web.origin import configured_tailscale_origin
 from tachie_motion.web.browser_preview_assets import layer_preview_assets, preview_source_status
 from tachie_motion.web.preset_preview import preview_base_preset
 from tachie_motion.web.preset_utterance import export_preset_utterance
-from tachie_motion.web.output_destinations import destination_info, validate_basename
-from tachie_motion.web.solo_output import validate_media_basename, single_destination
+from tachie_motion.web.output_destinations import validate_basename
+from tachie_motion.web.solo_output import validate_media_basename, single_destination, solo_destination_info
 from tachie_motion.web.combined_otio import create_combined_otio
 from tachie_motion.web.batch_session import BatchCoordinator, validate_names, has_foreign_otio
 from tachie_motion.web.batch_publish import require_batch_recovery_clear
@@ -289,13 +289,13 @@ def wav_playback(payload: FileRequest):
 @app.post("/api/preset-utterance-destination")
 def preset_utterance_destination(payload: DestinationRequest):
     try:
-        validate_basename(payload.basename)
+        validate_media_basename(payload.basename)
         folder = Path(payload.output_dir).expanduser()
         if not folder.is_absolute() or not folder.is_dir():
             raise ValueError("Output folder must already exist")
         canonical = folder.resolve(strict=True)
         return {
-            **destination_info(canonical, payload.basename),
+            **solo_destination_info(canonical, payload.basename),
             "canonical_output_dir": str(canonical),
         }
     except (ValueError, OSError, RuntimeError, TypeError) as exc:
@@ -306,8 +306,10 @@ def preset_utterance_destination(payload: DestinationRequest):
 async def preset_utterance_export(payload: PresetUtteranceRequest):
     if payload.fps not in (24, 30, 60):
         raise HTTPException(400, "FPS must be 24, 30 or 60")
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", payload.basename, re.ASCII):
-        raise HTTPException(400, "Output basename must use 1-64 ASCII letters, digits, - or _")
+    try:
+        validate_media_basename(payload.basename)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     if payload.conflict_policy not in ("error", "overwrite"):
         raise HTTPException(400, "Unsupported output conflict policy")
     folder = Path(payload.output_dir).expanduser()
@@ -329,7 +331,8 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
                 eye_groups=payload.eye_groups, blink_timing=payload.blink_timing,
                 conflict_policy=payload.conflict_policy,
                 mov=folder / (payload.basename + ".mov"),
-                otio=folder / (payload.basename + ".otio"),
+                otio=None,  # Single utterance exports only PCM-in-MOV.
+                protect_otio_references=True,
                 fps=payload.fps, source_identity=payload.source_identity,
             )
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:

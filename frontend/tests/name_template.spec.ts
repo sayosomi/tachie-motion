@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
-  expandName, initialNaming, movName, otioName, validateBatchNaming, validateOutputName,
+  expandName, initialNaming, movName, otioName, soloMovName, suffixedOutputName, validateBatchNaming, validateOutputName,
 } from "../src/nameTemplate";
 
 test("four placeholders expand with numbered order and unchanged Unicode NFD", () => {
@@ -31,4 +31,43 @@ test("output names cannot be unsafe paths, reserved names or invalid Unicode", (
                     "test?", "bad.", "bad ", "abc\nx", "a".repeat(181)]) {
     expect(() => validateOutputName(s)).toThrow();
   }
+});
+
+test("solo and batch share numbered character + full WAV name, including duplicate source numbers", () => {
+  const naming = initialNaming("/tmp/ずんだもん.psd", "/tmp/output");
+  const wav = "/tmp/002_あんこもん た\u0301゙んもん.wav";
+  const auto = { wavPath: wav, basename: "speech_001", basenameEdited: false };
+  expect(soloMovName(auto, 1, naming))
+    .toBe(movName(naming.movTemplate, 1, wav, "ずんだもん", "project"));
+  expect(soloMovName(auto, 2, naming)).toBe("002_ずんだもん_002_あんこもん た\u0301゙んもん");
+  const changed = { ...naming, characterName: "四国めたん", movTemplate: "{番号}_{キャラ名}_{WAV名}" };
+  expect(soloMovName(auto, 1, changed)).toBe("001_四国めたん_002_あんこもん た\u0301゙んもん");
+  expect(soloMovName({ ...auto, basename: "手動 た\u0301", basenameEdited: true }, 2, changed))
+    .toBe("手動 た\u0301");
+});
+
+test("shared generation suffix fits UTF-8 bytes and Unicode-code-point limits", () => {
+  const japanese = "あ".repeat(60);
+  const decomposed = "e\u0301".repeat(60);
+  const ascii = "a".repeat(120);
+  expect(suffixedOutputName(japanese, "_002")).toBe("あ".repeat(58) + "_002");
+  expect(suffixedOutputName(decomposed, "_002")).toBe("e\u0301".repeat(58) + "_002");
+  expect(suffixedOutputName(ascii, "_002")).toBe("a".repeat(116) + "_002");
+  expect(suffixedOutputName(decomposed, "")).toBe(decomposed);
+  for (const candidate of [japanese, decomposed, ascii].map((x) =>
+    suffixedOutputName(x, "_002"))) {
+    expect([...candidate].length).toBeLessThanOrEqual(120);
+    expect(new TextEncoder().encode(candidate).length).toBeLessThanOrEqual(180);
+  }
+  // Mixed NFD at the byte limit must not lose its combining accent and
+  // leave a misleading bare base letter immediately before the suffix.
+  const mixed = "あ".repeat(58) + "e\u0301Z";
+  expect(suffixedOutputName(mixed, "_002")).toBe("あ".repeat(58) + "_002");
+  expect(suffixedOutputName("a".repeat(115) + "e\u0301XYZ", "_002"))
+    .toBe("a".repeat(115) + "_002");
+  expect(suffixedOutputName("A".repeat(115) + "e\u0301", "_002"))
+    .toBe("A".repeat(115) + "_002");
+  // Different raw names may collapse to the same shortened suffix candidate.
+  expect(suffixedOutputName("a".repeat(119) + "X", "_002"))
+    .toBe(suffixedOutputName("a".repeat(119) + "Y", "_002"));
 });

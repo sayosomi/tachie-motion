@@ -5,7 +5,7 @@ import UtteranceList from "./UtteranceList";
 import ProjectActions from "./ProjectActions";
 import { projectPresetDraft, type ProjectFile } from "./projectFile";
 import type { ProjectInspection } from "./projectRestore";
-import { initialNaming, type BatchNaming } from "./nameTemplate";
+import { initialNaming, soloMovName, validateOutputName, type BatchNaming } from "./nameTemplate";
 import useWavPlayback from "./WavPlayback";
 import { useLabStatus } from "./useLabStatus";
 import { useBatchUtteranceExport } from "./useBatchUtteranceExport";
@@ -22,6 +22,7 @@ type PsdData = { fingerprint: string; layers: Layer[] };
 type Destination = {
   state: "available" | "complete" | "partial" | "unsafe" | "recovery_required";
   suggested_basename: string;
+  folder_recovery_required?: boolean;
 };
 type DestinationCheck = { key: string; info: Destination };
 
@@ -188,6 +189,19 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
 
   const current = items.find((item) => item.id === activeId);
   const selected = draft?.collection.items.find((preset) => preset.id === current?.presetId);
+  let soloBasename = "";
+  let soloNameError = "";
+  if (current) {
+    try {
+      soloBasename = soloMovName(current, items.findIndex((entry) => entry.id === current.id) + 1,
+        naming);
+    } catch (error) {
+      // Keep the raw manually edited text visible even while it is invalid,
+      // so the user can finish typing or correct an intermediate IME value.
+      if (current.basenameEdited) soloBasename = current.basename;
+      soloNameError = error instanceof Error ? error.message : String(error);
+    }
+  }
 
   function selectItem(id: string) {
     if (projectBusyRef.current) return;
@@ -264,11 +278,10 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   }
 
   const destinationKey = current
-    ? current.id + "\\0" + current.outputDir + "\\0" + current.basename : "";
+    ? current.id + "\\0" + current.outputDir + "\\0" + soloBasename : "";
   useEffect(() => {
     let cancelled = false;
-    if (!current || !current.outputDir.trim() ||
-      !/^[A-Za-z0-9_-]{1,64}$/.test(current.basename)) {
+    if (!current || !current.outputDir.trim() || soloNameError) {
       setDestination(null);
       setDestinationError("");
       return;
@@ -276,7 +289,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     setDestination(null);
     setDestinationError("");
     void post<Destination>("preset-utterance-destination", {
-      output_dir: current.outputDir, basename: current.basename,
+      output_dir: current.outputDir, basename: soloBasename,
     }).then((info) => {
       if (!cancelled) setDestination({ key: destinationKey, info });
     }).catch((err: unknown) => {
@@ -289,15 +302,18 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const requiresAlternate = !!info && info.state !== "available" &&
     (info.state !== "complete" || current?.conflictChoice === "rename");
   const saveAsName = current?.saveAsName ?? info?.suggested_basename ?? "";
-  const outputBasename = requiresAlternate ? saveAsName : current?.basename ?? "";
+  const outputBasename = requiresAlternate ? saveAsName : soloBasename;
   const conflictPolicy = info?.state === "complete" && !requiresAlternate
     ? "overwrite" : "error";
   const allowed = !!current && exportReady(selected, current, labStatuses[current.id], draft?.collection);
+  let validOutputBasename = false;
+  try { validateOutputName(outputBasename); validOutputBasename = true; }
+  catch { /* Invalid name is displayed in the naming editor; export stays disabled. */ }
   const canExport = !!draft && !!current && allowed && !editingLocked &&
     !singleExportLock.current && addingCount === 0 &&
-    !!info && !destinationError &&
-    /^[A-Za-z0-9_-]{1,64}$/.test(outputBasename) &&
-    (!requiresAlternate || outputBasename !== current.basename);
+    !!info && !info.folder_recovery_required && !destinationError &&
+    !soloNameError && validOutputBasename &&
+    (!requiresAlternate || outputBasename !== soloBasename);
 
   async function exportUtterance() {
     if (!draft || !current || !selected || !canExport || isEditBusy()) return;
@@ -340,7 +356,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     <header className="topbar"><div className="brand"><span className="brand-mark">t</span>
       <span>tachie-motion</span></div></header>
     <div className="intro"><h1>セリフ</h1></div>
-    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。全件はMOVと全体OTIO 1本を生成します。aiueoには同名の有効なLABとプリセット6口形の設定が必要です。瞬きは目のレイヤーとキャラクター共通の時間を設定すると利用できます。待機・変更点は後続対応です。</p>
+    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。選択中の1件は音声入りMOVのみ、全件は各MOVと全体OTIO 1本を生成します。aiueoには同名の有効なLABとプリセット6口形の設定が必要です。瞬きは目のレイヤーとキャラクター共通の時間を設定すると利用できます。待機・変更点は後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} labStatuses={labStatuses}
       onRecheckLabs={() => setLabRefreshVersion((previous) => previous + 1)}
@@ -379,6 +395,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
             !selected.eyes?.closed.some((entry) => entry.visible) ||
             !blinkFrames(draft.collection.blinkTiming, current?.fps ?? 30))}
         info={info} destinationError={destinationError}
+        soloBasename={soloBasename} soloNameError={soloNameError}
         requiresAlternate={requiresAlternate} saveAsName={saveAsName}
         outputBasename={outputBasename} canExport={canExport}
         exportingId={exportingId} addingCount={addingCount}

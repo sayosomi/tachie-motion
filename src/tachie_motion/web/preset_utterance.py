@@ -121,8 +121,9 @@ def export_preset_utterance(
     mouth_groups: list[str] | None = None, lab_source_identity: str | None = None,
     eyes: dict | None = None, eye_groups: list[str] | None = None,
     blink_timing: dict | None = None,
+    protect_otio_references: bool = False,
 ):
-    """Generate one preset-backed PCM-in-MOV and synchronized OTIO.
+    """Generate a preset-backed PCM MOV with optional OTIO for callers that need it.
 
     Supports none/open/aiueo, with fresh blink timing variation per export.
     Timeline change points and multiple character tracks remain excluded.
@@ -153,7 +154,9 @@ def export_preset_utterance(
             raise ValueError('Invalid registered WAV identity')
         verify_wav_source(wav, source_identity)
     prior = (initial_target_identity(mov, otio, conflict_policy)
-             if otio is not None else initial_single_identity(mov, conflict_policy))
+             if otio is not None else initial_single_identity(
+                 mov, conflict_policy,
+                 protect_otio_references=protect_otio_references))
 
     psd, base = validated_snapshot(psd_path, fingerprint, layers)
     closed_eye = (validate_closed_eye(psd, base, eyes, eye_groups, mouth_groups)
@@ -241,7 +244,7 @@ def export_preset_utterance(
         if intervals is not None:
             verify_export_lab(wav, source_identity, intervals, lab_identity)
         if otio is not None:
-            # The individual route retains its existing exact MOV+OTIO contract.
+            # Optional internal pair writer; the production individual route passes otio=None.
             document = build_rounded_utterance(
                 pcm_mov, wav, MovieTiming(report.frames, fps),
                 WaveTiming(schedule.sample_count, schedule.sample_rate),
@@ -266,11 +269,12 @@ def export_preset_utterance(
                 policy=conflict_policy, prior=prior,
             )
         else:
-            # Batch route produces only media; one shared OTIO follows after all MOVs.
+            # Solo route publishes only its MOV; batch follows with one shared OTIO.
             if intervals is not None:
                 verify_export_lab(wav, source_identity, intervals, lab_identity)
             warning = publish_single(
                 pcm_mov, mov, policy=conflict_policy, prior=prior,
+                protect_otio_references=protect_otio_references,
             )
         committed = True
     finally:
@@ -280,7 +284,8 @@ def export_preset_utterance(
             if not committed:
                 raise
             cleanup_warning = (
-                "MOV and OTIO were saved, but temporary render files could not "
+                ("MOV and OTIO were" if otio is not None else "MOV was")
+                + " saved, but temporary render files could not "
                 "be fully removed: " + work.name
             )
     result = {"mov": str(mov), "frames": report.frames,

@@ -1,5 +1,5 @@
 import type { Layer } from "./LayerTree";
-import { initialNaming, validateBatchNaming, type BatchNaming } from "./nameTemplate";
+import { initialNaming, soloMovName, validateBatchNaming, validateOutputName, type BatchNaming } from "./nameTemplate";
 import {
   parseCharacterProfile, serializeCharacterProfile, type CharacterProfile,
 } from "./characterProfile";
@@ -15,7 +15,7 @@ const MAX_PATH_LENGTH = 8192;
 
 export type ProjectUtterance = Pick<UtteranceItem,
   "id" | "registrationOrder" | "wavPath" | "presetId" | "mode" |
-  "fps" | "outputDir" | "basename" | "conflictChoice" | "saveAsName"> & {
+  "fps" | "outputDir" | "basename" | "basenameEdited" | "conflictChoice" | "saveAsName"> & {
   wav: WavData;
 };
 export type ProjectFile = {
@@ -31,8 +31,8 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function fields(value: unknown, keys: string[]): asserts value is Record<string, unknown> {
-  if (!record(value) || keys.some((key) => !Object.hasOwn(value, key)) ||
+function fields(value: unknown, keys: string[], optional: string[] = []): asserts value is Record<string, unknown> {
+  if (!record(value) || keys.some((key) => !optional.includes(key) && !Object.hasOwn(value, key)) ||
     Object.keys(value).some((key) => !keys.includes(key))) {
     throw new Error("制作プロジェクトJSONの項目が不正です");
   }
@@ -44,9 +44,15 @@ function absolutePath(value: unknown): value is string {
     (value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\"));
 }
 
+function safeStoredName(value: string): boolean {
+  try { validateOutputName(value); return true; }
+  catch { return false; }
+}
+
 function item(value: unknown, ids: Set<string>): ProjectUtterance {
   fields(value, ["id", "registrationOrder", "wavPath", "wav", "presetId",
-    "mode", "fps", "outputDir", "basename", "conflictChoice", "saveAsName"]);
+    "mode", "fps", "outputDir", "basename", "basenameEdited", "conflictChoice", "saveAsName"],
+    ["basenameEdited"]);
   if (typeof value.id !== "string" || !value.id.trim() || value.id.length > 256 ||
       Object.hasOwn(Object.prototype, value.id) || ids.has(value.id) ||
       typeof value.registrationOrder !== "number" || !Number.isSafeInteger(value.registrationOrder) ||
@@ -57,11 +63,12 @@ function item(value: unknown, ids: Set<string>): ProjectUtterance {
       ![24, 30, 60].includes(value.fps as number) ||
       !absolutePath(value.outputDir) ||
       typeof value.basename !== "string" ||
-      !/^[A-Za-z0-9_-]{1,64}$/.test(value.basename) ||
+      !safeStoredName(value.basename) ||
+      (value.basenameEdited !== undefined && typeof value.basenameEdited !== "boolean") ||
       (value.conflictChoice !== "overwrite" && value.conflictChoice !== "rename") ||
       (value.saveAsName !== null &&
         (typeof value.saveAsName !== "string" ||
-         !/^[A-Za-z0-9_-]{1,64}$/.test(value.saveAsName)))) {
+         !safeStoredName(value.saveAsName)))) {
     throw new Error("制作プロジェクトJSONのWAV設定が不正です");
   }
   fields(value.wav, ["samples", "sample_rate", "duration_seconds", "source_identity"]);
@@ -75,7 +82,9 @@ function item(value: unknown, ids: Set<string>): ProjectUtterance {
     throw new Error("制作プロジェクトJSONのWAV参照情報が不正です");
   }
   ids.add(value.id);
-  return value as unknown as ProjectUtterance;
+  // Existing v3 project files without this field retain their explicit names.
+  return { ...(value as unknown as ProjectUtterance),
+    basenameEdited: value.basenameEdited === undefined ? true : Boolean(value.basenameEdited) };
 }
 
 export function parseProjectFile(text: string): ProjectFile {
@@ -123,7 +132,7 @@ export function serializeProjectFile(
     serializeCharacterProfile(draft.path, draft.fingerprint, layers, draft.collection));
   const project: ProjectFile = {
     format: PROJECT_FORMAT, version: PROJECT_VERSION, character,
-    items: items.map((value) => ({
+    items: items.map((value, index) => ({
       id: value.id, registrationOrder: value.registrationOrder,
       wavPath: value.wavPath, wav: {
         samples: value.wav.samples, sample_rate: value.wav.sample_rate,
@@ -131,7 +140,9 @@ export function serializeProjectFile(
         source_identity: value.wav.source_identity,
       },
       presetId: value.presetId, mode: value.mode, fps: value.fps,
-      outputDir: value.outputDir, basename: value.basename,
+      outputDir: value.outputDir,
+      basename: soloMovName(value, index + 1, naming),
+      basenameEdited: value.basenameEdited,
       conflictChoice: value.conflictChoice, saveAsName: value.saveAsName,
     })), selectedId, naming: validateBatchNaming(naming),
   };

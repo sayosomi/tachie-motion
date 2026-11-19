@@ -6,8 +6,7 @@ export type WavData = {
 };
 export type ExportData = {
   mov: string;
-  otio: string;
-  frames: number;
+   frames: number;
   sample_count: number;
   warning?: string;
 };
@@ -24,6 +23,8 @@ export type UtteranceItem = {
   fps: Fps;
   outputDir: string;
   basename: string;
+  // An explicit edit pins this name; otherwise the shared MOV template applies.
+  basenameEdited: boolean;
   conflictChoice: "overwrite" | "rename";
   saveAsName: string | null;
   result: ExportData | null;
@@ -37,7 +38,7 @@ export function createUtterance(
 ): UtteranceItem {
   return {
     id, registrationOrder: sequence, wavPath, wav, presetId, mode: "none", fps: 30, outputDir,
-    basename: "speech_" + String(sequence).padStart(3, "0"),
+    basename: "speech_" + String(sequence).padStart(3, "0"), basenameEdited: false,
     conflictChoice: "overwrite", saveAsName: null, result: null, error: "",
   };
 }
