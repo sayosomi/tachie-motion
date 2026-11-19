@@ -9,6 +9,12 @@
 - Browser E2E: Playwright import/preview/toggle/change-point/save/export with deterministic fixtures.
 - CI: Linux unit jobs plus macOS/Windows where dependencies allow; manual Resolve import is a separate human gate.
 
+## Public Issue #42 — サムネイル表示のみの倍率・中心移動
+
+- プリセット固有の倍率1〜8倍・正規化中心0〜1をドラッグ／スライダー／矢印キー／リセットで編集。保存前の変更は一覧へ波及させず、明示保存後の一覧・WAV画像付き候補に同じ切り抜きを反映することをブラウザで確認。
+- サムネイルを持たない既存データは全体表示。複製・並び替え・改名・削除は安定IDを守り、キャラクターJSON・制作プロジェクトJSON・ブラウザ復元を往復。不正型、過大倍率、中心範囲外、余分なキーを読み込み時に拒否し、既存編集を変更しない。
+- WAV一覧から選択したプリセットID・口パク方式・書き出しリクエストが従来どおり独立し、書き出しにサムネイル座標を渡さないことを回帰。画像取得失敗／PSD変更時は古い画像を表示せず、選択UIを適切にロック。CIの合成素材とMac実PSDでの見た目・操作性確認は別判定。MOV/ProRes/OTIOは既存描画経路から変更しない。
+
 ## Public Issue #40 — 最終 `pau` のWAV終端クリップ
 
 - WAVを73,216 sample / 24 kHz、LAB末尾を `29782541 30652107 pau` とする合成素材で、LAB判定 `valid`・実効終了 `30506666` ticks・最後の口形 `ん` を検証する。元WAV/LABのbytesとstatを変更しない。実素材はGitHubへ追加しない。
