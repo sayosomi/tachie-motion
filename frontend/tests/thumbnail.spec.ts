@@ -84,6 +84,53 @@ test("preview and thumbnail frames keep 4:3 through responsive sizing", async ({
   expect(Math.abs(card!.width / card!.height - 4 / 3)).toBeLessThan(0.02);
 });
 
+test("wheel zoom anchors at cursor, stays in preview and saves only on explicit click", async ({ page }) => {
+  await start(page);
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  const stage = page.locator(".preset-image-viewport");
+  const controls = page.locator(".preset-image-controls");
+  await expect(stage.locator("img")).toBeVisible();
+  await stage.hover(); // scroll the preview itself into view
+  const box = await stage.boundingBox();
+  expect(box).not.toBeNull();
+  // Off-center cursor: image content beneath it must not jump on zoom.
+  const x = box!.x + box!.width / 2 + 32;
+  const y = box!.y + box!.height / 2 + 24;
+  await page.mouse.move(x, y);
+  const initialScroll = await page.evaluate(() => window.scrollY);
+  await page.mouse.wheel(0, -40);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1×");
+  await page.mouse.wheel(0, -60);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.5×");
+  expect(await page.evaluate(() => window.scrollY)).toBe(initialScroll);
+  const transform = await stage.locator("img").evaluate(
+    (img) => (img as HTMLImageElement).style.transform);
+  const match = /translate\\(([-\\d.]+)px, ([-\\d.]+)px\\) scale\\(1\\.5\\)/.exec(transform);
+  expect(match).not.toBeNull();
+  expect(Number(match![1])).toBeCloseTo(-16, 0);
+  expect(Number(match![2])).toBeCloseTo(-12, 0);
+  expect((await savedDraft(page)).collection.items[0].thumbnail).toBeUndefined();
+
+  await controls.getByRole("button", { name: "サムネにする" }).click();
+  const saved = (await savedDraft(page)).collection.items[0].thumbnail;
+  expect(saved?.zoom).toBe(1.5);
+  await stage.hover();
+  await page.mouse.wheel(0, -100);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("2×");
+  expect((await savedDraft(page)).collection.items[0].thumbnail).toEqual(saved);
+  await page.mouse.wheel(0, 100);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.5×");
+  await page.mouse.move(5, 5);
+  await page.mouse.wheel(0, 300);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.5×");
+  await stage.hover();
+  await page.mouse.wheel(0, -900);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("8×");
+  await page.mouse.wheel(0, 900);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1×");
+  expect((await savedDraft(page)).collection.items[0].thumbnail).toEqual(saved);
+});
+
 test("thumbnail crop is persisted and reused by the preset list without changing PSD base", async ({ page }) => {
   await start(page);
   const before = await savedDraft(page);
