@@ -116,7 +116,10 @@ class ExportProgress:
         with self._lock:
             self._prune()
             if (self._job and self._job.token == token and
-                    self._job.cancel.is_set() and self._job.status == "cancelled"):
+                    self._job.reserved_until > 0
+                    and self._job.cancel.is_set() and self._job.status == "cancelled"):
+                # A queued render POST that follows cancellation of its
+                # pre-registered reservation must fail as "cancelled".
                 raise ExportCancelled("書き出しをキャンセルしました")
             if self._job and self._job.token == token and self._job.reserved:
                 if self._job.cancel.is_set() or self._job.status == "cancelled":

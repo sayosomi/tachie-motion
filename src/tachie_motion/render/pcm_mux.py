@@ -189,13 +189,16 @@ def mux_verified_pcm(
     if check_cancel:
         check_cancel()
     source_stat = wav.stat()
-    expected_data = _source_pcm_digest(wav, width, check_cancel=check_cancel)
+    # Preserve legacy helper call signatures for non-progress CLI/PoC paths.
+    # Only progress-aware exports pass the new optional cancellation callback.
+    cancel_arg = {"check_cancel": check_cancel} if check_cancel is not None else {}
+    expected_data = _source_pcm_digest(wav, width, **cancel_arg)
     if expected_pcm_sha256 is not None and expected_data[2] != expected_pcm_sha256:
         raise ValueError("WAV PCM changed after animation analysis")
-    video_before = _streams(silent_mov, ffprobe, check_cancel=check_cancel)
+    video_before = _streams(silent_mov, ffprobe, **cancel_arg)
     if len(video_before) != 1 or video_before[0]["codec_name"] != "prores":
         raise ValueError("Expected one silent ProRes video stream")
-    packet_hashes = _video_packets(silent_mov, ffprobe, check_cancel=check_cancel)
+    packet_hashes = _video_packets(silent_mov, ffprobe, **cancel_arg)
     if not packet_hashes:
         raise ValueError("Silent MOV has no video packets")
     if check_cancel:
@@ -218,7 +221,7 @@ def mux_verified_pcm(
             _command(cmd, check_cancel=check_cancel)
         else:
             _command(cmd)
-        streams = _streams(stage, ffprobe, check_cancel=check_cancel)
+        streams = _streams(stage, ffprobe, **cancel_arg)
         if len(streams) != 2:
             raise RuntimeError("Mux output must contain exactly one video and one audio stream")
         video, audio = streams
@@ -232,7 +235,7 @@ def mux_verified_pcm(
         if (
             tuple(video.get(key) for key in video_fields)
             != tuple(video_before[0].get(key) for key in video_fields)
-            or packet_hashes != _video_packets(stage, ffprobe, check_cancel=check_cancel)
+            or packet_hashes != _video_packets(stage, ffprobe, **cancel_arg)
         ):
             raise RuntimeError("Mux changed ProRes packets or video timing")
         if (
@@ -248,7 +251,7 @@ def mux_verified_pcm(
         if decoded != expected_data[:2]:
             raise RuntimeError("Mux lost, duplicated or modified PCM samples")
         if expected_pcm_sha256 is not None and (
-            _source_pcm_digest(wav, width, check_cancel=check_cancel)[2] != expected_pcm_sha256
+            _source_pcm_digest(wav, width, **cancel_arg)[2] != expected_pcm_sha256
         ):
             raise ValueError("WAV PCM changed during mux")
         after = wav.stat()
