@@ -6,7 +6,6 @@ Keep original targets in an exclusive recovery directory until publication succe
 from pathlib import Path
 import os
 import re
-import shutil
 import stat
 import unicodedata
 
@@ -140,9 +139,29 @@ def solo_destination_info(folder: Path, basename: str) -> dict:
     raise ValueError("No unused output name available")
 
 
+def _cleanup_owned_recovery(backup: Path, expected: dict[str, tuple]) -> None:
+    """Remove only our verified backup links; never recursively delete a directory.
+
+    Unexpected, swapped, or non-regular entries must remain for manual review.
+    In particular, an unrelated writer's file must not be removed just because
+    it appeared under our recovery directory.
+    """
+    entries = {item.name for item in backup.iterdir()}
+    if entries != set(expected):
+        raise RuntimeError("Unexpected recovery entries; manual recovery required")
+    for name, identity in expected.items():
+        if _identity(backup / name) != identity:
+            raise RuntimeError("Recovery file changed; manual recovery required")
+    for name, identity in expected.items():
+        if _identity(backup / name) != identity:
+            raise RuntimeError("Recovery file changed during cleanup")
+        (backup / name).unlink()
+    backup.rmdir()  # Fails safely if an external file arrived during cleanup.
+
+
 def publish_single(staged: Path, target: Path, *, policy: str, prior,
                    protect_otio_references: bool = False) -> str | None:
-    """Exclusive creation for fresh files, hardlink-backed rollback for overwrite."""
+    """Exclusive publication with hardlink rollback and non-destructive cleanup."""
     if _recovery_paths(target):
         raise RuntimeError("Previous export needs recovery: " +
                            ", ".join(map(str, _recovery_paths(target))))
@@ -155,7 +174,7 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
     if prior is None:
         if policy != "error":
             raise ValueError("No existing output was approved for overwrite")
-        os.link(staged, target)  # fails with EEXIST; cannot replace a competing file
+        os.link(staged, target)  # exclusive; cannot replace an existing target
         return None
     if policy != "overwrite":
         raise FileExistsError("Existing output not approved for overwrite")
@@ -165,17 +184,24 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
     saved = backup / "saved"
     removed = backup / "removed"
     failed = backup / "uncommitted"
-    moved = False
+    created = {}
     published = False
     unexpected = False
     try:
-        os.link(target, saved)
+        os.link(target, saved)  # exclusive; fails if an outsider occupied saved
+        created["saved"] = prior
         if _identity(target) != prior:
             raise FileExistsError("Output changed before overwrite")
         if protect_otio_references and _other_otio_may_reference(target):
             raise ValueError("Another OTIO appeared during export; MOV was not overwritten")
-        os.rename(target, removed)
-        moved = True
+        # link+unlink is used instead of rename so a third-party 'removed'
+        # cannot be overwritten. Both links must still match the approved MOV.
+        os.link(target, removed)
+        created["removed"] = prior
+        if _identity(target) != prior or _identity(removed) != prior:
+            unexpected = True
+            raise FileExistsError("Concurrent target change; original preserved")
+        os.unlink(target)
         if _identity(removed) != prior:
             unexpected = True
             raise FileExistsError("Concurrent target change; original preserved")
@@ -188,22 +214,31 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
     except BaseException:
         try:
             if published:
-                os.rename(target, failed)
-                if _identity(failed) != _identity(staged):
-                    unexpected = True
-            if _identity(target) is None and saved.exists():
-                os.link(saved, target)
+                staged_identity = _identity(staged)
+                if staged_identity is None or _identity(target) != staged_identity:
+                    raise RuntimeError("Published MOV changed; manual recovery required")
+                # Never rename over an outsider's uncommitted file.
+                # On collision, retain target and backup for manual recovery.
+                os.link(target, failed)
+                created["uncommitted"] = staged_identity
+                if _identity(target) != staged_identity or _identity(failed) != staged_identity:
+                    raise RuntimeError("Published MOV changed; manual recovery required")
+                os.unlink(target)
+            if _identity(target) is None:
+                if _identity(saved) != prior:
+                    raise RuntimeError("Original backup changed; manual recovery required")
+                os.link(saved, target)  # exclusive: cannot replace an outsider
             if _identity(target) != prior or unexpected:
                 raise RuntimeError("Concurrent changes need manual recovery")
         except BaseException as error:
             raise RuntimeError("Overwrite recovery required: " + str(backup)) from error
         try:
-            shutil.rmtree(backup)
-        except OSError as error:
+            _cleanup_owned_recovery(backup, created)
+        except (OSError, ValueError, RuntimeError) as error:
             raise RuntimeError("Backup cleanup required: " + str(backup)) from error
         raise
     try:
-        shutil.rmtree(backup)
-    except OSError:
+        _cleanup_owned_recovery(backup, created)
+    except (OSError, ValueError, RuntimeError):
         return "Export saved; inspect recovery directory: " + str(backup)
     return None
