@@ -76,6 +76,7 @@ test("new preset-backed none/open utterance workflow sends exact preset snapshot
       opened: [{ path: "0/0", visible: false }, { path: "0/1", visible: true }],
     },
   });
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("none");
   await expect(page.getByRole("status")).toHaveCount(0);
   await page.getByRole("button", { name: "MOVを書き出す" }).click();
@@ -141,6 +142,7 @@ test("existing single MOV offers overwrite by default and an editable separate f
   expect(requests[0]).toMatchObject({
     basename: "001_character_voice", conflict_policy: "overwrite",
   });
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
   await page.getByRole("radio", { name: "別名で書き出す" }).check();
   await expect(page.locator("#speech-save-as")).toHaveValue("001_character_voice_002");
   await page.locator("#speech-save-as").fill("speech_003");
@@ -270,6 +272,7 @@ test("one WAV sends identical open-mouth render settings through single and all 
 
   await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect(page.getByText("書き出し完了・30フレーム")).toBeVisible();
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
   await page.getByRole("radio", { name: /^全件/ }).check();
   await expect(page.getByText("口パク「なし」が", { exact: false })).toHaveCount(0);
   await page.getByRole("button", { name: "全件を書き出す" }).click();
