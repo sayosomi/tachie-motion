@@ -1678,7 +1678,7 @@ test("waveform decodes one WAV at a time and cancels queued stale generations", 
   const final = await stats();
   expect(final.maxActive).toBe(1);
   expect(final.rates).toEqual([8000, 8000]); // never upsample to default 48 kHz
-  await page.getByRole("button", { name: "停止" }).click();
+  await page.getByRole("button", { name: "停止", exact: true }).click();
   await expect(page.locator(".wav-waveform")).toHaveCount(0);
 });
 
