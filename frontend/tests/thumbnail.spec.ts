@@ -76,17 +76,19 @@ function previewPan(transform: string): { x: number; y: number } {
   return { x: Number(match[1]), y: Number(match[2]) };
 }
 
-async function wheelBurst(frame: Locator, deltas: number[], x: number, y: number) {
-  // Dispatch all events before yielding: React cannot commit a render
-  // between these wheel events.
+async function wheelBurst(frame: Locator, deltas: number[], offsetX: number, offsetY: number) {
+  // Compute cursor coordinates and dispatch all events in one browser task:
+  // no React render or browser scroll can change the anchor between events.
   await frame.evaluate((node, args) => {
+    const rect = node.getBoundingClientRect();
+    const clientX = rect.left + rect.width / 2 + args.offsetX;
+    const clientY = rect.top + rect.height / 2 + args.offsetY;
     for (const deltaY of args.deltas) {
       node.dispatchEvent(new WheelEvent("wheel", {
-        bubbles: true, cancelable: true,
-        clientX: args.x, clientY: args.y, deltaY,
+        bubbles: true, cancelable: true, clientX, clientY, deltaY,
       }));
     }
-  }, { deltas, x, y });
+  }, { deltas, offsetX, offsetY });
 }
 
 async function editAndSave(page: Page) {
@@ -194,7 +196,7 @@ test("rapid wheel bursts, reversal and drag use the latest synchronous view", as
   expect(box).not.toBeNull();
   const x = box!.x + box!.width / 2 + 32;
   const y = box!.y + box!.height / 2 + 24;
-  await wheelBurst(stage, [-100, -100], x, y);
+  await wheelBurst(stage, [-100, -100], 32, 24);
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("2×");
   const center = await visibleCrop(stage);
   expect((center.left + center.right) / 2).toBeCloseTo(0.5 + 32 / (box!.width * 2), 2);
@@ -203,7 +205,7 @@ test("rapid wheel bursts, reversal and drag use the latest synchronous view", as
   expect(firstPan.x).toBeCloseTo(-32, 2);
   expect(firstPan.y).toBeCloseTo(-24, 2);
 
-  await wheelBurst(stage, [-40, 30, 70], x, y);
+  await wheelBurst(stage, [-40, 30, 70], 32, 24);
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.5×");
   const reverseTransform = await stage.locator("img").evaluate((img) => img.style.transform);
   const reversedPan = previewPan(reverseTransform);
@@ -214,7 +216,7 @@ test("rapid wheel bursts, reversal and drag use the latest synchronous view", as
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.mouse.move(x + 20, y + 15, { steps: 2 });
-  await wheelBurst(stage, [-100], x + 20, y + 15);
+  await wheelBurst(stage, [-100], 52, 39);
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("2×");
   const afterZoom = await stage.locator("img").evaluate((img) => img.style.transform);
   await page.mouse.move(x + 45, y + 30, { steps: 2 });
