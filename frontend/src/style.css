@@ -562,3 +562,42 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 
 /* Keep the source crop consistent between the 4:3 preview and thumbnails. */
 .preset-card-image.thumbnail-frame { min-height:0; height:auto; aspect-ratio:4 / 3; align-self:center; width:100%; }
+
+/* Issue #44: full-screen, non-dismissable render progress with verified cancellation. */
+.export-progress-backdrop { position:fixed; z-index:2000; inset:0;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(5,10,18,.87); padding:24px; }
+.export-progress-dialog { width:min(740px,100%); max-height:calc(100dvh - 48px);
+  overflow-y:auto; padding:clamp(24px,5vw,54px);
+  border:1px solid #55758b; border-radius:22px; color:#e8f4fa;
+  background:linear-gradient(155deg,#263c51,#111d2b 75%);
+  box-shadow:0 25px 90px #000b; outline:none; }
+.export-progress-title { text-align:center; font-size:clamp(20px,3vw,30px); }
+.export-progress-percent { margin:24px auto 16px; text-align:center; 
+  font-size:clamp(66px,11vw,118px); line-height:1; font-weight:800;
+  font-variant-numeric:tabular-nums; letter-spacing:-.065em; }
+.export-progress-percent span { font-size:.39em; margin-left:7px; }
+.export-progress-track { height:19px; background:#111b28; overflow:hidden;
+  border:1px solid #60788c; border-radius:999px; }
+.export-progress-fill { height:100%; background:linear-gradient(90deg,#4aa5c9,#8ae2cc);
+  border-radius:inherit; transition:width .15s ease; }
+.export-progress-stage { text-align:center; font-size:clamp(17px,2vw,23px);
+  font-weight:700; margin:23px 0; line-height:1.4; }
+.export-progress-details { background:#0c1b2a; padding:15px 20px;
+  border-radius:12px; color:#c3d7e8; font-size:14px; line-height:1.6; }
+.export-progress-details p { margin:4px 0; }
+.export-progress-filename { overflow-wrap:anywhere; font-weight:700; color:#f0f7fc; }
+.export-progress-disclaimer { margin:16px 0 4px; font-size:12px;
+  color:#9bb2c4; line-height:1.6; }
+.export-progress-notice { margin:13px 0 0; color:#f2bd85;
+  font-size:13px; overflow-wrap:anywhere; line-height:1.6; }
+.export-progress-actions { display:flex; justify-content:center; align-items:center;
+  min-height:58px; gap:12px; margin-top:18px; text-align:center;
+  color:#a5c2d4; font-size:13px; }
+.export-progress-actions button { min-width:220px; min-height:48px; font-size:15px; }
+@media(max-width:560px) {
+  .export-progress-backdrop { padding:10px; }
+  .export-progress-dialog { border-radius:14px; max-height:calc(100dvh - 20px); }
+  .export-progress-percent { margin:15px auto; }
+  .export-progress-details { padding:13px; }
+}
