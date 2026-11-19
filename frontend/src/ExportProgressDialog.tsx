@@ -76,7 +76,7 @@ export default function ExportProgressDialog({ progress, onCancel, onClose }: Pr
         aria-valuenow={progress.percent}>
         <div className="export-progress-fill" style={{ width: progress.percent + "%" }} />
       </div>
-      <p id="export-progress-stage" className="export-progress-stage" role="status">
+      <p id="export-progress-stage" className="export-progress-stage" aria-live="polite">
         {progress.stage}
       </p>
       <div className="export-progress-details">
@@ -99,7 +99,7 @@ export default function ExportProgressDialog({ progress, onCancel, onClose }: Pr
           onClick={onClose}>編集画面に戻る</button> :
           progress.phase === "running"
             ? <button type="button" onClick={onCancel}>書き出しをキャンセル</button>
-            : <span role="status">{progress.phase === "cancelling"
+            : <span aria-live="polite">{progress.phase === "cancelling"
               ? "安全に停止するまで処理しています…" : "公開と復旧処理が完了するまでお待ちください"}</span>}
       </div>
     </div>
