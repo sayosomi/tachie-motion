@@ -88,17 +88,30 @@ export function useExportProgress() {
     return () => { active = false; window.clearInterval(timer); };
   }, [view?.token, view?.phase]);
 
+  const uncertain = useCallback((detail: string) => {
+    // A dropped HTTP connection is not proof that the worker stopped.
+    setView((previous) => previous && !terminal(previous.phase)
+      ? { ...previous, connectionError: true, detail } : previous);
+  }, []);
+
   const cancel = useCallback(async () => {
     const current = view;
     if (!current || current.phase !== "running") return;
     setView((previous) => previous?.token === current.token
       ? { ...previous, phase: "cancelling", stage: "キャンセルを要求中" } : previous);
     try {
-      const response = await fetch("/api/export-cancel", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: current.token }),
-      });
-      if (!response.ok) throw new Error("キャンセル要求に失敗しました");
+      let response: Response | null = null;
+      for (let retry = 0; retry < 12; retry++) {
+        response = await fetch("/api/export-cancel", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: current.token }),
+        });
+        if (response.status !== 404) break;
+        // The solo POST may still be entering its export lock. Retrying
+        // the same unguessable token is safe and avoids losing an early click.
+        await new Promise<void>((done) => window.setTimeout(done, 150));
+      }
+      if (!response?.ok) throw new Error("キャンセル対象を確認できません");
       const result = await response.json() as { accepted: boolean; status: ExportPhase };
       if (result.accepted === false) {
         setView((previous) => previous?.token === current.token && !terminal(previous.phase)
@@ -107,8 +120,8 @@ export function useExportProgress() {
       // "accepted" means requested, not cancelled. Wait for the worker to stop.
     } catch {
       setView((previous) => previous?.token === current.token && !terminal(previous.phase)
-        ? { ...previous, connectionError: true,
-            detail: "キャンセル要求を確認できません。処理状態を再取得しています。" }
+        ? { ...previous, phase: "running", connectionError: true,
+            detail: "キャンセル要求を確認できません。進捗を確認して再操作してください。" }
         : previous);
     }
   }, [view]);
@@ -117,5 +130,5 @@ export function useExportProgress() {
     setView((previous) => previous && terminal(previous.phase) ? null : previous);
   }, []);
 
-  return { view, begin, settle, cancel, close };
+  return { view, begin, settle, uncertain, cancel, close };
 }
