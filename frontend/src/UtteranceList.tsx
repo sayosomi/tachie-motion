@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import NativeFilePicker from "./NativeFilePicker";
+import PresetPicker from "./PresetPicker";
 import type { WavPlaybackControls } from "./WavPlayback";
 import type { LabInfo } from "./useLabStatus";
 import type { UnifiedPreset } from "./presetModel";
@@ -10,7 +11,8 @@ type Props = {
   items: UtteranceItem[];
   labStatuses: Record<string, LabInfo>;
   onRecheckLabs: () => void;
-  presets: Pick<UnifiedPreset, "id" | "name">[];
+  presets: Pick<UnifiedPreset, "id" | "name" | "thumbnail">[];
+  presetImages: Record<string, string>;
   presetStatus: "loading" | "ready" | "error";
   selectedId: string | null;
   pendingPath: string;
@@ -33,7 +35,7 @@ type Props = {
 };
 
 export default function UtteranceList({
-  projectControls, items, labStatuses, onRecheckLabs, presets, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
+  projectControls, items, labStatuses, onRecheckLabs, presets, presetImages, presetStatus, selectedId, pendingPath, addingCount, addError, disabled,
   selectionLocked, exportingId, playback, onPathChange, onAdd, onAddMany, onSelect, onRevise,
   onMove, onReorder, onRemove, canApplyToAll, onApplyToAll,
 }: Props) {
@@ -83,8 +85,6 @@ export default function UtteranceList({
       <ol className="utterance-items" aria-label="登録済みセリフ">
         {items.map((item, index) => {
           const name = wavFilename(item.wavPath);
-          // Keep the saved ID stable, including while the preset snapshot is reloading.
-          const presetFound = presets.some((entry) => entry.id === item.presetId);
           return <li className="utterance-item" data-utterance-id={item.id}
             data-selected={item.id === selectedId} data-playing={playback.activeId === item.id}
             data-drop-target={hover === item.id}
@@ -149,21 +149,17 @@ export default function UtteranceList({
                 </small>
               </span>
             </button>
-            <label className="utterance-row-field utterance-row-preset">
+            <div className="utterance-row-field utterance-row-preset">
               <span className="utterance-row-field-label">プリセット</span>
-              <select aria-label={`プリセット: ${index + 1} ${name}`} value={item.presetId}
-                disabled={disabled} onChange={(event) => {
-                  if (onRevise(item.id, { presetId: event.target.value })) onSelect(item.id);
-                }}>
-                {!presetFound && <option value={item.presetId} disabled>
-                  {presetStatus === "loading" ? "確認中…" :
-                    presetStatus === "error" ? "プリセットを確認できません" :
-                      "未設定（要再選択）"}
-                </option>}
-                {presets.map((entry) =>
-                  <option key={entry.id} value={entry.id}>{entry.name}</option>)}
-              </select>
-            </label>
+              <PresetPicker presets={presets} imageMap={presetImages}
+                selectedId={item.presetId} status={presetStatus}
+                disabled={disabled} label={`プリセット: ${index + 1} ${name}`}
+                onChoose={(id) => {
+                  const changed = onRevise(item.id, { presetId: id });
+                  if (changed) onSelect(item.id);
+                  return changed;
+                }} />
+            </div>
             <label className="utterance-row-field utterance-row-mode">
               <span className="utterance-row-field-label">口パク</span>
               <select aria-label={`口パク: ${index + 1} ${name}`} value={item.mode}
