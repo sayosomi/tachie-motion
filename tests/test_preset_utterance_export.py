@@ -136,6 +136,26 @@ class PresetExportApiTests(unittest.TestCase):
         self.assertEqual(self.post().status_code, 400)
         self.assertEqual((self.root / "speech.mov").read_bytes(), b"preserve")
 
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_single_unicode_wav_derived_basename_through_api(self):
+        name = "001_ずんだもん_002_あんこもん た\u0301゙んもん"
+        before = (self.psd.read_bytes(), self.wav.read_bytes())
+        probe = self.client.post("/api/preset-utterance-destination",
+                                 json={"output_dir": str(self.root), "basename": name})
+        self.assertEqual(probe.status_code, 200, probe.text)
+        self.assertEqual(probe.json()["state"], "available")
+        saved = self.post(basename=name)
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(saved.json()["mov"], str(self.root / (name + ".mov")))
+        self.assertNotIn("otio", saved.json())
+        self.assertTrue((self.root / (name + ".mov")).is_file())
+        self.assertFalse((self.root / (name + ".otio")).exists())
+        self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), before)
+        denied = self.post(basename="../unsafe")
+        self.assertEqual(denied.status_code, 400, denied.text)
+        self.assertFalse((self.root.parent / "unsafe.mov").exists())
+
     def test_orphan_legacy_otio_never_gets_deleted_or_reused(self):
         legacy = self.root / "speech.otio"
         legacy.write_bytes(b"EXISTING INDIVIDUAL OTIO")
