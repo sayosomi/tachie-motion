@@ -34,6 +34,25 @@ export function validateOutputName(value: string): string {
   return value;
 }
 
+/** Reserve room for a shared generation suffix without rewriting retained
+ * Unicode characters. Iterate code points, not UTF-16 code units. */
+export function suffixedOutputName(name: string, suffix: string): string {
+  validateOutputName(name);
+  if (!suffix) return name;
+  const encoder = new TextEncoder();
+  const maxCharacters = 120 - [...suffix].length;
+  const maxBytes = 180 - encoder.encode(suffix).length;
+  const prefix: string[] = [];
+  let usedBytes = 0;
+  for (const character of name) {
+    const size = encoder.encode(character).length;
+    if (prefix.length >= maxCharacters || usedBytes + size > maxBytes) break;
+    prefix.push(character);
+    usedBytes += size;
+  }
+  return validateOutputName(prefix.join("") + suffix);
+}
+
 export function expandName(template: string, values: Record<string, string>,
   timeline = false): string {
   if (!template || template.length > 512) throw new Error("名前テンプレートが不正です");

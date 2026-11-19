@@ -53,6 +53,29 @@ class SoloOtioProtectionTests(unittest.TestCase):
         self.assertTrue(candidate.startswith("あ"))
         self.assertEqual((self.folder / (name + ".mov")).read_bytes(), b"EXISTING")
 
+    def test_nfc_and_casefold_equivalent_mov_name_is_unsafe(self):
+        original = self.folder / "CAFÉ.MOV"
+        original.write_bytes(b"OTHER MOV")
+        requested = "cafe\u0301"
+        path = self.folder / (requested + ".mov")
+        probe = solo_destination_info(self.folder, requested)
+        self.assertEqual(probe["state"], "unsafe")
+        self.assertEqual(probe["suggested_basename"], requested + "_002")
+        self.assertEqual(single_destination(path, protect_otio_references=True),
+                         {"state": "unsafe"})
+        with self.assertRaisesRegex(ValueError, "Equivalent Unicode"):
+            initial_single_identity(path, "error", protect_otio_references=True)
+        with self.assertRaisesRegex(ValueError, "Equivalent Unicode"):
+            publish_single(self.stage, path, policy="error", prior=None,
+                           protect_otio_references=True)
+        self.assertFalse(path.exists())
+        self.assertEqual(original.read_bytes(), b"OTHER MOV")
+        # An unused decomposed basename remains byte-for-byte unchanged.
+        self.assertEqual(
+            solo_destination_info(self.folder, requested + "_002")["suggested_basename"],
+            requested + "_002",
+        )
+
     def test_existing_mov_without_otio_allows_overwrite(self):
         self.mov.write_bytes(b"OLD MOV")
         self.assertEqual(solo_destination_info(self.folder, "speech")["state"], "complete")

@@ -84,6 +84,16 @@ def _other_otio_may_reference(path: Path) -> bool:
             any(item.suffix.lower() == ".otio" for item in path.parent.iterdir()))
 
 
+def _has_equivalent_mov_name(path: Path) -> bool:
+    """Protect NFD/NFC and case variants of a single MOV's destination."""
+    key = unicodedata.normalize("NFC", path.name).casefold()
+    return any(
+        entry.name != path.name and
+        unicodedata.normalize("NFC", entry.name).casefold() == key
+        for entry in path.parent.iterdir()
+    )
+
+
 def initial_single_identity(path: Path, policy: str, *,
                             protect_otio_references: bool = False):
     if policy not in ("error", "overwrite"):
@@ -91,6 +101,8 @@ def initial_single_identity(path: Path, policy: str, *,
     if _recovery_paths(path):
         raise RuntimeError("Previous export needs recovery: " +
                            ", ".join(map(str, _recovery_paths(path))))
+    if protect_otio_references and _has_equivalent_mov_name(path):
+        raise ValueError("Equivalent Unicode output filename exists; choose another name")
     if _has_sibling_file(path):
         raise ValueError("Output name belongs to a MOV/OTIO pair; choose another name")
     prior = _identity(path)
@@ -106,6 +118,8 @@ def initial_single_identity(path: Path, policy: str, *,
 def single_destination(path: Path, *, protect_otio_references: bool = False) -> dict:
     if _recovery_paths(path):
         return {"state": "recovery_required"}
+    if protect_otio_references and _has_equivalent_mov_name(path):
+        return {"state": "unsafe"}
     if _has_sibling_file(path):
         return {"state": "unsafe"}
     try:
@@ -172,6 +186,8 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
     if _recovery_paths(target):
         raise RuntimeError("Previous export needs recovery: " +
                            ", ".join(map(str, _recovery_paths(target))))
+    if protect_otio_references and _has_equivalent_mov_name(target):
+        raise ValueError("Equivalent Unicode output filename appeared; refusing publication")
     if _has_sibling_file(target):
         raise ValueError("Output is paired with another file; refusing single-file overwrite")
     if _identity(target) != prior:

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import type { PresetDraft } from "./presetDraftStorage";
 import type { UnifiedPreset } from "./presetModel";
 import { effectiveLabSourceIdentity, exportPayload, exportReadinessError } from "./utteranceExportRequest";
-import { movName, otioName, validateBatchNaming, type BatchNaming } from "./nameTemplate";
+import { movName, otioName, suffixedOutputName, validateBatchNaming, type BatchNaming } from "./nameTemplate";
 import type { UtteranceItem } from "./utteranceItems";
 import type { LabInfo } from "./useLabStatus";
 
@@ -81,8 +81,13 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   const limit = choice === "rename" ? 1000 : 1;
   for (let attempt = 0; attempt < limit; attempt++) {
     const suffix = attempt === 0 ? "" : "_" + String(attempt + 1).padStart(3, "0");
-    const movieNames = rawMovieNames.map((name) => name + suffix);
-    const timelineName = rawTimelineName + suffix;
+    const movieNames = rawMovieNames.map((name) => suffixedOutputName(name, suffix));
+    const timelineName = suffixedOutputName(rawTimelineName, suffix);
+    // Truncation can collapse originally distinct names; the server also
+    // rejects Unicode NFC+casefold collisions before any export begins.
+    if (new Set([...movieNames, timelineName]).size !== movieNames.length + 1) {
+      throw new Error("MOVの保存名が重複します（別名の短縮後）");
+    }
     await post<{ valid: boolean }>("preset-batch-check-names", {
       basenames: movieNames, timeline_basename: timelineName,
     });
