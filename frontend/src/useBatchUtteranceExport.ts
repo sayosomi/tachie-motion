@@ -396,7 +396,7 @@ export function useBatchUtteranceExport(
         } else try {
           const release = await post<{ released: boolean }>("preset-batch-cancel",
             { batch_id: sessionId });
-          if (!release.released && outcome !== "success") {
+          if (!release.released) {
             // The independent cancel request may have released this same
             // lease before the originating request returned.
             const reply = await fetch("/api/export-progress/" +
