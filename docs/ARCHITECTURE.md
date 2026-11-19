@@ -54,6 +54,13 @@ Enforce the small-file review guidelines in [AGENTS.md](../AGENTS.md). Directory
 - Frozen canvas must include possible sprite bounds while keeping character anchor stable.
 - Windows installation and FFmpeg discovery differ from macOS; test CI and manual smoke runs early.
 
+## Live export progress and cancellation (Issue #44)
+
+- `web/export_progress.py` owns a thread-safe in-memory, unguessable job-token registry independent of the media `export_lock`; a read-only progress endpoint and a cancellable request endpoint can respond while a long-running `asyncio.to_thread` render holds the export lock. Tokens do not embed private media paths.
+- `render/sequence.py` signals successfully submitted FFmpeg frames and cooperatively checks cancellation between writes; an interrupted encoder terminates the child process and does not publish a MOV. PCM mux checks at safe points and interrupts the actively running FFmpeg mux child. PSD state generation and ProRes verification may defer cancellation until their next safe checkpoint; the UI must display “cancelling” until confirmed.
+- The percent is a monotone stage-completion indicator, not elapsed-time extrapolation. Single export reaches 100% only after a public MOV commit. Batch MOVs enter a private stage and consume at most 90%; the remaining percentage covers combined OTIO and generation-wide publication. Public batch commit is a non-cancellable transaction protected by rollback.
+- A browser close/disconnect never proves backend termination or success. Avoid claiming cancellation on request acceptance alone; the server reports explicit running/cancelling/finalizing/success/failed/cancelled states.
+
 ## Diagnostics and tests
 
 - Separate pure unit tests from renderer/encoder integration tests and Playwright E2E tests.
