@@ -36,7 +36,8 @@ export default function PresetPicker({
     status === "error" ? "プリセットを確認できません" : "未設定（要再選択）";
   return <div ref={holder} className="preset-picker">
     <button type="button" ref={trigger} className="preset-picker-trigger"
-      aria-label={label} aria-expanded={open} aria-controls={optionsId}
+      aria-label={label} data-selected-preset-id={selectedId}
+      aria-expanded={open} aria-controls={optionsId}
       disabled={disabled} onClick={() => setOpen((previous) => !previous)}>
       <PresetThumbnail className="preset-picker-thumb"
         image={selected && imageMap[selected.id]} view={selected?.thumbnail}
