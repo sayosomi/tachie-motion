@@ -57,7 +57,9 @@ async function editAndSave(page: Page) {
   await page.mouse.move(box!.x + box!.width / 2 + 35,
     box!.y + box!.height / 2 + 18, { steps: 3 });
   await page.mouse.up();
-  await expect(stage.locator("img")).not.toHaveAttribute("style", /translate\\(0px, 0px\\)/);
+  await expect.poll(async () => stage.locator("img").evaluate(
+    (img) => (img as HTMLImageElement).style.transform))
+    .not.toContain("translate(0px, 0px)");
   await controls.getByRole("button", { name: "サムネにする" }).click();
   await expect(page.locator(".preset-preview [role=status]"))
     .toContainText("この表示範囲をサムネイルに保存しました");
