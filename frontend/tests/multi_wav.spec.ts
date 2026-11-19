@@ -161,7 +161,7 @@ test("earlier concurrent WAV failure remains visible after a newer WAV succeeds"
   await expect(page.locator("[data-utterance-id]").first().locator("small").first())
     .toHaveText(newerPath);
   await expect(page.locator(".utterance-item-select[aria-current=true]")).toContainText("後行.wav");
-  await expect(page.locator("#speech-basename")).toHaveValue("speech_002");
+  await expect(page.locator("#speech-basename")).toHaveValue("001_character_後行");
 });
 
 test("failed addition preserves selected export and the PCM MOV endpoint receives that WAV once", async ({ page }) => {
@@ -177,7 +177,7 @@ test("failed addition preserves selected export and the PCM MOV endpoint receive
   await page.route("**/api/preset-utterance-export", (route) => {
     exports.push(route.request().postDataJSON() as Record<string, unknown>);
     return route.fulfill({ json: {
-      mov: "/tmp/output/speech_001.mov",
+      mov: "/tmp/output/001_character_voice 日本語.mov",
       frames: 30, sample_count: 1000,
     } });
   });
@@ -194,7 +194,7 @@ test("failed addition preserves selected export and the PCM MOV endpoint receive
   expect(exports).toHaveLength(1);
   expect(exports[0].wav).toBe(path);
   expect(exports[0].mode).toBe("none");
-  expect(exports[0].basename).toBe("speech_001");
+  expect(exports[0].basename).toBe("001_character_voice 日本語");
   expect(exports[0].conflict_policy).toBe("error");
 });
 
@@ -1019,7 +1019,7 @@ test("removing the selected-WAV panel retains row details, list bulk apply, and 
   await expect(apply).toBeEnabled();
   await expect(exportPanel.getByText("選択中のWAV：second.wav")).toBeVisible();
   await expect(exportPanel.locator("#speech-fps")).toHaveValue("30");
-  await expect(exportPanel.locator("#speech-basename")).toHaveValue("speech_002");
+  await expect(exportPanel.locator("#speech-basename")).toHaveValue("002_character_second");
 
   // The only state change from bulk apply is preset/mode; each WAV retains save settings.
   await page.locator(".utterance-item").first().locator(".utterance-item-select").click();
