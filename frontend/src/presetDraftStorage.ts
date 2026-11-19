@@ -4,6 +4,7 @@ import { AIUEO_KEYS, withDefaultBlinkTiming } from "./presetModel";
 import { validMotionGroups } from "./motionGroups";
 import { validatePsdChoices } from "./psdChoice";
 import { validBlinkTiming } from "./blinkTiming";
+import { validThumbnailView } from "./thumbnailView";
 
 // Crash/reload recovery for this one browser and exact site origin only.
 // Not the versioned, portable character-profile format in PRODUCT_SPEC §7.
@@ -65,7 +66,8 @@ export function readPresetDraft(): PresetDraft | null {
       || typeof item.name !== "string" || !item.name.trim()
       || !Array.isArray(item.base) || typeof item.blinkEnabled !== "boolean"
       || (item.mouthMotionEnabled !== undefined && typeof item.mouthMotionEnabled !== "boolean")
-      || Object.hasOwn(item, "aiueoRestUsesBase")) {
+      || Object.hasOwn(item, "aiueoRestUsesBase")
+      || (Object.hasOwn(item, "thumbnail") && !validThumbnailView(item.thumbnail))) {
       throw new Error("保存済みプリセットの内容が不正です");
     }
     const name = item.name.trim().normalize("NFC").toLocaleLowerCase();
