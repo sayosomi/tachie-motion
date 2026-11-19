@@ -538,6 +538,7 @@ test("restored, explicitly approved WAV identity is sent to single and batch exp
   });
   await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect(page.locator(".success")).toBeVisible();
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
   await page.getByRole("radio", { name: /全件/ }).check();
   const batchButton = page.getByRole("button", { name: "全件を書き出す" });
   await expect(batchButton).toBeEnabled();
