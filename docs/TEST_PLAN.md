@@ -9,6 +9,11 @@
 - Browser E2E: Playwright import/preview/toggle/change-point/save/export with deterministic fixtures.
 - CI: Linux unit jobs plus macOS/Windows where dependencies allow; manual Resolve import is a separate human gate.
 
+## Public Issue #47 — WAV波形とシーク
+- Playwrightで合成WAVの無音・有音区間の描画と波形クリックによる再生位置シーク、既存rangeの操作を確認する。
+- WAV切替／停止で前の波形を即座に消す。デコードが遅れて返っても旧WAVの結果を表示しない。Web Audio非対応／解析エラー／大容量ファイルではrangeを維持する。波形用の追加リクエスト・原本更新・JSON保存・書き出し仕様変更はない。
+- Mac Humanでは実WAVでの波形の見やすさ・クリック／ドラッグの操作感を評価する。自動テスト済み異常ケースの手動再確認を要求しない。
+
 ## Public Issue #44 — 書き出しの進捗・停止ゲート
 
 - Python: 処理段階／フレーム送信数に基づく単調％、単一・一括の公開後だけ100%、失敗・通信断時の偽完了防止、トークン不一致・重複・期限切れ・複数タブ、停止要求中と停止確定の区別をテスト。実FFmpeg子プロセスの停止と一時ファイル／原本／旧MOV・OTIO保護、最終公開との競合を故障注入する。

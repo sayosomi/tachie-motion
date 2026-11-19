@@ -1522,3 +1522,75 @@ test("a foreign OTIO appearing after preview is rechecked before batch start", a
     .toContainText("別のOTIOが同じフォルダにあります");
   expect(starts).toBe(0);
 });
+
+function waveformTestWav(amplitude: number): Buffer {
+  const samples = 16000;
+  const wav = Buffer.alloc(44 + samples * 2);
+  wav.write("RIFF", 0); wav.writeUInt32LE(wav.length - 8, 4);
+  wav.write("WAVEfmt ", 8); wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+  wav.write("data", 36); wav.writeUInt32LE(samples * 2, 40);
+  for (let i = 0; i < samples; i++) {
+    const sample = i < samples / 2 ? 0 :
+      Math.round(amplitude * Math.sin(i * Math.PI / 20));
+    wav.writeInt16LE(sample, 44 + i * 2);
+  }
+  return wav;
+}
+
+test("WAV waveform seeks and drops old peaks after switching sources", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 16000, sample_rate: 8000, duration_seconds: 2 },
+  }));
+  const requests: string[] = [];
+  await page.route("**/api/wav-playback", (route) => {
+    const path = (route.request().postDataJSON() as { path: string }).path;
+    requests.push(path);
+    return route.fulfill({ body: waveformTestWav(path.endsWith("one.wav") ? 16000 : 0),
+      contentType: "audio/wav" });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/one.wav");
+  await addWav(page, "/tmp/two.wav");
+  const rows = page.locator("[data-utterance-id]");
+  await rows.nth(0).locator(".utterance-item-play").click();
+  const first = rows.nth(0).locator(".wav-waveform");
+  await expect(first.locator("path")).toHaveAttribute("d", /^M/);
+  const firstWave = await first.locator("path").getAttribute("d");
+  const bounds = await first.boundingBox();
+  expect(bounds).not.toBeNull();
+  await first.click({ position: { x: bounds!.width * 0.7, y: bounds!.height / 2 } });
+  const audio = page.locator(".utterance-playback audio");
+  await expect.poll(() => audio.evaluate((el) => (el as HTMLAudioElement).currentTime))
+    .toBeGreaterThan(1);
+  await rows.nth(1).locator(".utterance-item-play").click();
+  await expect(first).toHaveCount(0);
+  const second = rows.nth(1).locator(".wav-waveform");
+  await expect(second.locator("path")).toHaveAttribute("d", /^M/);
+  expect(await second.locator("path").getAttribute("d")).not.toBe(firstWave);
+  expect(requests).toEqual(["/tmp/one.wav", "/tmp/two.wav"]);
+});
+
+test("unavailable waveform decoder preserves native WAV seek slider", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "AudioContext", { value: undefined, configurable: true });
+  });
+  await page.route("**/api/wav", (route) => route.fulfill({
+    json: { samples: 16000, sample_rate: 8000, duration_seconds: 2 },
+  }));
+  await page.route("**/api/wav-playback", (route) =>
+    route.fulfill({ body: waveformTestWav(8000), contentType: "audio/wav" }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/fallback.wav");
+  await page.locator(".utterance-item-play").click();
+  const slider = page.getByRole("slider", { name: "再生位置: fallback.wav" });
+  await expect(slider).toBeVisible();
+  await expect(page.locator(".wav-waveform")).toHaveCount(0);
+  const bounds = await slider.boundingBox();
+  expect(bounds).not.toBeNull();
+  await slider.click({ position: { x: bounds!.width * 0.7, y: bounds!.height / 2 } });
+  await expect.poll(() => page.locator(".utterance-playback audio")
+    .evaluate((el) => (el as HTMLAudioElement).currentTime)).toBeGreaterThan(1);
+});
