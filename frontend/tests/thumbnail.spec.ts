@@ -59,6 +59,23 @@ async function editAndSave(page: Page) {
     .toContainText("この表示範囲をサムネイルに保存しました");
 }
 
+test("preview and thumbnail frames keep 4:3 through responsive sizing", async ({ page }) => {
+  await start(page);
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  const preview = page.locator(".preset-image-viewport");
+  for (const width of [1280, 760, 390]) {
+    await page.setViewportSize({ width, height: 850 });
+    const frame = await preview.boundingBox();
+    expect(frame).not.toBeNull();
+    expect(Math.abs(frame!.width / frame!.height - 4 / 3)).toBeLessThan(0.01);
+    if (width === 390) expect(frame!.width).toBeLessThan(480);
+  }
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  const card = await page.locator(".preset-card-image").first().boundingBox();
+  expect(card).not.toBeNull();
+  expect(Math.abs(card!.width / card!.height - 4 / 3)).toBeLessThan(0.02);
+});
+
 test("thumbnail crop is persisted and reused by the preset list without changing PSD base", async ({ page }) => {
   await start(page);
   const before = await savedDraft(page);
@@ -118,6 +135,9 @@ test("WAV choices display per-preset thumbnails and assign by stable ID", async 
   const choices = row.locator(".preset-picker-option");
   await expect(choices).toHaveCount(2);
   await expect(choices.locator("img")).toHaveCount(2);
+  const thumb = await choices.first().locator(".preset-picker-thumb").boundingBox();
+  expect(thumb).not.toBeNull();
+  expect(Math.abs(thumb!.width / thumb!.height - 4 / 3)).toBeLessThan(0.02);
   await expect(choices).toContainText(["通常", "にっこり"]);
   await choices.filter({ hasText: "にっこり" }).click();
   await expect(trigger).toHaveAttribute("data-selected-preset-id", selectedId);
