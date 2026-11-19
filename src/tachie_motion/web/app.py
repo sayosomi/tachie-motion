@@ -101,6 +101,11 @@ class ExportProgressIdentifier(BaseModel):
     token: str
 
 
+class ExportProgressReservation(ExportProgressIdentifier):
+    kind: str
+    total: int = 1
+
+
 class BatchNameRequest(BaseModel):
     basenames: list[str]
     timeline_basename: str
@@ -308,6 +313,15 @@ def preset_utterance_destination(payload: DestinationRequest):
             "canonical_output_dir": str(canonical),
         }
     except (ValueError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
+@app.post("/api/export-progress-reserve")
+def export_progress_reserve(payload: ExportProgressReservation):
+    try:
+        app.state.export_progress.reserve(payload.token, payload.kind, payload.total)
+        return {"registered": True}
+    except (ValueError, RuntimeError) as exc:
         raise bad_request(exc) from exc
 
 

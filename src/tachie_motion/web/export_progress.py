@@ -20,9 +20,8 @@ _BROWSER_ID = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 )
 _TERMINAL_SECONDS = 3600
-_PRESTART_SECONDS = 90
+_RESERVED_SECONDS = 120
 _MAX_RETAINED = 64
-_MAX_PRESTART = 64
 _TERMINAL = ("success", "failed", "cancelled")
 
 
@@ -40,6 +39,8 @@ class _Job:
     cancel: Event = field(default_factory=Event)
     finalizing: bool = False
     completed_at: float = 0.0
+    reserved: bool = False
+    reserved_until: float = 0.0
 
 
 class ExportProgress:
@@ -49,7 +50,6 @@ class ExportProgress:
         self._lock = Lock()
         self._job: _Job | None = None
         self._history: dict[str, _Job] = {}
-        self._prestart: dict[str, float] = {}
 
     def _prune(self) -> None:
         now = time.monotonic()
@@ -57,33 +57,71 @@ class ExportProgress:
             key: job for key, job in self._history.items()
             if now - job.completed_at < _TERMINAL_SECONDS
         }
-        self._prestart = {
-            key: until for key, until in self._prestart.items() if now < until
-        }
+        # Reserved jobs have not launched a worker and may safely expire.
+        if (self._job and self._job.reserved
+                and now >= self._job.reserved_until
+                and self._job.status == "running"):
+            self._finish_unlocked(self._job, "failed")
 
-    def start(self, token: str, kind: str, total: int = 1) -> None:
+    @staticmethod
+    def _validate_identity(token: str, kind: str, total: int) -> None:
         if (type(token) is not str or _ID.fullmatch(token) is None
                 or kind not in ("single", "batch")
                 or type(total) is not int or not 1 <= total <= 2000):
             raise ValueError("Invalid export progress identity")
+
+    def reserve(self, token: str, kind: str, total: int = 1) -> None:
+        """Register a browser job before its render POST is sent.
+
+        A cancellation can then be acknowledged immediately, even if the
+        POST is delayed behind an export lock. A reservation cannot publish.
+        """
+        self._validate_identity(token, kind, total)
+        if _BROWSER_ID.fullmatch(token) is None:
+            raise ValueError("Browser progress token must be a UUIDv4")
         with self._lock:
             self._prune()
+            if self._job and self._job.token == token and self._job.reserved:
+                if (self._job.kind == kind and self._job.total == total
+                        and self._job.status == "running"):
+                    return  # Idempotent retry of a lost registration response.
+                raise RuntimeError("Export reservation was cancelled or changed")
             if self._job and self._job.status not in _TERMINAL:
                 raise RuntimeError("Another export is active")
             if (self._job and self._job.token == token) or token in self._history:
                 raise RuntimeError("Export progress identity was already used")
-            if self._job is not None:
-                self._history[self._job.token] = self._job
-                if len(self._history) > _MAX_RETAINED:
-                    oldest = min(self._history, key=lambda k:
-                                 self._history[k].completed_at)
-                    del self._history[oldest]
-            job = _Job(token=token, kind=kind, total=total)
-            if self._prestart.pop(token, None) is not None:
-                job.cancel.set()
-                job.status = "cancelling"
-                job.stage = "キャンセル処理中"
-            self._job = job
+            self._archive()
+            self._job = _Job(token=token, kind=kind, total=total,
+                             reserved=True,
+                             reserved_until=time.monotonic() + _RESERVED_SECONDS)
+
+    def _archive(self) -> None:
+        if self._job is not None:
+            self._history[self._job.token] = self._job
+            if len(self._history) > _MAX_RETAINED:
+                oldest = min(self._history, key=lambda k:
+                             self._history[k].completed_at)
+                del self._history[oldest]
+
+    def start(self, token: str, kind: str, total: int = 1) -> None:
+        self._validate_identity(token, kind, total)
+        with self._lock:
+            self._prune()
+            if self._job and self._job.token == token and self._job.reserved:
+                if self._job.cancel.is_set() or self._job.status == "cancelled":
+                    raise ExportCancelled("書き出しをキャンセルしました")
+                if self._job.status != "running":
+                    raise RuntimeError("Export reservation expired")
+                if self._job.kind != kind or self._job.total != total:
+                    raise ValueError("Export reservation mismatch")
+                self._job.reserved = False
+                return
+            if self._job and self._job.status not in _TERMINAL:
+                raise RuntimeError("Another export is active")
+            if (self._job and self._job.token == token) or token in self._history:
+                raise RuntimeError("Export progress identity was already used")
+            self._archive()
+            self._job = _Job(token=token, kind=kind, total=total)
 
     def _current(self, token: str) -> _Job:
         if self._job and self._job.token == token:
@@ -113,18 +151,12 @@ class ExportProgress:
     def request_cancel(self, token: str) -> dict:
         with self._lock:
             self._prune()
-            try:
-                job = self._current(token)
-            except KeyError:
-                # Only a browser-generated UUIDv4 is eligible for cancellation
-                # before the POST is registered. The opaque server-issued batch
-                # tokens and arbitrary IDs are not registered by this route.
-                if (type(token) is not str or _BROWSER_ID.fullmatch(token) is None
-                        or len(self._prestart) >= _MAX_PRESTART):
-                    raise
-                self._prestart[token] = time.monotonic() + _PRESTART_SECONDS
-                return {"status": "cancelling", "accepted": True,
-                        "can_cancel": True}
+            job = self._current(token)
+            if job.status == "running" and job.reserved:
+                job.cancel.set()
+                self._finish_unlocked(job, "cancelled")
+                return {"status": "cancelled", "accepted": True,
+                        "can_cancel": False}
             if job.status == "running" and not job.finalizing:
                 job.cancel.set()
                 job.status = "cancelling"
@@ -198,20 +230,24 @@ class ExportProgress:
             job.stage = "全体OTIOを検証中"
             job.index = job.total - 1
 
+    @staticmethod
+    def _finish_unlocked(job: _Job, outcome: str) -> None:
+        if job.status in _TERMINAL:
+            return
+        job.status = outcome
+        job.finalizing = True
+        job.reserved = False
+        job.completed_at = time.monotonic()
+        if outcome == "success":
+            job.percent = 100
+            job.stage = "書き出し完了"
+        elif outcome == "cancelled":
+            job.stage = "書き出しをキャンセルしました"
+        else:
+            job.stage = "書き出しに失敗しました"
+
     def finish(self, token: str, outcome: str) -> None:
         if outcome not in _TERMINAL:
             raise ValueError("Invalid export result")
         with self._lock:
-            job = self._current(token)
-            if job.status in _TERMINAL:
-                return
-            job.status = outcome
-            job.finalizing = True
-            job.completed_at = time.monotonic()
-            if outcome == "success":
-                job.percent = 100
-                job.stage = "書き出し完了"
-            elif outcome == "cancelled":
-                job.stage = "書き出しをキャンセルしました"
-            else:
-                job.stage = "書き出しに失敗しました"
+            self._finish_unlocked(self._current(token), outcome)
