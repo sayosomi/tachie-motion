@@ -6,6 +6,10 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+from tachie_motion.web.app import app
 
 from PIL import Image
 
@@ -135,6 +139,66 @@ class ExportProcessCancellationTests(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertFalse(list(root.glob(".tachie-sequence-*.mov")))
             self.assertTrue(png.exists())
+
+
+class ExportProgressApiTests(unittest.TestCase):
+    def test_cancel_reaches_running_worker_before_publication(self):
+        from threading import Event, Thread
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            psd = root / "portrait.psd"
+            wav = root / "speech.wav"
+            psd.write_bytes(b"test psd placeholder")
+            wav.write_bytes(b"test wav placeholder")
+            started = Event()
+            outputs = []
+
+            def slow_export(*, progress=None, **kwargs):
+                self.assertIsNotNone(progress)
+                registry, token = progress
+                registry.update(token, "映像フレームをFFmpegへ送信中", 32, 4, 16)
+                started.set()
+                for _ in range(100):
+                    registry.check(token)
+                    time.sleep(0.03)
+                raise AssertionError("Cancellation did not reach the worker")
+
+            token = "api_" + "0" * 32
+            payload = {
+                "psd": str(psd), "wav": str(wav), "fingerprint": "synthetic",
+                "layers": [], "mode": "none", "output_dir": str(root),
+                "basename": "speech", "source_identity": "1:2:3:4:5",
+                "progress_id": token,
+            }
+            with patch("tachie_motion.web.app.export_preset_utterance",
+                       side_effect=slow_export), TestClient(app) as client:
+                worker = Thread(target=lambda: outputs.append(
+                    client.post("/api/preset-utterance-export", json=payload)))
+                worker.start()
+                try:
+                    self.assertTrue(started.wait(5), "Server did not start render")
+                    status = client.get("/api/export-progress/" + token)
+                    self.assertEqual(200, status.status_code)
+                    self.assertEqual(32, status.json()["percent"])
+                    self.assertEqual(404, client.get(
+                        "/api/export-progress/" + "x" * 32).status_code)
+                    self.assertEqual(404, client.post("/api/export-cancel",
+                        json={"token": "x" * 32}).status_code)
+                    accepted = client.post("/api/export-cancel",
+                        json={"token": token})
+                    self.assertEqual(200, accepted.status_code)
+                    self.assertTrue(accepted.json()["accepted"])
+                    self.assertEqual("cancelling", accepted.json()["status"])
+                finally:
+                    worker.join(timeout=5)
+                self.assertFalse(worker.is_alive(), "Cancelled worker did not exit")
+                self.assertEqual(409, outputs[0].status_code)
+                self.assertEqual("cancelled", client.get(
+                    "/api/export-progress/" + token).json()["status"])
+                self.assertFalse((root / "speech.mov").exists())
+
+
 
 
 if __name__ == "__main__":
