@@ -9,6 +9,12 @@
 - Browser E2E: Playwright import/preview/toggle/change-point/save/export with deterministic fixtures.
 - CI: Linux unit jobs plus macOS/Windows where dependencies allow; manual Resolve import is a separate human gate.
 
+## Public Issue #40 — 最終 `pau` のWAV終端クリップ
+
+- WAVを73,216 sample / 24 kHz、LAB末尾を `29782541 30652107 pau` とする合成素材で、LAB判定 `valid`・実効終了 `30506666` ticks・最後の口形 `ん` を検証する。元WAV/LABのbytesとstatを変更しない。実素材はGitHubへ追加しない。
+- `pau` 以外の超過、最終以外の `pau` 超過、WAV終端以降に開始する `pau`、重複・未知音素・非整数時刻は従来どおり拒否する。48 kHz 1 sampleで208 tickに床関数を適用し、209 tickを許容しない。
+- WAV一覧のLAB表示、登録済み識別子・レンダラー・公開直前再検査が同じ検証済み区間を使うこと。元PCM音声やProRes/OTIO/上書きの既存契約を変更しない。CI／独立コード監査とMac実LABによるHuman検証を分離する。
+
 ## Public Issue #38 — 単一セリフ書き出しの個別OTIO廃止
 
 - 製品の「選択中の1件」は**PCM音声入り透過MOV 1本のみ**。API応答の`otio`を不要とし、同名の個別OTIOを生成しない。FFprobeで音声PCMと映像のフレーム数／透過を確認する。

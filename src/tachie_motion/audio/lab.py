@@ -43,10 +43,11 @@ class LabInspection:
 
 
 def parse_lab(text: str, *, samples: int, sample_rate: int) -> tuple[LabInterval, ...]:
-    """Parse integer-tick LAB, rejecting unknown phones and out-of-WAV time.
+    """Validate LAB against exact PCM samples, clipping only a trailing pau.
 
-    Gaps are allowed; overlaps and zero-length intervals are not. WAV sample
-    count is authoritative, with no floating-point time rounding tolerance.
+    Only an overlapping final pause may extend beyond WAV duration; retain
+    all original LAB bytes and shorten the validated in-memory interval.
+    Other overrun, unknown phonemes, gaps and overlaps remain strict.
     """
     if type(samples) is not int or type(sample_rate) is not int or samples <= 0 or sample_rate <= 0:
         raise ValueError("WAV timing must contain positive integer samples and sample rate")
@@ -67,10 +68,16 @@ def parse_lab(text: str, *, samples: int, sample_rate: int) -> tuple[LabInterval
         start, end = int(start_raw), int(end_raw)
         if start >= end or start < previous_end:
             raise ValueError(f"LAB line {line_no}: nonpositive or overlapping interval")
-        if end * sample_rate > samples * TICKS_PER_SECOND:
-            raise ValueError(f"LAB line {line_no}: interval exceeds WAV samples")
         if phoneme not in SUPPORTED_PHONEMES:
             raise ValueError(f"LAB line {line_no}: unsupported phoneme")
+        if end * sample_rate > samples * TICKS_PER_SECOND:
+            # Voice synthesis may emit trailing silent ticks beyond its PCM
+            # stream. Never truncate actual speech, or a nonfinal interval.
+            # Floor the rational WAV endpoint: rounding up could exceed PCM.
+            wav_end = samples * TICKS_PER_SECOND // sample_rate
+            if phoneme != "pau" or line_no != len(lines) or start >= wav_end:
+                raise ValueError(f"LAB line {line_no}: interval exceeds WAV samples")
+            end = wav_end
         result.append(LabInterval(start, end, phoneme))
         previous_end = end
     return tuple(result)
