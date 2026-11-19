@@ -196,6 +196,9 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
       soloBasename = soloMovName(current, items.findIndex((entry) => entry.id === current.id) + 1,
         naming);
     } catch (error) {
+      // Keep the raw manually edited text visible even while it is invalid,
+      // so the user can finish typing or correct an intermediate IME value.
+      if (current.basenameEdited) soloBasename = current.basename;
       soloNameError = error instanceof Error ? error.message : String(error);
     }
   }
