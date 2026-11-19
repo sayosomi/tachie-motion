@@ -50,16 +50,22 @@ async function visibleCrop(frame: Locator) {
     if (!(img instanceof HTMLImageElement) || img.naturalWidth <= 0) {
       throw new Error("Thumbnail image has not loaded");
     }
-    const stage = node.getBoundingClientRect();
+    const frame = node.getBoundingClientRect();
     const image = img.getBoundingClientRect();
     if (image.width <= 0 || image.height <= 0) {
       throw new Error("Thumbnail image geometry is unavailable");
     }
+    // Compare the actual content viewport, excluding its border. One pixel
+    // matters in the 40x30 WAV picker and must not masquerade as crop drift.
+    const left = frame.left + (node as HTMLElement).clientLeft;
+    const top = frame.top + (node as HTMLElement).clientTop;
+    const right = left + (node as HTMLElement).clientWidth;
+    const bottom = top + (node as HTMLElement).clientHeight;
     return {
-      left: (stage.left - image.left) / image.width,
-      top: (stage.top - image.top) / image.height,
-      right: (stage.right - image.left) / image.width,
-      bottom: (stage.bottom - image.top) / image.height,
+      left: (left - image.left) / image.width,
+      top: (top - image.top) / image.height,
+      right: (right - image.left) / image.width,
+      bottom: (bottom - image.top) / image.height,
     };
   });
 }
