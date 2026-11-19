@@ -646,3 +646,31 @@ test("project restore invalidates LAB status for the same WAV ID/path/identity",
   expect(await restored.getAttribute("data-utterance-id")).toBe(originalId);
   expect(requests).toBeGreaterThanOrEqual(2);
 });
+
+test("project JSON retains shared auto MOV names and individually pinned Unicode overrides", async ({ page }) => {
+  await mock(page);
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  await addWav(page, otherWav);
+  await page.locator("#speech-basename").fill("手動 セリフ");
+  await page.locator("#batch-character-name").fill("ずんだもん");
+  await page.locator("#batch-mov-template").fill("{番号}-{キャラ名}-{WAV名}");
+  const project = await saved(page);
+  expect(project.items.map((item: any) => item.basenameEdited)).toEqual([false, true]);
+  expect(project.items[0].basename).toBe("001-ずんだもん-音声 e\u0301");
+  expect(project.items[1].basename).toBe("手動 セリフ");
+  await page.reload();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await agreeToReplace(page);
+  await importProject(page, project);
+  await expect(page.getByRole("status")).toContainText("制作プロジェクトを読み込みました");
+  await expect(page.locator("#speech-basename")).toHaveValue("手動 セリフ");
+  await page.locator("[data-utterance-id]").first()
+    .locator(".utterance-item-select").click();
+  await expect(page.locator("#speech-basename")).toHaveValue("001-ずんだもん-音声 e\u0301");
+  await page.locator("#batch-mov-template").fill("{番号}_{キャラ名}_{WAV名}");
+  await expect(page.locator("#speech-basename")).toHaveValue("001_ずんだもん_音声 e\u0301");
+  await page.locator("[data-utterance-id]").nth(1)
+    .locator(".utterance-item-select").click();
+  await expect(page.locator("#speech-basename")).toHaveValue("手動 セリフ");
+});
