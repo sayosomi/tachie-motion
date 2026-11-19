@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { wavFilename, type UtteranceItem } from "./utteranceItems";
-import { decodeWavPeaks } from "./wavWaveform";
+import { decodeWavPeaks } from "./wavPeaks";
 
 type Source = Pick<UtteranceItem, "id" | "wavPath">;
 export type WavPlaybackControls = {
