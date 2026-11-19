@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { wavFilename, type UtteranceItem } from "./utteranceItems";
+import { decodeWavPeaks } from "./wavWaveform";
 
 type Source = Pick<UtteranceItem, "id" | "wavPath">;
 export type WavPlaybackControls = {
@@ -8,6 +9,7 @@ export type WavPlaybackControls = {
   loading: boolean;
   mode: "single" | "all" | null;
   elapsed: number;
+  waveform: { sourceId: string; peaks: number[] } | null;
   status: string;
   toggleItem: (id: string) => void;
   playAll: () => void;
@@ -31,6 +33,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"single" | "all" | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [waveform, setWaveform] = useState<{ sourceId: string; peaks: number[] } | null>(null);
   const [status, setStatus] = useState("");
 
   function discardSource() {
@@ -39,6 +42,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
     const previousUrl = objectUrl.current;
     objectUrl.current = null; // Events raised by pause/load during cleanup are not errors.
     source.current = null;
+    setWaveform(null);
     if (audio.current) {
       audio.current.pause();
       audio.current.removeAttribute("src");
@@ -123,6 +127,12 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
       const player = audio.current;
       if (!player) return;
       player.src = url;
+      // A delayed decode must not affect the active source or delay playback.
+      void decodeWavPeaks(wav).then((peaks) => {
+        if (epoch === generation.current && source.current?.id === item.id) {
+          setWaveform(peaks ? { sourceId: item.id, peaks } : null);
+        }
+      });
       await player.play();
       if (epoch === generation.current) {
         setLoading(false);
@@ -219,6 +229,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
       aria-label="WAV試聴プレーヤー" />
   </div>;
 
-  return { activeId, paused, loading, mode, elapsed, status, toggleItem, playAll, stop, seek,
+  return { activeId, paused, loading, mode, elapsed, waveform, status,
+    toggleItem, playAll, stop, seek,
     audioElement };
 }
