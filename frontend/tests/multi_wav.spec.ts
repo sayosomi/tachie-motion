@@ -1161,6 +1161,11 @@ for (const sample of [
     source: ["a".repeat(120), "b".repeat(120)],
     resolved: ["a".repeat(116) + "_002", "b".repeat(116) + "_002"],
   },
+  {
+    label: "mixed Japanese and NFD at the byte boundary",
+    source: ["あ".repeat(58) + "e\u0301Z", "b".repeat(120)],
+    resolved: ["あ".repeat(58) + "_002", "b".repeat(116) + "_002"],
+  },
 ]) {
   test("batch rename respects " + sample.label + " for two MOVs and the combined OTIO",
     async ({ page }) => {

@@ -59,6 +59,14 @@ test("shared generation suffix fits UTF-8 bytes and Unicode-code-point limits", 
     expect([...candidate].length).toBeLessThanOrEqual(120);
     expect(new TextEncoder().encode(candidate).length).toBeLessThanOrEqual(180);
   }
+  // Mixed NFD at the byte limit must not lose its combining accent and
+  // leave a misleading bare base letter immediately before the suffix.
+  const mixed = "あ".repeat(58) + "e\u0301Z";
+  expect(suffixedOutputName(mixed, "_002")).toBe("あ".repeat(58) + "_002");
+  expect(suffixedOutputName("a".repeat(115) + "e\u0301XYZ", "_002"))
+    .toBe("a".repeat(115) + "_002");
+  expect(suffixedOutputName("A".repeat(115) + "e\u0301", "_002"))
+    .toBe("A".repeat(115) + "_002");
   // Different raw names may collapse to the same shortened suffix candidate.
   expect(suffixedOutputName("a".repeat(119) + "X", "_002"))
     .toBe(suffixedOutputName("a".repeat(119) + "Y", "_002"));

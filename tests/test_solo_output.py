@@ -76,6 +76,133 @@ class SoloOtioProtectionTests(unittest.TestCase):
             requested + "_002",
         )
 
+    def test_decomposed_suffix_keeps_combining_sequence_at_boundary(self):
+        name = "あ" * 58 + "e\u0301Z"
+        (self.folder / (name + ".mov")).write_bytes(b"OLD")
+        candidate = solo_destination_info(self.folder, name)["suggested_basename"]
+        self.assertEqual(candidate, "あ" * 58 + "_002")
+        self.assertLessEqual(len(candidate.encode("utf-8")), 180)
+
+    def test_equivalent_unicode_arriving_during_backup_rolls_back(self):
+        target = self.folder / "cafe\u0301.mov"
+        target.write_bytes(b"OLD MOV")
+        prior = initial_single_identity(target, "overwrite", protect_otio_references=True)
+        other = self.folder / "CAFÉ.MOV"
+        original_link = os.link
+
+        def inject(source, destination):
+            result = original_link(source, destination)
+            if Path(source) == target and Path(destination).name == "saved":
+                other.write_bytes(b"THIRD-PARTY MOV")
+            return result
+
+        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject):
+            with patch("tachie_motion.web.solo_output.os.unlink",
+                       side_effect=AssertionError("no shared pathname unlink")):
+                with self.assertRaisesRegex(ValueError, "Equivalent Unicode"):
+                    publish_single(self.stage, target, policy="overwrite", prior=prior,
+                                   protect_otio_references=True)
+        self.assertEqual(target.read_bytes(), b"OLD MOV")
+        self.assertEqual(other.read_bytes(), b"THIRD-PARTY MOV")
+        self.assertFalse((self.folder / ".cafe\u0301.mov.single-backup").exists())
+
+    def test_equivalent_unicode_arriving_after_old_move_rolls_back(self):
+        target = self.folder / "cafe\u0301.mov"
+        target.write_bytes(b"OLD MOV")
+        prior = initial_single_identity(target, "overwrite", protect_otio_references=True)
+        other = self.folder / "CAFÉ.MOV"
+        from tachie_motion.web.atomic_rename import rename_noreplace
+        def inject(source, destination):
+            rename_noreplace(source, destination)
+            if Path(source) == target and Path(destination).name == "removed":
+                other.write_bytes(b"THIRD-PARTY MOV")
+
+        with patch("tachie_motion.web.solo_output.rename_noreplace", side_effect=inject):
+            with self.assertRaisesRegex(ValueError, "Equivalent Unicode"):
+                publish_single(self.stage, target, policy="overwrite", prior=prior,
+                               protect_otio_references=True)
+        self.assertEqual(target.read_bytes(), b"OLD MOV")
+        self.assertEqual(other.read_bytes(), b"THIRD-PARTY MOV")
+        self.assertFalse((self.folder / ".cafe\u0301.mov.single-backup").exists())
+
+    def test_equivalent_unicode_arriving_at_final_link_rolls_back(self):
+        target = self.folder / "cafe\u0301.mov"
+        target.write_bytes(b"OLD MOV")
+        prior = initial_single_identity(target, "overwrite", protect_otio_references=True)
+        other = self.folder / "CAFÉ.MOV"
+        original_link = os.link
+
+        def inject(source, destination):
+            result = original_link(source, destination)
+            if Path(source) == self.stage and Path(destination) == target:
+                other.write_bytes(b"THIRD-PARTY MOV")
+            return result
+
+        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject):
+            with self.assertRaisesRegex(ValueError, "Equivalent Unicode"):
+                publish_single(self.stage, target, policy="overwrite", prior=prior,
+                               protect_otio_references=True)
+        self.assertEqual(target.read_bytes(), b"OLD MOV")
+        self.assertEqual(other.read_bytes(), b"THIRD-PARTY MOV")
+        self.assertEqual(self.stage.read_bytes(), b"NEW MOV")
+        self.assertFalse((self.folder / ".cafe\u0301.mov.single-backup").exists())
+
+    def test_equivalent_unicode_at_new_link_is_quarantined_without_unlink(self):
+        target = self.folder / "cafe\u0301.mov"
+        self.assertIsNone(initial_single_identity(
+            target, "error", protect_otio_references=True))
+        other = self.folder / "CAFÉ.MOV"
+        original_link = os.link
+
+        def inject(source, destination):
+            result = original_link(source, destination)
+            if Path(source) == self.stage and Path(destination) == target:
+                other.write_bytes(b"THIRD-PARTY MOV")
+            return result
+
+        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject):
+            with patch("tachie_motion.web.solo_output.os.unlink",
+                       side_effect=AssertionError("no shared pathname unlink")):
+                with self.assertRaisesRegex(RuntimeError, "manual recovery"):
+                    publish_single(self.stage, target, policy="error", prior=None,
+                                   protect_otio_references=True)
+        backup = self.folder / ".cafe\u0301.mov.single-backup"
+        self.assertFalse(target.exists())
+        self.assertEqual((backup / "uncommitted").read_bytes(), b"NEW MOV")
+        self.assertEqual(other.read_bytes(), b"THIRD-PARTY MOV")
+        self.assertEqual(self.stage.read_bytes(), b"NEW MOV")
+        with self.assertRaisesRegex(RuntimeError, "needs recovery"):
+            initial_single_identity(target, "error", protect_otio_references=True)
+
+    def test_equivalent_unicode_new_link_replaced_at_atomic_move_keeps_outsider(self):
+        target = self.folder / "cafe\u0301.mov"
+        other = self.folder / "CAFÉ.MOV"
+        external_source = self.folder / "outsider.tmp"
+        external_source.write_bytes(b"OTHER TARGET MOV")
+        original_link = os.link
+        from tachie_motion.web.atomic_rename import rename_noreplace
+        def inject_link(source, destination):
+            result = original_link(source, destination)
+            if Path(source) == self.stage and Path(destination) == target:
+                other.write_bytes(b"COLLIDING MOV")
+            return result
+        def inject_move(source, destination):
+            if Path(source) == target and Path(destination).name == "uncommitted":
+                os.replace(external_source, target)
+            rename_noreplace(source, destination)
+
+        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject_link):
+            with patch("tachie_motion.web.solo_output.rename_noreplace",
+                       side_effect=inject_move):
+                with self.assertRaisesRegex(RuntimeError, "manual review"):
+                    publish_single(self.stage, target, policy="error", prior=None,
+                                   protect_otio_references=True)
+        backup = self.folder / ".cafe\u0301.mov.single-backup"
+        self.assertFalse(target.exists())
+        self.assertEqual((backup / "uncommitted").read_bytes(), b"OTHER TARGET MOV")
+        self.assertEqual(other.read_bytes(), b"COLLIDING MOV")
+        self.assertEqual(self.stage.read_bytes(), b"NEW MOV")
+
     def test_existing_mov_without_otio_allows_overwrite(self):
         self.mov.write_bytes(b"OLD MOV")
         self.assertEqual(solo_destination_info(self.folder, "speech")["state"], "complete")

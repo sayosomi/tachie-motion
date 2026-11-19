@@ -94,6 +94,31 @@ def _has_equivalent_mov_name(path: Path) -> bool:
     )
 
 
+def _refuse_equivalent_mov_name(path: Path) -> None:
+    if _has_equivalent_mov_name(path):
+        raise ValueError("Equivalent Unicode output filename appeared; refusing publication")
+
+
+def _recover_new_mov_collision(staged: Path, target: Path) -> None:
+    """Quarantine a just-published new MOV; never unlink a shared pathname.
+
+    Leave the recovery directory blocking subsequent attempts. If another
+    writer replaced the MOV before the atomic move, their inode is retained
+    rather than removed, and manual review is mandatory.
+    """
+    backup = recovery(target)
+    try:
+        backup.mkdir(mode=0o700, exist_ok=False)
+        failed = backup / "uncommitted"
+        rename_noreplace(target, failed)
+        if _identity(failed) != _identity(staged):
+            raise RuntimeError("Published MOV changed during recovery")
+    except BaseException as error:
+        raise RuntimeError("New MOV recovery requires manual review: " + str(backup)) from error
+    raise RuntimeError("Equivalent Unicode MOV detected; new MOV retained for manual recovery: " +
+                       str(backup))
+
+
 def initial_single_identity(path: Path, policy: str, *,
                             protect_otio_references: bool = False):
     if policy not in ("error", "overwrite"):
@@ -149,11 +174,25 @@ def solo_destination_info(folder: Path, basename: str) -> dict:
         return {"state": state, "suggested_basename": basename}
     for number in range(2, 10002):
         suffix = f"_{number:03d}"
-        # Keep the original WAV-derived name unless the 120-character /
-        # 180-byte filesystem budget requires shortening it for a suffix.
-        prefix = basename[:120 - len(suffix)]
-        while prefix and len((prefix + suffix).encode("utf-8")) > 180:
-            prefix = prefix[:-1]
+        # Preserve combining-mark sequences when shortening NFD WAV names.
+        # Never rewrite or normalize the retained prefix.
+        max_chars = 120 - len(suffix)
+        max_bytes = 180 - len(suffix.encode("utf-8"))
+        prefix = ""
+        used_chars = used_bytes = 0
+        clusters: list[str] = []
+        for char in basename:
+            if clusters and unicodedata.category(char).startswith("M"):
+                clusters[-1] += char
+            else:
+                clusters.append(char)
+        for cluster in clusters:
+            length, size = len(cluster), len(cluster.encode("utf-8"))
+            if used_chars + length > max_chars or used_bytes + size > max_bytes:
+                break
+            prefix += cluster
+            used_chars += length
+            used_bytes += size
         candidate = prefix + suffix
         validate_media_basename(candidate)
         if single_destination(folder / (candidate + ".mov"),
@@ -197,7 +236,11 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
     if prior is None:
         if policy != "error":
             raise ValueError("No existing output was approved for overwrite")
+        if protect_otio_references:
+            _refuse_equivalent_mov_name(target)
         os.link(staged, target)  # exclusive; cannot replace a competing file
+        if protect_otio_references and _has_equivalent_mov_name(target):
+            _recover_new_mov_collision(staged, target)
         return None
     if policy != "overwrite":
         raise FileExistsError("Existing output not approved for overwrite")
@@ -215,8 +258,10 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
         created["saved"] = prior
         if _identity(target) != prior:
             raise FileExistsError("Output changed before overwrite")
-        if protect_otio_references and _other_otio_may_reference(target):
-            raise ValueError("Another OTIO appeared during export; MOV was not overwritten")
+        if protect_otio_references:
+            _refuse_equivalent_mov_name(target)
+            if _other_otio_may_reference(target):
+                raise ValueError("Another OTIO appeared during export; MOV was not overwritten")
 
         # A native no-replace rename moves exactly the current source inode.
         # If an outsider swapped target, their MOV moves to removed untouched,
@@ -226,12 +271,16 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
         if created["removed"] != prior:
             unexpected = True
             raise FileExistsError("Concurrent target change; moved file retained")
-        if protect_otio_references and _other_otio_may_reference(target):
-            raise ValueError("Another OTIO appeared during publication; restoring original MOV")
+        if protect_otio_references:
+            _refuse_equivalent_mov_name(target)
+            if _other_otio_may_reference(target):
+                raise ValueError("Another OTIO appeared during publication; restoring original MOV")
         os.link(staged, target)  # exclusive creation of new MOV
         published = True
-        if protect_otio_references and _other_otio_may_reference(target):
-            raise ValueError("Another OTIO appeared as MOV was published; restoring original MOV")
+        if protect_otio_references:
+            _refuse_equivalent_mov_name(target)
+            if _other_otio_may_reference(target):
+                raise ValueError("Another OTIO appeared as MOV was published; restoring original MOV")
     except BaseException:
         try:
             if published:

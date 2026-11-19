@@ -1,6 +1,6 @@
 # Roadmap
 
-**現在の状態：Phase 0とPhase 1のCLI、およびmainの統合プリセット編集・Mac Finder選択・単一WAVのnone/open書き出しは実装済み。新規・上書き・別名保存とDaVinci Resolveの透過・口パク・音声同期は2026年11月1日にMac Human PASS。aiueoの6口形レイヤー編集・静止プレビューはmainで対応済み。LAB駆動aiueoの個別／一括MOVとOTIOはIssue #27 / PR #28でmainへ統合済み。CI・独立監査・Mac実機の書き出し／口パク表示／Resolve OTIO読み込みを確認済み。単一キャラクターの瞬き付きセリフMOV（Issue #34 / PR #35）は実装済み・CI／コード監査／Mac実PSD・DaVinci ResolveのHuman確認PASS。変更点タイムライン・複数キャラクター・待機モーションは未実装。制作プロジェクトJSON保存・復元、単一キャラ全体OTIOはPR #17・#19で実装済み。キャラクター設定JSONの独立保存・読み込みはIssue #44 / PR #45で実装済み。JSON往復の自動テストとMac Chrome保存UIのHuman UXはPASS。**
+**現在の状態：Phase 0とPhase 1のCLI、およびmainの統合プリセット編集・Mac Finder選択・単一WAVのnone/open書き出しは実装済み。新規・上書き・別名保存とDaVinci Resolveの透過・口パク・音声同期は2026年11月1日にMac Human PASS。aiueoの6口形レイヤー編集・静止プレビューはmainで対応済み。LAB駆動aiueoのMOV生成はIssue #27 / PR #28でmainへ統合済み（当時の個別OTIOは旧仕様）。**現行の製品Web UIでは単一書き出しがPCM内包MOVのみ、一括書き出しがMOV群＋全体OTIO 1本で、個別OTIOは生成しない（Issue #38 / PR #39、Draft）。**CI・独立監査・Mac実機の書き出し／口パク表示／Resolve OTIO読み込みを確認済み。単一キャラクターの瞬き付きセリフMOV（Issue #34 / PR #35）は実装済み・CI／コード監査／Mac実PSD・DaVinci ResolveのHuman確認PASS。変更点タイムライン・複数キャラクター・待機モーションは未実装。制作プロジェクトJSON保存・復元、単一キャラ全体OTIOはPR #17・#19で実装済み。キャラクター設定JSONの独立保存・読み込みはIssue #44 / PR #45で実装済み。JSON往復の自動テストとMac Chrome保存UIのHuman UXはPASS。**
 
 この文書は実装の進捗と今後の作業範囲を示します。確定した製品要件は [PRODUCT_SPEC.md](PRODUCT_SPEC.md)、実際に使えるコマンドは [README.md](../README.md) を参照してください。PoCで確認したことと、完成したアプリでできることは区別します。
 
@@ -118,7 +118,9 @@ PR #19〜#41の積み重ねPRは2026年11月1日に依存順でmainへ統合済�
 - [x] 縦長PSDの全体表示と最大8倍拡大・ドラッグ移動・口元フォーカスをPR #41で修正。Mac実PSDで全体・口元・口形切替のHuman PASS（2026-11-01）。
 
 
-## Issue #42 — 同名MOV/OTIOの上書き／別名書き出し（PR #43）
+## 【履歴：2026-11-01当時】Issue #42 — 個別MOV＋個別OTIOの上書き／別名書き出し（PR #43）
+
+以下は過去の2ファイル同時公開の実装記録です。**現行Web UIは単一MOVのみ／一括MOV群＋全体OTIO 1本**で、この旧個別ペア上書きは使用しません。現行の挙動は上記のIssue #38および[README](../README.md)を参照してください。
 
 - [x] 新「セリフ」画面でMOV・OTIO両方あり→上書き（既定）／別名、未使用名の提案と保存結果パスの表示。
 - [x] 片割れ・symlink・復旧領域残存の同名書き出しを禁止。生成・検証後の排他的公開と通常失敗時の復旧を実装。二ファイルの完全原子性は保証しない。
