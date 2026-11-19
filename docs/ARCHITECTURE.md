@@ -58,4 +58,5 @@ Enforce the small-file review guidelines in [AGENTS.md](../AGENTS.md). Directory
 
 - Separate pure unit tests from renderer/encoder integration tests and Playwright E2E tests.
 - Track application build, media hash/metadata (not private bytes), FFmpeg version, render options and failures.
+- Solo MOV overwrite uses Linux `renameat2(RENAME_NOREPLACE)` or macOS `renamex_np(RENAME_EXCL)` for non-replacing, atomic isolation; unsupported filesystems fail closed. Never use check-then-unlink to remove a shared pathname. Retain older MOV generations in hidden manual-cleanup archives (not automatic recovery blockers), so repeated overwrites consume storage until the user reviews and deletes them. Interrupted recovery remains blocking. This guarantee does not cover concurrent mutation of the contents of an already-open inode.
 - No background upload of private media. No source audio/PSD or generated MOV committed by default.
