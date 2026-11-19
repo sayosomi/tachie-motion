@@ -324,20 +324,18 @@ class BatchBlockingAuditTests(unittest.TestCase):
                 old.write_bytes(b"OLD")
                 staged.write_bytes(b"NEW")
                 prior = initial_single_identity(old, "overwrite")
-                real_link, real_rename = os.link, os.rename
+                real_link = os.link
                 def link(src, dst):
-                    if case == "backup_link" and Path(src) == old:
+                    if case == "backup_link" and Path(src) == old and Path(dst).name == "saved":
                         raise OSError("injected backup link failure")
+                    if case == "move_old" and Path(src) == old and Path(dst).name == "removed":
+                        raise OSError("injected old-file isolation failure")
                     if case == "publish_new" and Path(src) == staged and Path(dst) == old:
                         raise OSError("injected publication failure")
                     return real_link(src, dst)
-                def rename(src, dst):
-                    if case == "move_old" and Path(src) == old:
-                        raise OSError("injected old-file move failure")
-                    return real_rename(src, dst)
                 with self.subTest(case=case), patch(
                     "tachie_motion.web.solo_output.os.link", side_effect=link
-                ), patch("tachie_motion.web.solo_output.os.rename", side_effect=rename):
+                ):
                     with self.assertRaises(OSError):
                         publish_single(staged, old, policy="overwrite", prior=prior)
                 self.assertEqual(old.read_bytes(), b"OLD")
@@ -351,7 +349,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
             old.write_bytes(b"OLD")
             staged.write_bytes(b"NEW")
             prior = initial_single_identity(old, "overwrite")
-            with patch("tachie_motion.web.solo_output.shutil.rmtree",
+            with patch("tachie_motion.web.solo_output._cleanup_owned_recovery",
                        side_effect=OSError("injected cleanup failure")):
                 warning = publish_single(staged, old, policy="overwrite", prior=prior)
             self.assertIn("inspect recovery directory", warning)
