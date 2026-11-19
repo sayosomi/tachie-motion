@@ -264,7 +264,11 @@ class SoloOtioProtectionTests(unittest.TestCase):
         publish_single(self.stage, self.mov, policy="overwrite", prior=prior,
                        protect_otio_references=True)
         prior = initial_single_identity(self.mov, "overwrite", protect_otio_references=True)
-        self.stage.write_bytes(b"SECOND MOV")
+        # A real second export creates a distinct staging inode. In-place
+        # writes to the previous stage would mutate the published hardlink.
+        next_stage = self.folder / "next-stage.mov"
+        next_stage.write_bytes(b"SECOND MOV")
+        os.replace(next_stage, self.stage)
         publish_single(self.stage, self.mov, policy="overwrite", prior=prior,
                        protect_otio_references=True)
         archives = sorted(self.folder.glob(".speech.mov.single-backup-retained-*"))
