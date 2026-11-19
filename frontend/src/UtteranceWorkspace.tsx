@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Layer } from "./LayerTree";
 import UtteranceExportPanel, { type ExportScope } from "./UtteranceExportPanel";
+import ExportProgressDialog from "./ExportProgressDialog";
+import { useExportProgress } from "./useExportProgress";
+import { wavFilename } from "./utteranceItems";
 import UtteranceList from "./UtteranceList";
 import ProjectActions from "./ProjectActions";
 import { projectPresetDraft, type ProjectFile } from "./projectFile";
@@ -89,10 +92,12 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   // Synchronous guard closes the gap before React commits exportingId state.
   const singleExportLock = useRef(false);
   const labStatuses = useLabStatus(items, active, labRefreshVersion);
+  const exportProgress = useExportProgress();
   const batch = useBatchUtteranceExport(draft, items, setItems,
     () => setProbeVersion((previous) => previous + 1),
     active && exportScope === "all" && !projectBusy && !exportingId,
-    naming, () => projectBusyRef.current || singleExportLock.current, labStatuses);
+    naming, () => projectBusyRef.current || singleExportLock.current, labStatuses,
+    { begin: exportProgress.begin, settle: exportProgress.settle });
   const playback = useWavPlayback(items);
   const editingLocked = batch.running || batch.isBusy() || !!exportingId || projectBusy;
   const projectLock = (locked: boolean) => {
@@ -398,18 +403,24 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     if (!draft || !current || !selected || !canExport || isEditBusy()) return;
     singleExportLock.current = true;
     const itemId = current.id;
+    const token = crypto.randomUUID();
     setExportingId(itemId);
     setItems((previous) => updateUtterance(previous, itemId, {}));
+    exportProgress.begin(token, [wavFilename(current.wavPath)]);
     try {
+      const payload = exportPayload(draft, current, selected, outputBasename, conflictPolicy,
+        labStatuses[current.id]?.source_identity);
       const result = await post<ExportData>("preset-utterance-export",
-        exportPayload(draft, current, selected, outputBasename, conflictPolicy,
-          labStatuses[current.id]?.source_identity));
+        { ...payload, progress_id: token });
+      exportProgress.settle("success");
       if (mounted.current) setItems((previous) => previous.map((item) =>
         item.id === itemId ? { ...item, result, error: "" } : item));
     } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      exportProgress.settle(reason.includes("書き出しをキャンセルしました")
+        ? "cancelled" : "failed", reason);
       if (mounted.current) setItems((previous) => previous.map((item) =>
-        item.id === itemId ? { ...item, result: null,
-          error: err instanceof Error ? err.message : String(err) } : item));
+        item.id === itemId ? { ...item, result: null, error: reason } : item));
     } finally {
       singleExportLock.current = false;
       if (mounted.current) {
@@ -482,5 +493,8 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
         onRevise={revise} onSingleExport={() => { void exportUtterance(); }}
         batch={batch} disabled={editingLocked || addingCount > 0}
         naming={naming} onNamingChange={setNaming} />
+    <ExportProgressDialog progress={exportProgress.view}
+      onCancel={() => { void exportProgress.cancel(); }}
+      onClose={exportProgress.close} />
   </main>;
 }
