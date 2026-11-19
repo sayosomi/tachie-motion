@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
-  expandName, initialNaming, movName, otioName, validateBatchNaming, validateOutputName,
+  expandName, initialNaming, movName, otioName, soloMovName, validateBatchNaming, validateOutputName,
 } from "../src/nameTemplate";
 
 test("four placeholders expand with numbered order and unchanged Unicode NFD", () => {
@@ -31,4 +31,17 @@ test("output names cannot be unsafe paths, reserved names or invalid Unicode", (
                     "test?", "bad.", "bad ", "abc\nx", "a".repeat(181)]) {
     expect(() => validateOutputName(s)).toThrow();
   }
+});
+
+test("solo and batch share numbered character + full WAV name, including duplicate source numbers", () => {
+  const naming = initialNaming("/tmp/ずんだもん.psd", "/tmp/output");
+  const wav = "/tmp/002_あんこもん た\u0301゙んもん.wav";
+  const auto = { wavPath: wav, basename: "speech_001", basenameEdited: false };
+  expect(soloMovName(auto, 1, naming))
+    .toBe(movName(naming.movTemplate, 1, wav, "ずんだもん", "project"));
+  expect(soloMovName(auto, 2, naming)).toBe("002_ずんだもん_002_あんこもん た\u0301゙んもん");
+  const changed = { ...naming, characterName: "四国めたん", movTemplate: "{番号}_{キャラ名}_{WAV名}" };
+  expect(soloMovName(auto, 1, changed)).toBe("001_四国めたん_002_あんこもん た\u0301゙んもん");
+  expect(soloMovName({ ...auto, basename: "手動 た\u0301", basenameEdited: true }, 2, changed))
+    .toBe("手動 た\u0301");
 });
