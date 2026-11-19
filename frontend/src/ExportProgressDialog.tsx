@@ -33,10 +33,13 @@ export default function ExportProgressDialog({ progress, onCancel, onClose }: Pr
         dialog.current.focus();
         return;
       }
-      if (event.shiftKey && document.activeElement === controls[0]) {
+      const active = document.activeElement;
+      if (event.shiftKey && (active === controls[0] || active === dialog.current
+        || !dialog.current.contains(active))) {
         event.preventDefault();
         controls[controls.length - 1].focus();
-      } else if (!event.shiftKey && document.activeElement === controls[controls.length - 1]) {
+      } else if (!event.shiftKey && (active === controls[controls.length - 1]
+        || !dialog.current.contains(active))) {
         event.preventDefault();
         controls[0].focus();
       }
