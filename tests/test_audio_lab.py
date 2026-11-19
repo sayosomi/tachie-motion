@@ -101,6 +101,61 @@ class LabTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, expected):
                     parse_lab(content, samples=1000, sample_rate=1000)
 
+    def test_trailing_pau_overrun_is_clipped_to_wav_samples_without_editing_sources(self):
+        # Synthetic reproduction of WAV 73,216 samples at 24 kHz and
+        # the last LAB interval 29782541 30652107 pau (real media not committed).
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = Path(tmp) / "015_音声 e\u0301.wav"
+            lab = wav.with_suffix(".lab")
+            make_wav(wav, samples=73_216, rate=24_000)
+            source_lab = b"0 29782541 a\n29782541 30652107 pau\n"
+            lab.write_bytes(source_lab)
+            wav_hash = hashlib.sha256(wav.read_bytes()).hexdigest()
+            inspected = inspect_adjacent_lab(wav, expected_wav_identity=fingerprint(wav))
+            self.assertEqual(inspected.status, "valid", inspected.reason)
+            self.assertEqual(inspected.intervals[-1].start_tick, 29_782_541)
+            self.assertEqual(inspected.intervals[-1].end_tick, 30_506_666)
+            self.assertEqual(inspected.intervals[-1].phoneme, "pau")
+            self.assertEqual(inspect_adjacent_lab(wav), inspected)
+            from tachie_motion.audio.aiueo_frames import MOV_POLICY, schedule_aiueo
+            frames = schedule_aiueo(
+                inspected.intervals, samples=73_216, sample_rate=24_000,
+                fps=30, policy=MOV_POLICY,
+            )
+            self.assertEqual(frames[-1], "n")
+            self.assertIn("a", frames)
+            self.assertEqual(lab.read_bytes(), source_lab)
+            self.assertEqual(hashlib.sha256(wav.read_bytes()).hexdigest(), wav_hash)
+
+    def test_only_overrunning_last_pau_may_be_clipped(self):
+        cases = (
+            ("0 10000001 a\n", "exceeds WAV"),
+            ("0 10000001 sil\n", "exceeds WAV"),
+            ("0 10000001 N\n", "exceeds WAV"),
+            ("0 10000001 pau\n10000001 10000002 a\n", "exceeds WAV"),
+            ("10000000 10000001 pau\n", "exceeds WAV"),
+            ("10000001 10000002 pau\n", "exceeds WAV"),
+            ("0 3000000 a\n2000000 10000001 pau\n", "overlapping"),
+            ("0 1000000 a\n1000000 10000001 unknown\n", "unsupported"),
+        )
+        for source, message in cases:
+            with self.subTest(source=source):
+                with self.assertRaisesRegex(ValueError, message):
+                    parse_lab(source, samples=1000, sample_rate=1000)
+        parsed = parse_lab(
+            "0 1000000 a\n1000000 10000001 pau\n", samples=1000, sample_rate=1000,
+        )
+        self.assertEqual(parsed[-1].end_tick, 10_000_000)
+        self.assertEqual(parsed[-1].start_tick, 1_000_000)
+        self.assertEqual(parsed[-1].phoneme, "pau")
+
+    def test_tail_pau_clamps_to_floor_of_fractional_wav_tick(self):
+        # 1 PCM sample / 48kHz ends between ticks 208 and 209.
+        clipped = parse_lab("0 209 pau\n", samples=1, sample_rate=48000)
+        self.assertEqual(clipped[0].end_tick, 208)
+        with self.assertRaisesRegex(ValueError, "exceeds WAV"):
+            parse_lab("208 209 pau\n", samples=1, sample_rate=48000)
+
     def test_fractional_sample_boundary_is_exact_without_rounding(self):
         # At 48kHz, 208 ticks is 0.9984 sample; 209 ticks exceeds one sample.
         self.assertEqual(
