@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
 import type { ThumbnailView } from "./thumbnailView";
 
@@ -21,6 +21,7 @@ export default function PresetImagePreview({
   const viewport = useRef<HTMLDivElement>(null);
   const img = useRef<HTMLImageElement>(null);
   const drag = useRef<{ id: number; x: number; y: number; start: Point } | null>(null);
+  const wheelDelta = useRef(0);
   const [level, setLevel] = useState(0);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [savedMessage, setSavedMessage] = useState("");
@@ -50,6 +51,7 @@ export default function PresetImagePreview({
   }
 
   function changeZoom(step: number) {
+    wheelDelta.current = 0;
     setSavedMessage("");
     const next = Math.max(0, Math.min(LEVELS.length - 1, level + step));
     setLevel(next);
@@ -57,6 +59,7 @@ export default function PresetImagePreview({
   }
 
   function fitAll() {
+    wheelDelta.current = 0;
     setSavedMessage("");
     drag.current = null;
     setLevel(0);
@@ -64,6 +67,7 @@ export default function PresetImagePreview({
   }
 
   function focusAt(target?: Point) {
+    wheelDelta.current = 0;
     setSavedMessage("");
     const g = geometry();
     if (!g || !target) return;
@@ -117,6 +121,48 @@ export default function PresetImagePreview({
     }, zoom));
   }
 
+  // React's delegated wheel listener may be passive in browsers. Attach a
+  // non-passive listener only to the preview so page scrolling still works
+  // everywhere else. Accumulate small trackpad deltas before changing levels.
+  useEffect(() => {
+    const stage = viewport.current;
+    if (!stage || !image) return;
+    function onWheel(event: WheelEvent) {
+      if (!event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      const g = geometry();
+      if (!g || !stage) return;
+      event.preventDefault();
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16
+        : event.deltaMode === 2 ? g.height : 1);
+      if (Math.sign(wheelDelta.current) !== Math.sign(delta)) {
+        wheelDelta.current = 0;
+      }
+      wheelDelta.current += delta;
+      const steps = Math.trunc(Math.abs(wheelDelta.current) / 100);
+      if (!steps) return;
+      const direction = Math.sign(wheelDelta.current);
+      wheelDelta.current -= direction * steps * 100;
+      const next = Math.max(0, Math.min(LEVELS.length - 1,
+        level - direction * steps));
+      if (next === level) {
+        wheelDelta.current = 0;
+        return;
+      }
+      const rect = stage.getBoundingClientRect();
+      const x = event.clientX - rect.left - rect.width / 2;
+      const y = event.clientY - rect.top - rect.height / 2;
+      const factor = LEVELS[next] / zoom;
+      setPan(bound({
+        x: pan.x + (x - pan.x) * (1 - factor),
+        y: pan.y + (y - pan.y) * (1 - factor),
+      }, LEVELS[next]));
+      setLevel(next);
+      setSavedMessage("");
+    }
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, [image, level, pan]);
+
   function saveThumbnail() {
     const g = geometry();
     if (!g || !image || !onThumbnailSave) return;
@@ -150,7 +196,7 @@ export default function PresetImagePreview({
     {savedMessage && <p role="status" className="hint">{savedMessage}</p>}
     <div ref={viewport} className="preview-stage preset-image-viewport"
       tabIndex={image && zoom > 1 ? 0 : -1}
-      role="group" aria-label="立ち絵プレビュー。拡大時はドラッグか矢印キーで移動"
+      role="group" aria-label="立ち絵プレビュー。ホイールで拡大縮小、拡大時はドラッグか矢印キーで移動"
       style={{ touchAction: zoom > 1 ? "none" : "auto" }}
       onPointerDown={pointerDown} onPointerMove={pointerMove}
       onPointerUp={pointerStop} onPointerCancel={pointerStop}
