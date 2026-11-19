@@ -20,7 +20,7 @@ async function mockPsd(page: import("@playwright/test").Page, fingerprint = "sna
     samples: 1000, sample_rate: 1000, duration_seconds: 1,
   }}));
   await page.route("**/api/preset-utterance-destination", (route) =>
-    route.fulfill({ json: { state: "available", suggested_basename: "speech_001" } }));
+    route.fulfill({ json: { state: "available", suggested_basename: "001_character_voice" } }));
   await page.route("**/api/preset-batch-check-names", (route) =>
     route.fulfill({ json: { valid: true } }));
   await page.route("**/api/preset-batch-start", (route) =>
@@ -36,7 +36,7 @@ test("new preset-backed none/open utterance workflow sends exact preset snapshot
   await page.route("**/api/preset-utterance-export", (route) => {
     payloads.push(route.request().postDataJSON());
     return route.fulfill({ json: {
-      mov: "/tmp/speech_001.mov",
+      mov: "/tmp/001_character_voice.mov",
       frames: 30, sample_count: 1000,
     } });
   });
@@ -63,14 +63,14 @@ test("new preset-backed none/open utterance workflow sends exact preset snapshot
   await page.locator('[data-selected="true"] .utterance-row-mode select').selectOption("open");
   await page.getByRole("button", { name: "MOVを書き出す" }).click();
   await expect(page.getByRole("status")).toContainText("書き出し完了");
-  await expect(page.getByLabel("出力予定ファイル")).toContainText("speech_001.mov");
+  await expect(page.getByLabel("出力予定ファイル")).toContainText("001_character_voice.mov");
   await expect(page.getByLabel("出力予定ファイル")).not.toContainText(".otio");
   await expect(page.locator(".utterance-export-panel .success")).not.toContainText("OTIO:");
   expect(payloads).toHaveLength(1);
   expect(payloads[0]).toMatchObject({
     psd: "/tmp/character.psd", wav: "/tmp/voice.wav",
     fingerprint: "snap", mode: "open", blink_enabled: false,
-    output_dir: "/tmp", basename: "speech_001", conflict_policy: "error", fps: 30,
+    output_dir: "/tmp", basename: "001_character_voice", conflict_policy: "error", fps: 30,
     mouth: {
       closed: [{ path: "0/0", visible: true }, { path: "0/1", visible: false }],
       opened: [{ path: "0/0", visible: false }, { path: "0/1", visible: true }],
@@ -112,8 +112,8 @@ test("existing single MOV offers overwrite by default and an editable separate f
   let existing = true;
   await page.route("**/api/preset-utterance-destination", (route) => {
     return route.fulfill({ json: existing ? {
-      state: "complete", suggested_basename: "speech_001_002",
-    } : { state: "available", suggested_basename: "speech_001" } });
+      state: "complete", suggested_basename: "001_character_voice_002",
+    } : { state: "available", suggested_basename: "001_character_voice" } });
   });
   await page.route("**/api/preset-utterance-export", (route) => {
     requests.push(route.request().postDataJSON());
@@ -139,10 +139,10 @@ test("existing single MOV offers overwrite by default and an editable separate f
   await expect(page.getByRole("status")).toContainText("書き出し完了");
   await expect(page.getByRole("alert")).toContainText("temporary render files");
   expect(requests[0]).toMatchObject({
-    basename: "speech_001", conflict_policy: "overwrite",
+    basename: "001_character_voice", conflict_policy: "overwrite",
   });
   await page.getByRole("radio", { name: "別名で書き出す" }).check();
-  await expect(page.locator("#speech-save-as")).toHaveValue("speech_001_002");
+  await expect(page.locator("#speech-save-as")).toHaveValue("001_character_voice_002");
   await page.locator("#speech-save-as").fill("speech_003");
   await expect(page.getByText("出力予定：speech_003.mov")).toBeVisible();
   await page.getByRole("button", { name: "別名で書き出す" }).click();
@@ -158,12 +158,12 @@ test("same-stem legacy OTIO forbids MOV overwrite and requires a new name", asyn
   const requests: Record<string, unknown>[] = [];
   await page.route("**/api/preset-utterance-destination", route =>
     route.fulfill({ json: {
-      state: "unsafe", suggested_basename: "speech_001_002",
+      state: "unsafe", suggested_basename: "001_character_voice_002",
     } }));
   await page.route("**/api/preset-utterance-export", route => {
     requests.push(route.request().postDataJSON());
     return route.fulfill({ json: {
-      mov: "/tmp/speech_001_002.mov",
+      mov: "/tmp/001_character_voice_002.mov",
       frames: 30, sample_count: 1000,
     } });
   });
@@ -179,10 +179,10 @@ test("same-stem legacy OTIO forbids MOV overwrite and requires a new name", asyn
   await page.getByRole("button", { name: "WAVを確認" }).click();
   await expect(page.getByText("既存OTIOがこのMOVを参照している可能性", { exact: false })).toBeVisible();
   await expect(page.getByRole("radio", { name: "上書きする" })).toHaveCount(0);
-  await expect(page.locator("#speech-save-as")).toHaveValue("speech_001_002");
+  await expect(page.locator("#speech-save-as")).toHaveValue("001_character_voice_002");
   await page.getByRole("button", { name: "別名で書き出す" }).click();
   expect(requests[0]).toMatchObject({
-    basename: "speech_001_002", conflict_policy: "error",
+    basename: "001_character_voice_002", conflict_policy: "error",
   });
 });
 
