@@ -49,11 +49,29 @@ async function editAndSave(page: Page) {
   await controls.getByRole("button", { name: "拡大" }).click();
   await controls.getByRole("button", { name: "拡大" }).click();
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("2×");
+  await stage.evaluate((node) => {
+    const trace: string[] = [];
+    (window as Window & { __thumbTrace?: string[] }).__thumbTrace = trace;
+    for (const type of ["pointerdown", "pointermove", "pointerup"]) {
+      node.addEventListener(type, (event) => {
+        const p = event as PointerEvent;
+        trace.push(type + ":" + p.clientX + "," + p.clientY + ":" + p.button);
+      });
+    }
+  });
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.down();
   await page.mouse.move(box!.x + box!.width / 2 + 35,
     box!.y + box!.height / 2 + 18, { steps: 3 });
   await page.mouse.up();
+  console.log("THUMB_DRAG_TRACE", await stage.evaluate((node) => ({
+    trace: (window as Window & { __thumbTrace?: string[] }).__thumbTrace,
+    stage: [node.clientWidth, node.clientHeight],
+    natural: [(node.querySelector("img") as HTMLImageElement)?.naturalWidth,
+      (node.querySelector("img") as HTMLImageElement)?.naturalHeight],
+    transform: (node.querySelector("img") as HTMLImageElement)?.style.transform,
+  })));
+
   await controls.getByRole("button", { name: "サムネにする" }).click();
   await expect(page.locator(".preset-preview [role=status]"))
     .toContainText("この表示範囲をサムネイルに保存しました");
