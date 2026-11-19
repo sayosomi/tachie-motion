@@ -138,3 +138,50 @@ test("invalid saved thumbnail metadata blocks recovery rather than normalizing s
     await expect(page.locator(".preset-card")).toHaveCount(0);
   }
 });
+
+
+test("character profile round-trip keeps the crop and rejects malformed imported metadata", async ({ page }) => {
+  await page.addInitScript(() => {
+    const target = window as Window & { __savedProfile?: string };
+    Object.defineProperty(window, "showSaveFilePicker", {
+      configurable: true,
+      value: async () => ({
+        name: "character.json",
+        createWritable: async () => ({
+          write: async (data: string) => { target.__savedProfile = data; },
+          close: async () => {},
+          abort: async () => {},
+        }),
+      }),
+    });
+  });
+  await start(page);
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  await editAndSave(page);
+  await page.getByRole("button", { name: "JSONを保存" }).click();
+  await expect(page.locator(".character-profile-actions [role=status]"))
+    .toContainText("JSONを保存しました");
+  const json = await page.evaluate(() =>
+    (window as Window & { __savedProfile?: string }).__savedProfile!);
+  const saved = JSON.parse(json);
+  expect(saved.collection.items[0].thumbnail.zoom).toBe(2);
+  expect(JSON.stringify(saved)).not.toContain("data:image/png");
+  const before = await savedDraft(page);
+  const corrupt = structuredClone(saved);
+  corrupt.collection.items[0].thumbnail.zoom = 9;
+  await page.locator("#character-profile-file").setInputFiles({
+    name: "invalid.json", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(corrupt)),
+  });
+  await expect(page.getByRole("alert")).toContainText("サムネイル設定が不正");
+  expect((await savedDraft(page)).collection.items).toEqual(before.collection.items);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#character-profile-file").setInputFiles({
+    name: "valid.json", mimeType: "application/json",
+    buffer: Buffer.from(json),
+  });
+  await expect(page.locator(".character-profile-actions [role=status]"))
+    .toContainText("キャラクター設定JSONを読み込みました");
+  expect((await savedDraft(page)).collection.items[0].thumbnail)
+    .toEqual(saved.collection.items[0].thumbnail);
+});
