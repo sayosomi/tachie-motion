@@ -276,7 +276,7 @@ def export_preset_utterance(
         if otio is not None:
             # Optional internal pair writer; the production individual route passes otio=None.
             document = build_rounded_utterance(
-                pcm_mov, wav, MovieTiming(report.frames, fps),
+                pcm_mov, wav, MovieTiming(encoded.frames, fps),
                 WaveTiming(schedule.sample_count, schedule.sample_rate),
                 embedded_audio=True,
             )
@@ -304,17 +304,14 @@ def export_preset_utterance(
             # Solo route publishes only its MOV; batch follows with one shared OTIO.
             if intervals is not None:
                 verify_export_lab(wav, source_identity, intervals, lab_identity)
-            if progress and progress[0].snapshot(progress[1])["total"] == 1 and progress[0].snapshot(progress[1])["index"] == 1:
-                # The batch also has one item sometimes: only a non-batch
-                # export may lock out cancellation before public publication.
-                pass
             if progress and progress[0].kind(progress[1]) == "single":
                 progress[0].finalizing(progress[1], "MOVを保存中")
             warning = publish_single(
                 pcm_mov, mov, policy=conflict_policy, prior=prior,
                 protect_otio_references=protect_otio_references,
             )
-        report("MOVの生成・検証が完了", 99) if progress and progress[0].kind(progress[1]) == "batch" else None
+        if progress and progress[0].kind(progress[1]) == "batch":
+            report("MOVを一時生成・検証完了", 99)
         committed = True
     finally:
         try:
