@@ -47,8 +47,10 @@ async function editAndSave(page: Page) {
   await controls.getByRole("button", { name: "拡大" }).click();
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("2×");
 
-  // Obtain viewport coordinates AFTER clicking zoom controls: Playwright can
-  // scroll the page to those buttons, invalidating earlier bounding boxes.
+  // Ensure the stage itself is in the viewport before using raw mouse
+  // coordinates. Its position can be below the fold even when zoom controls
+  // are visible, because the layer editor is long.
+  await stage.hover();
   const box = await stage.boundingBox();
   expect(box).not.toBeNull();
   expect(Math.abs(box!.width / box!.height - 4 / 3)).toBeLessThan(0.01);
