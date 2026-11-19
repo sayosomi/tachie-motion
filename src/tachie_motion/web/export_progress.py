@@ -54,6 +54,10 @@ class ExportProgress:
             raise KeyError("Export progress is not available")
         return job
 
+    def kind(self, token: str) -> str:
+        with self._lock:
+            return self._current(token).kind
+
     def snapshot(self, token: str) -> dict:
         with self._lock:
             job = self._current(token)
