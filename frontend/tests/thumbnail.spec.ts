@@ -105,7 +105,7 @@ test("wheel zoom anchors at cursor, stays in preview and saves only on explicit 
   expect(await page.evaluate(() => window.scrollY)).toBe(initialScroll);
   const transform = await stage.locator("img").evaluate(
     (img) => (img as HTMLImageElement).style.transform);
-  const match = /translate\\(([-\\d.]+)px, ([-\\d.]+)px\\) scale\\(1\\.5\\)/.exec(transform);
+  const match = /translate\(([-\d.]+)px, ([-\d.]+)px\) scale\(1\.5\)/.exec(transform);
   expect(match).not.toBeNull();
   expect(Number(match![1])).toBeCloseTo(-16, 0);
   expect(Number(match![2])).toBeCloseTo(-12, 0);
