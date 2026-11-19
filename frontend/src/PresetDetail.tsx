@@ -5,7 +5,6 @@ import type { Layer } from "./LayerTree";
 import type { UnifiedPreset, AiueoKey } from "./presetModel";
 import { AIUEO_KEYS, AIUEO_LABELS, aiueoLayerRole, openLayerRole } from "./presetModel";
 import PresetImagePreview from "./PresetImagePreview";
-import ThumbnailEditor from "./ThumbnailEditor";
 import type { ThumbnailView } from "./thumbnailView";
 import MotionGroupSelector from "./MotionGroupSelector";
 import { isMouthLayer } from "./motionGroups";
@@ -70,10 +69,6 @@ export default function PresetDetail({
   const [motionKind, setMotionKind] = useState<"mouth" | "eyes">("mouth");
   const [aiueoKey, setAiueoKey] = useState<AiueoKey>("a");
   const [shapePreview, setShapePreview] = useState<ShapePreview | null>(null);
-  const [editingThumbnail, setEditingThumbnail] = useState(false);
-
-  useEffect(() => { setEditingThumbnail(false); }, [preset.id]);
-
   useEffect(() => {
     setExpanded(layers.filter((layer) => layer.kind === "group").map((layer) => layer.path));
     setSelectedPath(null);
@@ -471,14 +466,6 @@ export default function PresetDetail({
       </section>
       <section className="panel preset-preview">
         <h2>プレビュー</h2>
-        <button type="button" className="secondary thumbnail-edit-toggle"
-          aria-pressed={editingThumbnail}
-          onClick={() => setEditingThumbnail((old) => !old)}>
-          {editingThumbnail ? "通常プレビューに戻る" : "サムネイルを編集"}
-        </button>
-        {editingThumbnail ? <ThumbnailEditor key={preset.id} presetId={preset.id}
-          name={preset.name} image={preview} saved={preset.thumbnail}
-          onSave={onThumbnailSave} /> : <>
         {(area === "normal" || (motionEnabled && selectedGroups.length > 0))
           && (selectedLayer || roleMode === "open" || motionKind === "eyes")
           && <p className="hint preset-selected-summary" aria-live="polite">
@@ -490,14 +477,15 @@ export default function PresetDetail({
         <PresetImagePreview image={shownPreview} alt={preset.name + " のプレビュー"}
           error={shownError} focus={area === "motion" && !motionEnabled ? undefined : focus}
           focusLabel={motionKind === "eyes" && area === "motion" ? "目元へ" : "口元へ"}
-          selectedFocus={selectedFocus} />
+          selectedFocus={selectedFocus}
+          onThumbnailSave={usingBasePreview && !sourceChanged && !previewLoading
+            ? onThumbnailSave : undefined} />
         {area === "motion" && motionEnabled && selectedGroups.length > 0 &&
           motionKind === "mouth" && unconfiguredOpened &&
           preset.mouthMotionEnabled !== false
           && !sourceChanged && <p className="hint warning">口のopenを指定してください</p>}
         {(area === "normal" || motionEnabled) &&
           <p className="hint">全体表示と{area === "motion" && motionKind === "eyes" ? "目元" : "口元"}の拡大を切り替えられます。拡大時はドラッグで移動できます。</p>}
-        </>}
       </section>
     </div>
   </div>;
