@@ -389,7 +389,11 @@ export function useBatchUtteranceExport(
       // Release the server-wide lease on every completion/cancel/failure path.
       // A stale tab cannot release a different session's unpredictable token.
       if (sessionId && !transportUnknown) {
-        try {
+        if (outcome === "success") {
+          // The combined OTIO API already committed and released the lease.
+          // A redundant cleanup request must never overwrite confirmed success.
+          overlay.settle("success");
+        } else try {
           const release = await post<{ released: boolean }>("preset-batch-cancel",
             { batch_id: sessionId });
           if (!release.released && outcome !== "success") {

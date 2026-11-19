@@ -195,3 +195,57 @@ test("lost batch MOV response never advances or unlocks until server terminal", 
   expect(renders).toBe(1);
   expect(otio).toBe(0);
 });
+
+test("single success poll preceding lost POST response releases the edit lock", async ({ page }) => {
+  await setup(page);
+  await addWav(page, "先着成功.wav");
+  let rejectResponse!: () => void;
+  const hold = new Promise<void>((resolve) => { rejectResponse = resolve; });
+  let requests = 0;
+  await page.route("**/api/export-progress/*", (route) => route.fulfill({
+    json: { status: "success", stage: "書き出し完了", percent: 100,
+      index: 1, total: 1, frames: 3, frame_total: 3, can_cancel: false },
+  }));
+  await page.route("**/api/preset-utterance-export", async (route) => {
+    requests++;
+    await hold;
+    await route.abort("failed"); // Server committed but the HTTP result was lost.
+  });
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
+  await expect(page.getByRole("dialog", { name: "書き出し完了" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeDisabled();
+  rejectResponse();
+  await expect(page.getByRole("button", { name: "MOVを書き出す" })).toBeEnabled();
+  await expect(page.getByRole("dialog", { name: "書き出し完了" })).toBeVisible();
+  expect(requests).toBe(1);
+});
+
+test("batch success is unaffected by a failing redundant cleanup request", async ({ page }) => {
+  await setup(page);
+  await addWav(page, "一件目.wav");
+  await addWav(page, "二件目.wav");
+  await page.route("**/api/preset-batch-start", (route) =>
+    route.fulfill({ json: { batch_id: "batch-success-session-token-long-enough" } }));
+  await page.route("**/api/preset-batch-mov-export", (route) => {
+    const body = route.request().postDataJSON() as { basename: string };
+    return route.fulfill({ json: { mov: "/tmp/output/" + body.basename + ".mov",
+      frames: 3, sample_count: 800, sample_rate: 8000 } });
+  });
+  await page.route("**/api/preset-combined-otio", (route) => {
+    const body = route.request().postDataJSON() as { basename: string; entries: unknown[] };
+    return route.fulfill({ json: { otio: "/tmp/output/" + body.basename + ".otio",
+      entries: body.entries.length } });
+  });
+  let cleanupCalls = 0;
+  await page.route("**/api/preset-batch-cancel", (route) => {
+    cleanupCalls++;
+    return route.abort("failed");
+  });
+  await page.getByRole("radio", { name: /全件/ }).check();
+  await expect(page.getByText("書き出し予定を確認済み", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
+  await expect(page.getByRole("dialog", { name: "書き出し完了" })).toBeVisible();
+  expect(cleanupCalls).toBe(0); // The successful combined OTIO API already released it.
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});

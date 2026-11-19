@@ -92,6 +92,8 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   // Synchronous guard closes the gap before React commits exportingId state.
   const singleExportLock = useRef(false);
   const singleUncertain = useRef(false);
+  // A successful progress poll can precede the lost POST response.
+  const [singleReconcileVersion, setSingleReconcileVersion] = useState(0);
   const labStatuses = useLabStatus(items, active, labRefreshVersion);
   const exportProgress = useExportProgress();
   const batch = useBatchUtteranceExport(draft, items, setItems,
@@ -135,7 +137,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     singleExportLock.current = false;
     setExportingId(null);
     setProbeVersion((previous) => previous + 1);
-  }, [exportProgress.view?.phase]);
+  }, [exportProgress.view?.phase, singleReconcileVersion]);
 
   // Keep the WAV list mounted across the Presets/Speech tabs. Refresh the
   // character snapshot when returning; reject changed PSDs, do not reuse a stale draft.
@@ -448,6 +450,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
       if (submitted && (err instanceof TypeError ||
           (err instanceof DOMException && err.name === "AbortError"))) {
         singleUncertain.current = true;
+        setSingleReconcileVersion((value) => value + 1);
         exportProgress.uncertain(
           "通信が切れました。サーバー処理の結果を確認中です。出力先を確認するまで再実行しないでください。");
       } else {

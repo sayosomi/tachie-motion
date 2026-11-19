@@ -146,6 +146,18 @@ class ExportProgressTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.jobs.start("short", "single")
 
+    def test_failed_reservation_only_retires_pending_token(self):
+        old = "12345678-1234-4234-9234-1234567890ab"
+        new = "abcdef12-1234-4234-9234-1234567890ab"
+        self.jobs.reserve(old, "batch", 2)
+        self.jobs.fail_reservation("different-token")
+        self.assertEqual("running", self.jobs.snapshot(old)["status"])
+        self.jobs.fail_reservation(old)
+        self.assertEqual("failed", self.jobs.snapshot(old)["status"])
+        self.jobs.reserve(new, "single")
+        self.jobs.fail_reservation(old)
+        self.assertEqual("running", self.jobs.snapshot(new)["status"])
+
 
 class ExportProcessCancellationTests(unittest.TestCase):
     def test_inflight_media_subprocess_is_killed_on_cancel(self):
@@ -286,6 +298,47 @@ class ExportProcessCancellationTests(unittest.TestCase):
 
 @unittest.skipUnless(TestClient is not None, "FastAPI test extra unavailable")
 class ExportProgressApiTests(unittest.TestCase):
+    def test_new_tab_recovers_expired_batch_without_old_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs = ExportProgress()
+            jobs.start(TOKEN, "batch", 2)
+            batch = BatchCoordinator(on_expire=lambda name: jobs.finish(name, "failed"))
+            batch.active = Session(
+                TOKEN, Path(tmp), "timeline", "error", None,
+                [], Path(tmp) / ".stage", time.monotonic() - 1)
+            new_token = "12345678-1234-4234-9234-1234567890ab"
+            with patch.object(app.state, "export_progress", jobs), \
+                 patch.object(app.state, "batch", batch), \
+                 patch("tachie_motion.web.batch_session.discard_stage"), \
+                 TestClient(app, base_url="http://127.0.0.1:8765") as client:
+                resp = client.post("/api/export-progress-reserve", json={
+                    "token": new_token, "kind": "single", "total": 1})
+                self.assertEqual(200, resp.status_code, resp.text)
+                self.assertIsNone(batch.active)
+                self.assertEqual("failed", jobs.snapshot(TOKEN)["status"])
+                self.assertEqual("running", jobs.snapshot(new_token)["status"])
+
+    def test_failed_batch_preflight_releases_unused_reservation(self):
+        old = "12345678-1234-4234-9234-1234567890ab"
+        new = "abcdef12-1234-4234-9234-1234567890ab"
+        jobs = ExportProgress()
+        batch = BatchCoordinator(on_expire=lambda name: jobs.finish(name, "failed"))
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(app.state, "export_progress", jobs), \
+             patch.object(app.state, "batch", batch), \
+             TestClient(app, base_url="http://127.0.0.1:8765") as client:
+            self.assertEqual(200, client.post("/api/export-progress-reserve",
+                json={"token": old, "kind": "batch", "total": 1}).status_code)
+            failed = client.post("/api/preset-batch-start", json={
+                "progress_id": old, "output_dir": str(Path(tmp) / "missing"),
+                "timeline_basename": "timeline", "timeline_policy": "error",
+                "entries": []})
+            self.assertEqual(400, failed.status_code, failed.text)
+            self.assertEqual("failed", jobs.snapshot(old)["status"])
+            next_start = client.post("/api/export-progress-reserve", json={
+                "token": new, "kind": "single", "total": 1})
+            self.assertEqual(200, next_start.status_code, next_start.text)
+
     def test_cancel_reaches_running_worker_before_publication(self):
         from threading import Event, Thread
 

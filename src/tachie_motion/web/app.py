@@ -317,12 +317,21 @@ def preset_utterance_destination(payload: DestinationRequest):
 
 
 @app.post("/api/export-progress-reserve")
-def export_progress_reserve(payload: ExportProgressReservation):
+async def export_progress_reserve(payload: ExportProgressReservation):
+    # A new tab may have lost the old batch token. Reclaim its expired
+    # session before inspecting the progress registry, under the worker lock.
     try:
+        await asyncio.wait_for(app.state.export_lock.acquire(), timeout=0.1)
+    except asyncio.TimeoutError:
+        raise HTTPException(409, "Another export is active") from None
+    try:
+        app.state.batch.expire_idle()
         app.state.export_progress.reserve(payload.token, payload.kind, payload.total)
         return {"registered": True}
     except (ValueError, RuntimeError) as exc:
         raise bad_request(exc) from exc
+    finally:
+        app.state.export_lock.release()
 
 
 @app.get("/api/export-progress/{token}")
@@ -454,18 +463,28 @@ async def preset_batch_start(payload: BatchStartRequest):
                 app.state.batch.start, folder, payload.timeline_basename,
                 payload.timeline_policy, [entry.model_dump() for entry in payload.entries],
                 payload.progress_id)
+            progress_started = False
             try:
                 app.state.export_progress.start(token, "batch", len(payload.entries))
+                progress_started = True
                 app.state.export_progress.check(token)
             except BaseException as exc:
                 app.state.batch.release(token)
-                if isinstance(exc, ExportCancelled):
-                    app.state.export_progress.finish(token, "cancelled")
+                if progress_started:
+                    app.state.export_progress.finish(
+                        token, "cancelled" if isinstance(exc, ExportCancelled) else "failed")
+                else:
+                    app.state.export_progress.fail_reservation(token)
                 raise
             return {"batch_id": token}
     except ExportCancelled as exc:
+        if payload.progress_id:
+            app.state.export_progress.fail_reservation(payload.progress_id)
         raise HTTPException(409, str(exc)) from exc
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
+        # A failed batch preflight must not strand its pending reservation.
+        if payload.progress_id:
+            app.state.export_progress.fail_reservation(payload.progress_id)
         raise bad_request(exc) from exc
 
 

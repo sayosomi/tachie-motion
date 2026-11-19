@@ -103,6 +103,14 @@ class ExportProgress:
                              reserved=True,
                              reserved_until=time.monotonic() + _RESERVED_SECONDS)
 
+    def fail_reservation(self, token: str) -> None:
+        """Retire only the matching pre-start reservation, never a worker."""
+        with self._lock:
+            self._prune()
+            if (self._job is not None and self._job.token == token
+                    and self._job.reserved and self._job.status == "running"):
+                self._finish_unlocked(self._job, "failed")
+
     def _archive(self) -> None:
         if self._job is not None:
             self._history[self._job.token] = self._job
