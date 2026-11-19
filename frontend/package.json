@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/check-module-names.mjs && tsc --noEmit && vite build",
     "dev": "vite --host 127.0.0.1",
     "test:e2e": "playwright test"
   },

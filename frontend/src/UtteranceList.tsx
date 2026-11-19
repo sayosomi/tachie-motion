@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import NativeFilePicker from "./NativeFilePicker";
 import PresetPicker from "./PresetPicker";
 import type { WavPlaybackControls } from "./WavPlayback";
+import WavWaveform from "./WavWaveform";
 import type { LabInfo } from "./useLabStatus";
 import type { UnifiedPreset } from "./presetModel";
 import { wavFilename, type LipMode, type UtteranceItem } from "./utteranceItems";
@@ -187,11 +188,10 @@ export default function UtteranceList({
                 {playback.loading ? <span className="utterance-loading-label">
                   読み込み中止（■を押す）
                 </span> : <>
-                  <input type="range" aria-label={`再生位置: ${name}`}
-                    disabled={selectionLocked}
-                    min={0} max={Math.max(0.01, item.wav.duration_seconds)} step="0.01"
-                    value={Math.min(playback.elapsed, item.wav.duration_seconds)}
-                    onChange={(event) => playback.seek(Number(event.target.value))} />
+                  <WavWaveform name={name} disabled={selectionLocked}
+                    elapsed={playback.elapsed} duration={item.wav.duration_seconds}
+                    peaks={playback.waveform?.sourceId === item.id ? playback.waveform.peaks : null}
+                    onSeek={playback.seek} />
                   <span className="meta">{playback.elapsed.toFixed(1)} / {item.wav.duration_seconds.toFixed(1)}秒</span>
                 </>}
               </div>}

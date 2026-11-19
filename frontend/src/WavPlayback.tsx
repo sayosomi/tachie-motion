@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { wavFilename, type UtteranceItem } from "./utteranceItems";
+import { decodeWavPeaks } from "./wavPeaks";
 
 type Source = Pick<UtteranceItem, "id" | "wavPath">;
 export type WavPlaybackControls = {
@@ -8,6 +9,7 @@ export type WavPlaybackControls = {
   loading: boolean;
   mode: "single" | "all" | null;
   elapsed: number;
+  waveform: { sourceId: string; peaks: number[] } | null;
   status: string;
   toggleItem: (id: string) => void;
   playAll: () => void;
@@ -20,6 +22,7 @@ export type WavPlaybackControls = {
 export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackControls {
   const audio = useRef<HTMLAudioElement>(null);
   const pending = useRef<AbortController | null>(null);
+  const waveformPending = useRef<AbortController | null>(null);
   const objectUrl = useRef<string | null>(null);
   const source = useRef<Source | null>(null);
   const generation = useRef(0);
@@ -31,14 +34,18 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"single" | "all" | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [waveform, setWaveform] = useState<{ sourceId: string; peaks: number[] } | null>(null);
   const [status, setStatus] = useState("");
 
   function discardSource() {
+    waveformPending.current?.abort();
+    waveformPending.current = null;
     pending.current?.abort();
     pending.current = null;
     const previousUrl = objectUrl.current;
     objectUrl.current = null; // Events raised by pause/load during cleanup are not errors.
     source.current = null;
+    setWaveform(null);
     if (audio.current) {
       audio.current.pause();
       audio.current.removeAttribute("src");
@@ -85,6 +92,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
     return () => {
       generation.current++;
       pending.current?.abort();
+      waveformPending.current?.abort();
       if (audio.current) audio.current.pause();
       if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
     };
@@ -123,6 +131,17 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
       const player = audio.current;
       if (!player) return;
       player.src = url;
+      // The display-only analysis is cancellable and never holds up playback.
+      const waveformController = new AbortController();
+      waveformPending.current = waveformController;
+      void decodeWavPeaks(wav, waveformController.signal).then((peaks) => {
+        if (!waveformController.signal.aborted && epoch === generation.current &&
+            source.current?.id === item.id) {
+          setWaveform(peaks ? { sourceId: item.id, peaks } : null);
+        }
+      }).finally(() => {
+        if (waveformPending.current === waveformController) waveformPending.current = null;
+      });
       await player.play();
       if (epoch === generation.current) {
         setLoading(false);
@@ -219,6 +238,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
       aria-label="WAV試聴プレーヤー" />
   </div>;
 
-  return { activeId, paused, loading, mode, elapsed, status, toggleItem, playAll, stop, seek,
+  return { activeId, paused, loading, mode, elapsed, waveform, status,
+    toggleItem, playAll, stop, seek,
     audioElement };
 }

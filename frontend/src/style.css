@@ -403,7 +403,14 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .utterance-item-actions { grid-column:6; grid-row:1; }
 .utterance-row-progress { grid-column:3 / 6; grid-row:2; display:flex; align-items:center; gap:12px;
   padding:0 8px 7px; min-width:0; }
-.utterance-row-progress input[type="range"] { flex:1; min-width:0; }
+.wav-timeline { flex:1; min-width:0; }
+.wav-timeline input[type="range"] { display:block; width:100%; min-width:0; margin:4px 0; }
+.wav-waveform { height:40px; border-radius:4px; background:#142937;
+  cursor:ew-resize; touch-action:none; overflow:hidden; }
+.wav-waveform svg { display:block; width:100%; height:100%; pointer-events:none; }
+.wav-waveform path { fill:none; stroke:#95dccc; stroke-width:1.4; }
+.wav-waveform line { stroke:#f6d795; stroke-width:1.4; }
+.wav-waveform:has(+ input:disabled) { opacity:.6; cursor:default; }
 .utterance-row-progress .meta { font-variant-numeric:tabular-nums; white-space:nowrap; }
 .utterance-loading-label { color:#b6e4d8; font-size:12px; line-height:1.5; }
 .utterance-audio-status { margin:8px 0 0; overflow-wrap:anywhere; }
