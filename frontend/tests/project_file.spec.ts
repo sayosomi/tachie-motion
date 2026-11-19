@@ -63,6 +63,22 @@ test("project JSON keeps duplicate WAV registrations, Unicode and exact settings
   expect(json).not.toContain("nameDrafts");
 });
 
+test("project JSON round-trips thumbnail view without thumbnail pixels or MOV crop changes", () => {
+  const crop = { zoom: 3, centerX: 0.25, centerY: 0.6 };
+  const updated: PresetDraft = { ...draft, collection: {
+    ...draft.collection, items: draft.collection.items.map((preset) => ({
+      ...preset, thumbnail: crop,
+    })),
+  } };
+  const serialized = serializeProjectFile(updated, layers, [makeWav("a", 1)], "a");
+  const restored = projectPresetDraft(parseProjectFile(serialized));
+  expect(restored.collection.items[0].thumbnail).toEqual(crop);
+  expect(serialized).not.toContain("data:image/");
+  const invalid = JSON.parse(serialized);
+  invalid.character.collection.items[0].thumbnail.zoom = -1;
+  expect(() => parseProjectFile(JSON.stringify(invalid))).toThrow("サムネイル設定");
+});
+
 test("explicit n leaf matching fixed survives project v3 without inheritance marker", () => {
   const shapes = { a: [], i: [], u: [], e: [], o: [],
     n: [{ path: "0/0", visible: true }] } as
