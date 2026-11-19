@@ -316,6 +316,11 @@ export function useBatchUtteranceExport(
           successes++;
           stagedResults.push({ id: item.id, result });
         } catch (error) {
+          // A broken connection does not establish that the media worker
+          // stopped. Abort the entire client loop; never render the next WAV.
+          if (error instanceof TypeError ||
+              (error instanceof DOMException && error.name === "AbortError"))
+            throw error;
           if (cancelledByServer(error)) {
             outcome = "cancelled";
             setSummary("一括書き出しをキャンセルしました。旧MOV・OTIOは変更していません。");
