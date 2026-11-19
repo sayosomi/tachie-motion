@@ -1,6 +1,9 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tmdoAAAAASUVORK5CYII=";
+// An asymmetric 40x30 PNG: colored quadrants and a small white mark.
+// Unlike the usual 1x1 fixture, wrong crop offsets can be distinguished.
+const asymmetricPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAeCAYAAABe3VzdAAAAX0lEQVR42mP8KCr6n4GKQHEJHzWNY2BiGORg1IHD3oEs2ATZHj3CqviXnNxoCI46cNSBQyIXD0RuHY3ikZsGNcRPUtXAc3yao1E86sBRB446cNSBow4cdeCoA0cdCAcAszMJchkKDcUAAAAASUVORK5CYII=";
 const layers = [
   { path: "0", name: "face", kind: "group", visible: true, effective_visible: true, bbox: [0, 0, 64, 64] },
   { path: "0/0", name: "mouth", kind: "pixel", visible: true, effective_visible: true, bbox: [2, 2, 8, 8] },
@@ -8,12 +11,12 @@ const layers = [
 const source = "/tmp/立ち絵 あんこもん.psd";
 const draftKey = "tachie-motion.preset-draft.v2";
 
-async function start(page: Page) {
+async function start(page: Page, image = png) {
   await page.route("**/api/psd", (route) => route.fulfill({
-    json: { width: 64, height: 64, fingerprint: "1000:2000", preview: png, layers },
+    json: { width: 64, height: 64, fingerprint: "1000:2000", preview: image, layers },
   }));
   await page.route("**/api/preset-preview", (route) =>
-    route.fulfill({ json: { preview: png } }));
+    route.fulfill({ json: { preview: image } }));
   await page.route("**/api/health", (route) => route.fulfill({
     json: { ok: true, default_output_dir: "/tmp/output" },
   }));
@@ -37,6 +40,41 @@ async function savedDraft(page: Page) {
       id: string; name: string; thumbnail?: { zoom: number; centerX: number; centerY: number };
     }> };
   }, draftKey);
+}
+
+// Visible image coordinates relative to the source, measured from actual DOM
+// geometry instead of calling the shared thumbnailLayout implementation.
+async function visibleCrop(frame: Locator) {
+  return frame.evaluate((node) => {
+    const img = node.querySelector("img");
+    if (!(img instanceof HTMLImageElement) || img.naturalWidth <= 0) {
+      throw new Error("Thumbnail image has not loaded");
+    }
+    const stage = node.getBoundingClientRect();
+    const image = img.getBoundingClientRect();
+    if (image.width <= 0 || image.height <= 0) {
+      throw new Error("Thumbnail image geometry is unavailable");
+    }
+    return {
+      left: (stage.left - image.left) / image.width,
+      top: (stage.top - image.top) / image.height,
+      right: (stage.right - image.left) / image.width,
+      bottom: (stage.bottom - image.top) / image.height,
+    };
+  });
+}
+
+async function wheelBurst(frame: Locator, deltas: number[], x: number, y: number) {
+  // Dispatch all events before yielding: React cannot commit a render
+  // between these wheel events.
+  await frame.evaluate((node, args) => {
+    for (const deltaY of args.deltas) {
+      node.dispatchEvent(new WheelEvent("wheel", {
+        bubbles: true, cancelable: true,
+        clientX: args.x, clientY: args.y, deltaY,
+      }));
+    }
+  }, { deltas, x, y });
 }
 
 async function editAndSave(page: Page) {
@@ -131,6 +169,79 @@ test("wheel zoom anchors at cursor, stays in preview and saves only on explicit 
   await page.mouse.wheel(0, 900);
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1×");
   expect((await savedDraft(page)).collection.items[0].thumbnail).toEqual(saved);
+});
+
+test("rapid wheel bursts, reversal and drag use the latest synchronous view", async ({ page }) => {
+  await start(page, asymmetricPng);
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  const stage = page.locator(".preset-image-viewport");
+  const controls = page.locator(".preset-image-controls");
+  await expect(stage.locator("img")).toBeVisible();
+  await stage.hover();
+  const box = await stage.boundingBox();
+  expect(box).not.toBeNull();
+  const x = box!.x + box!.width / 2 + 32;
+  const y = box!.y + box!.height / 2 + 24;
+  await wheelBurst(stage, [-100, -100], x, y);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("2×");
+  const center = await visibleCrop(stage);
+  expect((center.left + center.right) / 2).toBeCloseTo(0.5 + 32 / (box!.width * 2), 2);
+  const firstTransform = await stage.locator("img").evaluate((img) => img.style.transform);
+  expect(firstTransform).toContain("translate(-32px, -24px)");
+
+  await wheelBurst(stage, [-40, 30, 70], x, y);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.5×");
+  const reverseTransform = await stage.locator("img").evaluate((img) => img.style.transform);
+  expect(reverseTransform).toContain("translate(-16px, -12px)");
+
+  // A wheel event while the left button is held terminates the old drag.
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 20, y + 15, { steps: 2 });
+  await wheelBurst(stage, [-100], x + 20, y + 15);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("2×");
+  const afterZoom = await stage.locator("img").evaluate((img) => img.style.transform);
+  await page.mouse.move(x + 45, y + 30, { steps: 2 });
+  expect(await stage.locator("img").evaluate((img) => img.style.transform)).toBe(afterZoom);
+  await page.mouse.up();
+  expect((await savedDraft(page)).collection.items[0].thumbnail).toBeUndefined();
+
+  await controls.getByRole("button", { name: "サムネにする" }).click();
+  expect((await savedDraft(page)).collection.items[0].thumbnail?.zoom).toBe(2);
+});
+
+test("asymmetric crop matches detail preview, preset list and WAV choices", async ({ page }) => {
+  await start(page, asymmetricPng);
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  const stage = page.locator(".preset-image-viewport");
+  expect(await stage.locator("img").evaluate((img) => img.naturalWidth)).toBe(40);
+  await editAndSave(page);
+  const expected = await visibleCrop(stage);
+  const saved = (await savedDraft(page)).collection.items[0].thumbnail!;
+  expect((expected.left + expected.right) / 2).toBeCloseTo(saved.centerX, 2);
+  expect((expected.top + expected.bottom) / 2).toBeCloseTo(saved.centerY, 2);
+
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  const listFrame = page.locator(".preset-card-image.thumbnail-frame").first();
+  await expect(listFrame.locator("img")).toBeVisible();
+  const listCrop = await visibleCrop(listFrame);
+
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await page.locator("#speech-wav-path-advanced").evaluate(
+    (node) => { (node as HTMLDetailsElement).open = true; });
+  await page.locator("#speech-wav-path").fill("/tmp/test.wav");
+  await page.getByRole("button", { name: "WAVを確認" }).click();
+  const row = page.locator("[data-utterance-id]").first();
+  await expect(row).toBeVisible();
+  await row.locator(".preset-picker-trigger").click();
+  const wavFrame = row.locator(".preset-picker-option .preset-picker-thumb").first();
+  await expect(wavFrame.locator("img")).toBeVisible();
+  const wavCrop = await visibleCrop(wavFrame);
+
+  for (const key of ["left", "top", "right", "bottom"] as const) {
+    expect(Math.abs(listCrop[key] - expected[key])).toBeLessThan(0.012);
+    expect(Math.abs(wavCrop[key] - expected[key])).toBeLessThan(0.025);
+  }
 });
 
 test("thumbnail crop is persisted and reused by the preset list without changing PSD base", async ({ page }) => {
