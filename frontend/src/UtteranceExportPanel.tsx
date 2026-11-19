@@ -32,6 +32,8 @@ type Props = {
   blinkMissing: boolean;
   info: ExportDestination | undefined;
   destinationError: string;
+  soloBasename: string;
+  soloNameError: string;
   requiresAlternate: boolean;
   saveAsName: string;
   outputBasename: string;
@@ -50,7 +52,7 @@ type Props = {
 
 export default function UtteranceExportPanel({
   items, current, draftAvailable, openMouthMissing, aiueoMouthMissing, labStatus, blinkMissing,
-  info, destinationError, requiresAlternate,
+  info, destinationError, soloBasename, soloNameError, requiresAlternate,
   saveAsName, outputBasename, canExport, exportingId, addingCount,
   scope, onScopeChange, onRevise, onSingleExport, batch, disabled, naming, onNamingChange,
 }: Props) {
@@ -71,6 +73,20 @@ export default function UtteranceExportPanel({
         checked={scope === "all"} disabled={locked}
         onChange={() => onScopeChange("all")} />全件（{items.length}件）</label>
     </fieldset>
+    <div className="batch-naming-editor" aria-label="MOV命名設定">
+      <h3>共通のMOV命名</h3>
+      <label htmlFor="batch-project-name">プロジェクト名</label>
+      <input id="batch-project-name" value={naming.projectName} disabled={locked}
+        onChange={(event) => onNamingChange({ ...naming, projectName: event.target.value })} />
+      <label htmlFor="batch-character-name">キャラ名</label>
+      <input id="batch-character-name" value={naming.characterName} disabled={locked}
+        onChange={(event) => onNamingChange({ ...naming, characterName: event.target.value })} />
+      <label htmlFor="batch-mov-template">MOVのファイル名テンプレート（単一・全件共通）</label>
+      <input id="batch-mov-template" value={naming.movTemplate} disabled={locked}
+        onChange={(event) => onNamingChange({ ...naming, movTemplate: event.target.value })} />
+      <p className="hint">使える項目：{"{番号}"}・{"{WAV名}"}・{"{キャラ名}"}・{"{プロジェクト名}"}。
+        番号はWAV一覧順で、元WAV名の連番もそのまま残します。</p>
+    </div>
 
     {scope === "single" && current ? <div className="export-current-settings">
       <p className="hint" title={current.wavPath}>選択中のWAV：{wavFilename(current.wavPath)}</p>
@@ -100,10 +116,18 @@ export default function UtteranceExportPanel({
         value={current.outputDir} disabled={locked}
         onChange={(path) => onRevise(current.id, { outputDir: path, saveAsName: null })}
         onSelected={(path) => onRevise(current.id, { outputDir: path, saveAsName: null })} />
-      <label htmlFor="speech-basename">ファイル名（英数字・-・_）</label>
-      <input id="speech-basename" value={current.basename}
+      <label htmlFor="speech-basename">このMOVのファイル名（日本語・空白可）</label>
+      <input id="speech-basename" value={soloBasename}
         disabled={locked}
-        onChange={(e) => onRevise(current.id, { basename: e.target.value, saveAsName: null })} />
+        onChange={(e) => onRevise(current.id, {
+          basename: e.target.value, basenameEdited: true, saveAsName: null,
+        })} />
+      <button type="button" disabled={locked || !current.basenameEdited}
+        onClick={() => onRevise(current.id, { basenameEdited: false, saveAsName: null })}>
+        共通テンプレートに戻す
+      </button>
+      {current.basenameEdited && <p className="hint">このWAVのみ手動命名です。並び替えても名前は変わりません。</p>}
+      {soloNameError && <p className="hint warning" role="alert">{soloNameError}</p>
       {destinationError && <p className="hint warning" role="alert">{destinationError}</p>}
       {info?.state === "complete" && <>
         <p className="hint">同名のMOVがあります。</p>
@@ -151,23 +175,14 @@ export default function UtteranceExportPanel({
           onChange={() => batch.setConflictChoice("rename")} />別名で保存（_002などを自動追加）</label>
       </fieldset>
       <div className="batch-naming-editor">
-        <label htmlFor="batch-project-name">プロジェクト名</label>
-        <input id="batch-project-name" value={naming.projectName} disabled={locked}
-          onChange={(event) => onNamingChange({ ...naming, projectName: event.target.value })} />
-        <label htmlFor="batch-character-name">キャラ名</label>
-        <input id="batch-character-name" value={naming.characterName} disabled={locked}
-          onChange={(event) => onNamingChange({ ...naming, characterName: event.target.value })} />
         <NativeFilePicker id="batch-output-dir" kind="output_dir" label="一括書き出し先"
           value={naming.outputDir} disabled={locked}
           onChange={(value) => onNamingChange({ ...naming, outputDir: value })}
           onSelected={(value) => onNamingChange({ ...naming, outputDir: value })} />
-        <label htmlFor="batch-mov-template">MOVのファイル名テンプレート</label>
-        <input id="batch-mov-template" value={naming.movTemplate} disabled={locked}
-          onChange={(event) => onNamingChange({ ...naming, movTemplate: event.target.value })} />
         <label htmlFor="batch-otio-template">全体OTIOのファイル名テンプレート</label>
         <input id="batch-otio-template" value={naming.otioTemplate} disabled={locked}
           onChange={(event) => onNamingChange({ ...naming, otioTemplate: event.target.value })} />
-        <p className="hint">使える項目：{"{番号}"}・{"{WAV名}"}・{"{キャラ名}"}・{"{プロジェクト名}"}。OTIOでは{"{プロジェクト名}"}のみ。</p>
+        <p className="hint">全体OTIOのテンプレートでは{"{プロジェクト名}"}のみ使用できます。</p>
       </div>
       {noneCount > 0 && <p className="hint warning" role="note">
         口パク「なし」が{noneCount}件あります。口を動かす場合は各WAVの方式をopenまたはaiueoにしてください。
