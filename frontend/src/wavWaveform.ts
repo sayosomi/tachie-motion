@@ -8,7 +8,47 @@ const SAMPLES_PER_BIN = 256;
 const HEADER_BYTES = 64 * 1024;
 
 type WavFormat = { sampleRate: number; channels: number; blockAlign: number };
-let decodeTail: Promise<void> = Promise.resolve();
+// A single active decode plus abortable waiters: cancelled queued requests
+// settle immediately rather than retaining old WAV Blobs behind a slow decode.
+type DecodeWaiter = {
+  signal: AbortSignal;
+  resolve: (release: (() => void) | null) => void;
+  onAbort: () => void;
+};
+let decodeBusy = false;
+const decodeWaiters: DecodeWaiter[] = [];
+
+function releaseDecode() {
+  while (decodeWaiters.length) {
+    const next = decodeWaiters.shift()!;
+    next.signal.removeEventListener("abort", next.onAbort);
+    if (next.signal.aborted) {
+      next.resolve(null);
+      continue;
+    }
+    next.resolve(releaseDecode);
+    return;
+  }
+  decodeBusy = false;
+}
+
+function acquireDecode(signal: AbortSignal): Promise<(() => void) | null> {
+  if (signal.aborted) return Promise.resolve(null);
+  if (!decodeBusy) {
+    decodeBusy = true;
+    return Promise.resolve(releaseDecode);
+  }
+  return new Promise((resolve) => {
+    const waiter: DecodeWaiter = { signal, resolve, onAbort: () => {
+      const at = decodeWaiters.indexOf(waiter);
+      if (at >= 0) decodeWaiters.splice(at, 1);
+      resolve(null);
+    } };
+    decodeWaiters.push(waiter);
+    signal.addEventListener("abort", waiter.onAbort, { once: true });
+    if (signal.aborted) waiter.onAbort();
+  });
+}
 
 // Do not trust Blob size alone: an 8 kHz WAV decoded at a 48 kHz context rate
 // can allocate six times as many Float32 samples. Reject unknown layouts.
@@ -77,12 +117,10 @@ export async function decodeWavPeaks(wav: Blob, signal: AbortSignal): Promise<nu
   if (maxFrames * format.channels * Float32Array.BYTES_PER_ELEMENT >
       MAX_DECODED_PCM_BYTES) return null;
 
-  // Serialize decodes, including cancelled decodes still being settled by the
-  // browser. Queued stale requests never create another AudioContext.
-  const previous = decodeTail;
-  let release!: () => void;
-  decodeTail = new Promise<void>((resolve) => { release = resolve; });
-  await previous;
+  // Never overlap AudioContexts. Aborted queued requests release Blob references
+  // immediately, even when the current browser decoder has not settled.
+  const release = await acquireDecode(signal);
+  if (!release) return null;
   try {
     if (signal.aborted) return null;
     let context: AudioContext;
