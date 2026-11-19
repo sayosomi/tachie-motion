@@ -135,7 +135,13 @@ def solo_destination_info(folder: Path, basename: str) -> dict:
         return {"state": state, "suggested_basename": basename}
     for number in range(2, 10002):
         suffix = f"_{number:03d}"
-        candidate = basename[:64 - len(suffix)] + suffix
+        # Keep the original WAV-derived name unless the 120-character /
+        # 180-byte filesystem budget requires shortening it for a suffix.
+        prefix = basename[:120 - len(suffix)]
+        while prefix and len((prefix + suffix).encode("utf-8")) > 180:
+            prefix = prefix[:-1]
+        candidate = prefix + suffix
+        validate_media_basename(candidate)
         if single_destination(folder / (candidate + ".mov"),
                               protect_otio_references=True)["state"] == "available":
             return {"state": state, "suggested_basename": candidate}
