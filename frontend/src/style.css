@@ -578,3 +578,7 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .preset-picker-option:hover,.preset-picker-option:focus-visible { background:#315066; }
 .preset-picker-option[aria-pressed="true"] { border-color:#88d2b9; background:#234a55; }
 .preset-picker-option:focus-visible { outline:2px solid #a8e8d4; outline-offset:-2px; }
+
+/* Use one square crop window across editing, cards and WAV options. */
+.thumbnail-edit-stage { width:min(100%,320px); height:auto; aspect-ratio:1; }
+.preset-card-image.thumbnail-frame { min-height:0; height:auto; aspect-ratio:1; align-self:center; width:100%; }
