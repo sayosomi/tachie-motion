@@ -14,7 +14,7 @@ export default function PresetThumbnail({
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
-  const [bitmap, setBitmap] = useState<Size>({ width: 0, height: 0 });
+  const [bitmap, setBitmap] = useState<Size & { image?: string }>({ width: 0, height: 0 });
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -29,17 +29,16 @@ export default function PresetThumbnail({
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    setBitmap({ width: 0, height: 0 });
-    setFailed(false);
-  }, [image]);
+  useEffect(() => { setFailed(false); }, [image]);
 
   const geometry = thumbnailLayout(thumbnailView(view), size.width, size.height,
-    bitmap.width, bitmap.height);
+    bitmap.image === image ? bitmap.width : 0,
+    bitmap.image === image ? bitmap.height : 0);
 
   return <div ref={stage} className={`thumbnail-frame ${className}`}>
     {image && !failed ? <img src={image} alt={alt} draggable={false}
       onLoad={(event) => setBitmap({
+        image,
         width: event.currentTarget.naturalWidth,
         height: event.currentTarget.naturalHeight,
       })}
