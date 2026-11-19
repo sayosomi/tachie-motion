@@ -78,19 +78,17 @@ class SoloOtioProtectionTests(unittest.TestCase):
         self.assertEqual(timeline.read_bytes(), b"ADDED WHILE BACKING UP")
         self.assertFalse((self.folder / ".speech.mov.single-backup").exists())
 
-    def test_foreign_otio_appearing_after_old_mov_unlink_rolls_back(self):
+    def test_foreign_otio_appearing_after_atomic_old_mov_move_rolls_back(self):
         self.mov.write_bytes(b"OLD MOV")
         prior = initial_single_identity(self.mov, "overwrite", protect_otio_references=True)
         timeline = self.folder / "project.otio"
-        unlink = os.unlink
-
-        def inject(target, *args, **kwargs):
-            result = unlink(target, *args, **kwargs)
-            if Path(target) == self.mov:
+        from tachie_motion.web.atomic_rename import rename_noreplace
+        def inject(source, destination):
+            rename_noreplace(source, destination)
+            if Path(source) == self.mov and Path(destination).name == "removed":
                 timeline.write_bytes(b"ADDED DURING PUBLICATION")
-            return result
 
-        with patch("tachie_motion.web.solo_output.os.unlink", side_effect=inject):
+        with patch("tachie_motion.web.solo_output.rename_noreplace", side_effect=inject):
             with self.assertRaisesRegex(ValueError, "Another OTIO"):
                 publish_single(self.stage, self.mov, policy="overwrite", prior=prior,
                                protect_otio_references=True)
@@ -188,6 +186,91 @@ class SoloOtioProtectionTests(unittest.TestCase):
         self.assertEqual(extra.read_bytes(), b"OTHER WRITER DATA")
         self.assertEqual((backup / "saved").read_bytes(), b"OLD MOV")
         self.assertEqual((backup / "removed").read_bytes(), b"OLD MOV")
+
+    def test_old_mov_replacement_at_atomic_move_preserves_both_inodes(self):
+        self.mov.write_bytes(b"OLD MOV")
+        prior = initial_single_identity(self.mov, "overwrite", protect_otio_references=True)
+        outsider = self.folder / "third-party.mov"
+        outsider.write_bytes(b"THIRD-PARTY MOV")
+        from tachie_motion.web.atomic_rename import rename_noreplace
+        def inject(source, destination):
+            if Path(source) == self.mov and Path(destination).name == "removed":
+                os.replace(outsider, self.mov)
+            rename_noreplace(source, destination)
+
+        with patch("tachie_motion.web.solo_output.rename_noreplace", side_effect=inject):
+            with self.assertRaisesRegex(RuntimeError, "Overwrite recovery required"):
+                publish_single(self.stage, self.mov, policy="overwrite", prior=prior,
+                               protect_otio_references=True)
+        backup = self.folder / ".speech.mov.single-backup"
+        self.assertEqual(self.mov.read_bytes(), b"OLD MOV")
+        self.assertEqual((backup / "saved").read_bytes(), b"OLD MOV")
+        self.assertEqual((backup / "removed").read_bytes(), b"THIRD-PARTY MOV")
+
+    def test_published_mov_replacement_at_atomic_rollback_keeps_third_party(self):
+        self.mov.write_bytes(b"OLD MOV")
+        prior = initial_single_identity(self.mov, "overwrite", protect_otio_references=True)
+        outsider = self.folder / "third-party.mov"
+        outsider.write_bytes(b"THIRD-PARTY MOV")
+        timeline = self.folder / "project.otio"
+        from tachie_motion.web.atomic_rename import rename_noreplace
+        def injected_link(source, destination):
+            result = os.link(source, destination)
+            if Path(source) == self.stage and Path(destination) == self.mov:
+                timeline.write_bytes(b"OTIO ARRIVED")
+            return result
+        def injected_move(source, destination):
+            if Path(source) == self.mov and Path(destination).name == "uncommitted":
+                os.replace(outsider, self.mov)
+            rename_noreplace(source, destination)
+
+        with patch("tachie_motion.web.solo_output.os.link", side_effect=injected_link):
+            with patch("tachie_motion.web.solo_output.rename_noreplace",
+                       side_effect=injected_move):
+                with self.assertRaisesRegex(RuntimeError, "Overwrite recovery required"):
+                    publish_single(self.stage, self.mov, policy="overwrite", prior=prior,
+                                   protect_otio_references=True)
+        backup = self.folder / ".speech.mov.single-backup"
+        self.assertEqual(self.mov.read_bytes(), b"OLD MOV")
+        self.assertEqual((backup / "uncommitted").read_bytes(), b"THIRD-PARTY MOV")
+        self.assertEqual((backup / "saved").read_bytes(), b"OLD MOV")
+
+    def test_archive_entry_replacement_is_retained_without_unlink(self):
+        self.mov.write_bytes(b"OLD MOV")
+        prior = initial_single_identity(self.mov, "overwrite", protect_otio_references=True)
+        from tachie_motion.web.atomic_rename import rename_noreplace
+        def inject(source, destination):
+            if Path(source).name == ".speech.mov.single-backup":
+                replacement = self.folder / "outsider"
+                replacement.write_bytes(b"THIRD PARTY SAVED")
+                os.replace(replacement, Path(source) / "saved")
+            rename_noreplace(source, destination)
+        with patch("tachie_motion.web.solo_output.rename_noreplace", side_effect=inject):
+            with patch("tachie_motion.web.solo_output.os.unlink",
+                       side_effect=AssertionError("No auto unlink is safe")):
+                warning = publish_single(self.stage, self.mov, policy="overwrite",
+                                         prior=prior, protect_otio_references=True)
+        self.assertIn("retained for manual cleanup", warning)
+        archives = list(self.folder.glob(".speech.mov.single-backup-retained-*"))
+        self.assertEqual(len(archives), 1)
+        self.assertEqual((archives[0] / "saved").read_bytes(), b"THIRD PARTY SAVED")
+        self.assertEqual((archives[0] / "removed").read_bytes(), b"OLD MOV")
+        self.assertEqual(self.mov.read_bytes(), b"NEW MOV")
+
+    def test_archive_does_not_block_next_overwrite(self):
+        self.mov.write_bytes(b"ORIGINAL")
+        prior = initial_single_identity(self.mov, "overwrite", protect_otio_references=True)
+        publish_single(self.stage, self.mov, policy="overwrite", prior=prior,
+                       protect_otio_references=True)
+        prior = initial_single_identity(self.mov, "overwrite", protect_otio_references=True)
+        self.stage.write_bytes(b"SECOND MOV")
+        publish_single(self.stage, self.mov, policy="overwrite", prior=prior,
+                       protect_otio_references=True)
+        archives = sorted(self.folder.glob(".speech.mov.single-backup-retained-*"))
+        self.assertEqual(len(archives), 2)
+        old_versions = sorted((a / "saved").read_bytes() for a in archives)
+        self.assertEqual(old_versions, [b"NEW MOV", b"ORIGINAL"])
+        self.assertEqual(self.mov.read_bytes(), b"SECOND MOV")
 
     def test_batch_recovery_returns_diagnostic_without_candidate_scan(self):
         recovery = self.folder / ".tachie-batch-recovery-test"
