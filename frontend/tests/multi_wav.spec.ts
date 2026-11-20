@@ -917,7 +917,7 @@ test("WAV list shows each item's preset and lip mode after editing and reorderin
 });
 
 
-test("desktop WAV headers align with dropdown columns both with and without a list scrollbar", async ({ page }) => {
+test("desktop WAV headers align while expanded WAV rows use page scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.route("**/api/wav", (route) => route.fulfill({
     json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
@@ -946,7 +946,7 @@ test("desktop WAV headers align with dropdown columns both with and without a li
   }
   await expect(page.locator("[data-utterance-id]")).toHaveCount(9);
   widths = await aligned();
-  expect(widths.scrollable).toBe(true);
+  expect(widths.scrollable).toBe(false);
   expect(Math.abs(widths.preset)).toBeLessThanOrEqual(2);
   expect(Math.abs(widths.mode)).toBeLessThanOrEqual(2);
 });
@@ -1012,7 +1012,7 @@ test("preset verification failure is not displayed as a missing assigned preset"
   }));
   await openSpeech(page);
   await addWav(page, "/tmp/voice.wav");
-  const preset = page.locator("[data-utterance-id] .preset-picker-trigger");
+  const preset = page.locator("[data-utterance-id] .utterance-row-preset .preset-picker-trigger");
   await expect(preset).toBeEnabled();
 
   await page.getByRole("button", { name: "プリセット", exact: true }).click();
