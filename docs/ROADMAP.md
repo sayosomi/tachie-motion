@@ -4,11 +4,11 @@
 
 この文書は実装の進捗と今後の作業範囲を示します。確定した製品要件は [PRODUCT_SPEC.md](PRODUCT_SPEC.md)、実際に使えるコマンドは [README.md](../README.md) を参照してください。PoCで確認したことと、完成したアプリでできることは区別します。
 
-## Public Issue #53 — プレビューのホイール倍率を連続化（Draft PR #54、進行中）
+## Public Issue #53 — プレビューのホイール倍率を連続化（PR #54、2026-11-20受け入れ）
 
-- [x] Draft PR #54でホイール倍率を固定段階から移動量比例の連続倍率へ変更。ポインタ基準の1〜8倍、＋／−ボタンの段階操作、サムネイル明示保存を実装（**main未統合**）。
-- [x] Mac実PSDでの連続ズームの見た目・操作性を2026-11-20 Human PASS。旧HEADでFrontend Build PASS、Playwright既存9件は段階的PASS。
-- [ ] 独立監査はHEAD `6809bc6d6ef4c7775c70be4d03f99dc593389240` でMEDIUM 1（非段階倍率の一覧・WAV・リロード後クロップ一致テスト不足）／LOW 1（本欄のHuman実施状況の記載漏れ）によりBLOCKED。新規E2Eテスト追加・文書修正後の**最新HEAD**でFrontend BuildとPlaywright全件、独立差分再監査、CIの結果を確認してから完了とする。PSD/MOV/OTIO描画経路は変更しない。
+- [x] PR #54でホイール倍率を固定段階から移動量比例の連続倍率へ変更。ポインタ基準の1〜8倍、＋／−ボタンの段階操作、サムネイル明示保存を維持。
+- [x] Mac実PSDでの見た目・操作性は2026-11-20 Human PASS。Mac Frontend Build PASS、Playwright `thumbnail.spec.ts` は最新製品コードで10/10 PASS。
+- [x] 独立差分再監査（exact HEAD `e50988e0e29b166b1356bc3b1e93bd6e25b66a27`）はHIGH 0 / MEDIUM 0 / LOW 0でPASS。旧MEDIUM-01・LOW-01は解消。GitHub ActionsのPython PoC tests、Phase 1 local Web UIは同HEADでSUCCESS（Web UI CI Playwright 197/197）。この最後のROADMAP更新では製品コードとテストを変更しない。PSD/MOV/OTIO描画経路は変更なし。
 
 ## Public Issue #44 — 書き出し進捗オーバーレイと安全なキャンセル（PR #45、2026-11-19 main統合）
 
