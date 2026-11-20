@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   addPresetChangePoint, movePresetChangePoint, removePresetChangePoint,
-  replacePresetChangePoint,
+  replacePresetChangePoint, presetAtSample,
 } from "./presetChangePoints";
 import { wavFilename, type UtteranceItem } from "./utteranceItems";
 import type { WavPlaybackControls } from "./WavPlayback";
@@ -30,6 +30,9 @@ export default function PresetChangeEditor({
   const { samples, sample_rate: sampleRate, duration_seconds: duration } = item.wav;
   const points = item.presetChanges ?? [];
   const ids = new Set(presets.map((preset) => preset.id));
+  const effectivePresetId = presetAtSample(item.presetId, points, cursorSample);
+  const effectivePresetName = presets.find((value) => value.id === effectivePresetId)?.name
+    ?? "参照先のないプリセット";
   useEffect(() => {
     if (active && !playback.loading) {
       const sample = Math.min(samples - 1, Math.max(0, Math.round(playback.elapsed * sampleRate)));
@@ -83,6 +86,9 @@ export default function PresetChangeEditor({
       <strong>プリセット変更点</strong>
       <span className="meta">時刻を指定して変更点を追加（初期プリセットは0秒）</span>
     </div>
+    <p className="hint preset-change-active">編集位置のプリセット：
+      <strong>{effectivePresetName}</strong>（{format(cursorSample)}秒）
+    </p>
     <WavWaveform
       name={wavFilename(item.wavPath)} disabled={disabled || playback.loading}
       showSlider={!active} elapsed={cursorSample / sampleRate} duration={duration}
