@@ -1733,6 +1733,11 @@ test("preset change points stay independent per WAV and reach the solo render pa
   await openSpeech(page);
   await addWav(page, "/tmp/first.wav");
   await addWav(page, "/tmp/second.wav");
+  // WAV inspection is asynchronous: do not edit a first-WAV editor which is
+  // about to unmount when registration of the second WAV finishes.
+  const rows = page.locator("[data-utterance-id]");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
   let editor = page.locator(".preset-change-editor");
   const addPosition = editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" });
   await addPosition.fill("0.3");
@@ -1813,6 +1818,11 @@ test("batch MOV requests carry only their own preset changes", async ({ page }) 
   });
   await addWav(page, "/tmp/a.wav");
   await addWav(page, "/tmp/b.wav");
+  // Wait for the intended selected item; otherwise editing races the last
+  // asynchronous registration and the input unmounts during click.
+  const rows = page.locator("[data-utterance-id]");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
   const editor = page.locator(".preset-change-editor");
   const addPosition = editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" });
   await addPosition.fill("0.5");
