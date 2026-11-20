@@ -151,7 +151,7 @@ test("wheel zoom anchors at cursor, stays in preview and saves only on explicit 
   await page.mouse.move(x, y);
   const initialScroll = await page.evaluate(() => window.scrollY);
   await page.mouse.wheel(0, -40);
-  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1×");
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.2×");
   await page.mouse.wheel(0, -60);
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.5×");
   expect(await page.evaluate(() => window.scrollY)).toBe(initialScroll);
@@ -178,9 +178,9 @@ test("wheel zoom anchors at cursor, stays in preview and saves only on explicit 
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.5×");
   await stage.hover();
-  await page.mouse.wheel(0, -900);
+  await page.mouse.wheel(0, -1400);
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("8×");
-  await page.mouse.wheel(0, 900);
+  await page.mouse.wheel(0, 1400);
   await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1×");
   expect((await savedDraft(page)).collection.items[0].thumbnail).toEqual(saved);
 });
@@ -209,18 +209,18 @@ test("rapid wheel bursts, reversal and drag use the latest synchronous view", as
   expect(firstPan.y).toBeLessThan(-22);
 
   await wheelBurst(stage, [-40, 30, 70], 32, 24);
-  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.5×");
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.7×");
   const reverseTransform = await stage.locator("img").evaluate((img) => img.style.transform);
   const reversedPan = previewPan(reverseTransform);
-  expect(reversedPan.x).toBeCloseTo(firstPan.x / 2, 2);
-  expect(reversedPan.y).toBeCloseTo(firstPan.y / 2, 2);
+  expect(reversedPan.x).toBeCloseTo(firstPan.x * 0.7, 2);
+  expect(reversedPan.y).toBeCloseTo(firstPan.y * 0.7, 2);
 
   // A wheel event while the left button is held terminates the old drag.
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.mouse.move(x + 20, y + 15, { steps: 2 });
   await wheelBurst(stage, [-100], 52, 39);
-  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("2×");
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("2.2×");
   const afterZoom = await stage.locator("img").evaluate((img) => img.style.transform);
   await page.mouse.move(x + 45, y + 30, { steps: 2 });
   expect(await stage.locator("img").evaluate((img) => img.style.transform)).toBe(afterZoom);
@@ -228,7 +228,30 @@ test("rapid wheel bursts, reversal and drag use the latest synchronous view", as
   expect((await savedDraft(page)).collection.items[0].thumbnail).toBeUndefined();
 
   await controls.getByRole("button", { name: "サムネにする" }).click();
-  expect((await savedDraft(page)).collection.items[0].thumbnail?.zoom).toBe(2);
+  expect((await savedDraft(page)).collection.items[0].thumbnail?.zoom).toBeCloseTo(2.2, 8);
+});
+
+test("tiny wheel events accumulate linearly and zoom buttons snap to the next step", async ({ page }) => {
+  await start(page, asymmetricPng);
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  const stage = page.locator(".preset-image-viewport");
+  const controls = page.locator(".preset-image-controls");
+  await expect(stage.locator("img")).toBeVisible();
+  // Tiny deltas in one JS turn must move the image, not wait for a full step.
+  await wheelBurst(stage, [-10, -10], 16, 12);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.1×");
+  const transform = await stage.locator("img").evaluate((img) => img.style.transform);
+  expect(transform).toContain("scale(1.1)");
+  expect((await savedDraft(page)).collection.items[0].thumbnail).toBeUndefined();
+  await controls.getByRole("button", { name: "拡大" }).click();
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.5×");
+  await controls.getByRole("button", { name: "縮小" }).click();
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1×");
+  await stage.hover();
+  await wheelBurst(stage, [-1, -1, -1, -1], 16, 12);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.02×");
+  await controls.getByRole("button", { name: "サムネにする" }).click();
+  expect((await savedDraft(page)).collection.items[0].thumbnail?.zoom).toBeCloseTo(1.02, 8);
 });
 
 test("asymmetric crop matches detail preview, preset list and WAV choices", async ({ page }) => {

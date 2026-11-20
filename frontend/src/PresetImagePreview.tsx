@@ -3,7 +3,7 @@ import type { KeyboardEvent, PointerEvent } from "react";
 import type { ThumbnailView } from "./thumbnailView";
 
 type Point = { x: number; y: number };
-type PreviewView = { level: number; pan: Point };
+type PreviewView = { zoom: number; pan: Point };
 type Props = {
   image?: string;
   alt: string;
@@ -14,7 +14,11 @@ type Props = {
   onThumbnailSave?: (view: ThumbnailView) => boolean;
 };
 
-const LEVELS = [1, 1.5, 2, 3, 4, 6, 8];
+const BUTTON_LEVELS = [1, 1.5, 2, 3, 4, 6, 8];
+// Linear wheel sensitivity: delta 100px changes magnification by 0.5x.
+const WHEEL_ZOOM_PER_PIXEL = 0.005;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 8;
 
 export default function PresetImagePreview({
   image, alt, error, focus, focusLabel = "口元へ", selectedFocus, onThumbnailSave,
@@ -22,12 +26,11 @@ export default function PresetImagePreview({
   const viewport = useRef<HTMLDivElement>(null);
   const img = useRef<HTMLImageElement>(null);
   const drag = useRef<{ id: number; x: number; y: number; start: Point } | null>(null);
-  const wheelDelta = useRef(0);
 
   // Wheel and pointer input may arrive before React commits a render.
-  const [view, setView] = useState<PreviewView>({ level: 0, pan: { x: 0, y: 0 } });
+  const [view, setView] = useState<PreviewView>({ zoom: MIN_ZOOM, pan: { x: 0, y: 0 } });
   const viewRef = useRef(view);
-  const { level, pan } = view;
+  const { zoom, pan } = view;
   function applyView(next: PreviewView) {
     viewRef.current = next;
     setView(next);
@@ -40,7 +43,6 @@ export default function PresetImagePreview({
     }
   }
   const [savedMessage, setSavedMessage] = useState("");
-  const zoom = LEVELS[level];
 
   function geometry() {
     const stage = viewport.current;
@@ -66,41 +68,38 @@ export default function PresetImagePreview({
   }
 
 
-  function changeZoom(step: number) {
-    wheelDelta.current = 0;
+  function changeZoom(step: -1 | 1) {
     cancelDrag();
     setSavedMessage("");
     const current = viewRef.current;
-    const next = Math.max(0, Math.min(LEVELS.length - 1, current.level + step));
-    applyView({ level: next, pan: bound(current.pan, LEVELS[next]) });
+    const next = step > 0
+      ? BUTTON_LEVELS.find((value) => value > current.zoom + 1e-9) ?? MAX_ZOOM
+      : BUTTON_LEVELS.filter((value) => value < current.zoom - 1e-9).at(-1) ?? MIN_ZOOM;
+    applyView({ zoom: next, pan: bound(current.pan, next) });
   }
 
   function fitAll() {
-    wheelDelta.current = 0;
     cancelDrag();
     setSavedMessage("");
-    applyView({ level: 0, pan: { x: 0, y: 0 } });
+    applyView({ zoom: MIN_ZOOM, pan: { x: 0, y: 0 } });
   }
 
   function focusAt(target?: Point) {
-    wheelDelta.current = 0;
     cancelDrag();
     setSavedMessage("");
     const g = geometry();
     if (!g || !target) return;
-    const last = LEVELS.length - 1;
-    const magnification = LEVELS[last];
+    const magnification = MAX_ZOOM;
     const wanted = {
       x: -(target.x - 0.5) * g.sourceWidth * g.fit * magnification,
       y: -(target.y - 0.5) * g.sourceHeight * g.fit * magnification,
     };
-    applyView({ level: last, pan: bound(wanted, magnification) });
+    applyView({ zoom: magnification, pan: bound(wanted, magnification) });
   }
-
 
   function pointerDown(event: PointerEvent<HTMLDivElement>) {
     const current = viewRef.current;
-    if (!image || LEVELS[current.level] === 1 || event.button !== 0) return;
+    if (!image || current.zoom === 1 || event.button !== 0) return;
     setSavedMessage("");
     drag.current = {
       id: event.pointerId, x: event.clientX, y: event.clientY, start: current.pan,
@@ -112,10 +111,10 @@ export default function PresetImagePreview({
     const previous = drag.current;
     if (!previous || previous.id !== event.pointerId) return;
     const current = viewRef.current;
-    applyView({ level: current.level, pan: bound({
+    applyView({ zoom: current.zoom, pan: bound({
       x: previous.start.x + event.clientX - previous.x,
       y: previous.start.y + event.clientY - previous.y,
-    }, LEVELS[current.level]) });
+    }, current.zoom) });
   }
 
   function pointerStop(event: PointerEvent<HTMLDivElement>) {
@@ -125,56 +124,43 @@ export default function PresetImagePreview({
 
   function keyboardMove(event: KeyboardEvent<HTMLDivElement>) {
     const current = viewRef.current;
-    if (!image || LEVELS[current.level] === 1) return;
+    if (!image || current.zoom === 1) return;
     const delta = { ArrowLeft: [24, 0], ArrowRight: [-24, 0],
       ArrowUp: [0, 24], ArrowDown: [0, -24] }[event.key];
     if (!delta) return;
     setSavedMessage("");
     event.preventDefault();
-    applyView({ level: current.level, pan: bound({
+    applyView({ zoom: current.zoom, pan: bound({
       x: current.pan.x + delta[0], y: current.pan.y + delta[1],
-    }, LEVELS[current.level]) });
+    }, current.zoom) });
   }
 
-  // React's delegated wheel listener may be passive in browsers. Attach a
-  // non-passive listener only to the preview so page scrolling still works
-  // everywhere else. Accumulate small trackpad deltas before changing levels.
+  // Wheel deltas map directly to magnification, without fixed-step snapping.
+  // Use the synchronized viewRef for rapid bursts before React can rerender.
   useEffect(() => {
     const stage = viewport.current;
     if (!stage || !image) return;
-    wheelDelta.current = 0;
     function onWheel(event: WheelEvent) {
       if (!event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
       const g = geometry();
-      if (!g || !stage) return;
+      if (!g) return;
       event.preventDefault();
       const delta = event.deltaY * (event.deltaMode === 1 ? 16
         : event.deltaMode === 2 ? g.height : 1);
-      if (Math.sign(wheelDelta.current) !== Math.sign(delta)) {
-        wheelDelta.current = 0;
-      }
-      wheelDelta.current += delta;
-      const steps = Math.trunc(Math.abs(wheelDelta.current) / 100);
-      if (!steps) return;
-      const direction = Math.sign(wheelDelta.current);
-      wheelDelta.current -= direction * steps * 100;
+      if (!Number.isFinite(delta)) return;
       const current = viewRef.current;
-      const next = Math.max(0, Math.min(LEVELS.length - 1,
-        current.level - direction * steps));
-      if (next === current.level) {
-        wheelDelta.current = 0;
-        return;
-      }
-      // Wheel zoom ends a pointer drag, so stale drag origins cannot overwrite it.
+      const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM,
+        current.zoom - delta * WHEEL_ZOOM_PER_PIXEL));
+      if (next === current.zoom) return;
       cancelDrag();
       const rect = stage.getBoundingClientRect();
       const x = event.clientX - rect.left - rect.width / 2;
       const y = event.clientY - rect.top - rect.height / 2;
-      const factor = LEVELS[next] / LEVELS[current.level];
-      applyView({ level: next, pan: bound({
+      const factor = next / current.zoom;
+      applyView({ zoom: next, pan: bound({
         x: current.pan.x + (x - current.pan.x) * (1 - factor),
         y: current.pan.y + (y - current.pan.y) * (1 - factor),
-      }, LEVELS[next]) });
+      }, next) });
       setSavedMessage("");
     }
     stage.addEventListener("wheel", onWheel, { passive: false });
@@ -185,7 +171,7 @@ export default function PresetImagePreview({
     const g = geometry();
     if (!g || !image || !onThumbnailSave) return;
     const current = viewRef.current;
-    const magnitude = LEVELS[current.level];
+    const magnitude = current.zoom;
     const view: ThumbnailView = {
       zoom: magnitude,
       centerX: Math.max(0, Math.min(1,
@@ -199,13 +185,13 @@ export default function PresetImagePreview({
   return <>
     <div className="preset-image-controls" role="group" aria-label="プレビューの拡大縮小">
       <button type="button" className="secondary" onClick={fitAll}
-        disabled={!image || (level === 0 && pan.x === 0 && pan.y === 0)}>全体表示</button>
+        disabled={!image || (zoom === MIN_ZOOM && pan.x === 0 && pan.y === 0)}>全体表示</button>
       <button type="button" className="secondary" aria-label="縮小"
-        onClick={() => changeZoom(-1)} disabled={!image || level === 0}>−</button>
-      <output aria-label="プレビュー倍率">{zoom}×</output>
+        onClick={() => changeZoom(-1)} disabled={!image || zoom === MIN_ZOOM}>−</button>
+      <output aria-label="プレビュー倍率">{Number(zoom.toFixed(2))}×</output>
       <button type="button" className="secondary" aria-label="拡大"
         onClick={() => changeZoom(1)}
-        disabled={!image || level === LEVELS.length - 1}>＋</button>
+        disabled={!image || zoom === MAX_ZOOM}>＋</button>
       <button type="button" className="secondary" onClick={() => focusAt(focus)}
         disabled={!image || !focus} title={!focus ? "動作対象グループを指定すると使用できます" : undefined}>
         {focusLabel}
@@ -227,8 +213,8 @@ export default function PresetImagePreview({
         style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
         onLoad={() => {
           const current = viewRef.current;
-          applyView({ level: current.level,
-            pan: bound(current.pan, LEVELS[current.level]) });
+          applyView({ zoom: current.zoom,
+            pan: bound(current.pan, current.zoom) });
         }} /> :
         <span className="preview-empty">{error || "プレビューを更新中…"}</span>}
     </div>
