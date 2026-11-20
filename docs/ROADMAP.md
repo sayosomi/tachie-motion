@@ -4,11 +4,11 @@
 
 この文書は実装の進捗と今後の作業範囲を示します。確定した製品要件は [PRODUCT_SPEC.md](PRODUCT_SPEC.md)、実際に使えるコマンドは [README.md](../README.md) を参照してください。PoCで確認したことと、完成したアプリでできることは区別します。
 
-## Public Issue #51 — プリセット名の自動確定と名前変更ボタン廃止（Draft PR #52、進行中）
+## Public Issue #51 — プリセット名の自動確定と名前変更ボタン廃止（PR #52、2026-11-20受け入れ）
 
-- [x] 詳細画面のプリセット名はフォーカス離脱で自動確定し、専用の「名前を変更」ボタンを廃止。IME変換中のEnterは誤確定せず、空欄・重複・保存失敗時には確定済みの名前と編集中の文字列を保護し、入力欄近くに理由を表示する。
-- [x] ブラウザ復元・安定ID・キャラクター設定JSON・保存失敗のPlaywright回帰を実施。旧ボタンを参照した既存4テストを更新し、GitHub Actions（HEAD `11180179521bb51ac74e7313da60cabccde128ff`）でWeb UI Playwright **199/199 PASS**、Python PoC tests SUCCESS。Mac実PSDでの名前編集・保存状態表示のHuman UXは2026-11-20 PASS（製品コードは以降変更なし）。
-- [ ] 独立監査はHEAD `d6aa3082b5314210e00e2d3c65daef23ea8a4168` でHIGH 0 / MEDIUM 1 / LOW 2のためBLOCKED（一覧への直接クリックで名前エラーが消える、同名trim時の不要な本体更新、TEST_PLAN記述差異）。修正後の最新HEADで自動テスト・CI・独立差分再監査を確認し、PR統合後に完了とする。レンダリング・PSD・MOV・OTIOは変更しない。
+- [x] 詳細画面で名前入力欄からフォーカスが外れると自動確定し、専用の「名前を変更」ボタンを廃止。IME変換中のEnterでは誤確定しない。空欄・重複・保存失敗は確定名と入力途中の文字列を保護し、入力欄近くに理由を表示。保存エラー時は一覧へ戻る操作で理由を消さず編集画面に留める。
+- [x] trim後の同名ではプリセット本体の更新を避け、必要な下書き整理のみ行う。空白入力仕様をTEST_PLANと統一。ブラウザ復元・安定ID・キャラクター設定JSON・保存失敗・直接一覧クリックをPlaywrightで回帰確認。Mac実PSDでの通常の名前編集Human UXは2026-11-20 PASS（エラー後の直接一覧クリック操作は自動テストで確認）。
+- [x] 独立ブロッキング差分再監査はexact HEAD `5877cc48c1966465be04be92dcacd1d8e910812d` で**PASS（HIGH 0 / MEDIUM 0 / LOW 2）**。旧MEDIUM-01・LOW-01/02は解消。非ブロッキングLOW 2件（確定名に完全一致する入力への戻しで下書きが残る、no-op後のdirty不変確認不足）は今後の改善候補とし、完了を妨げない。GitHub ActionsのPython PoC tests・Phase 1 local Web UIは同HEADでSUCCESS、Web UI Playwright **201/201 PASS**。この完了記録だけの追加コミットでは製品コード・テストを変更しない。PSD/MOV/OTIO経路の変更なし。
 
 ## Public Issue #53 — プレビューのホイール倍率を連続化（PR #54、2026-11-20受け入れ）
 
