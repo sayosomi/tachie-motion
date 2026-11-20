@@ -23,6 +23,7 @@ export default function PresetChangeEditor({
   const [positionText, setPositionText] = useState("0");
   // Blur must not reset an edited time to an older playback cursor.
   const positionEditing = useRef(false);
+  const positionDirty = useRef(false);
   const [newPresetId, setNewPresetId] = useState(item.presetId);
   const [error, setError] = useState("");
   const active = playback.activeId === item.id;
@@ -31,7 +32,12 @@ export default function PresetChangeEditor({
   const ids = new Set(presets.map((preset) => preset.id));
   useEffect(() => {
     if (active && !playback.loading) {
-      setCursorSample(Math.min(samples - 1, Math.max(0, Math.round(playback.elapsed * sampleRate))));
+      const sample = Math.min(samples - 1, Math.max(0, Math.round(playback.elapsed * sampleRate)));
+      setCursorSample(sample);
+      // Playback follows the cursor only while the user is not typing a time.
+      if (!positionEditing.current && !positionDirty.current) {
+        setPositionText(String(sample / sampleRate));
+      }
     }
   }, [active, playback.loading, playback.elapsed, samples, sampleRate]);
   useEffect(() => {
@@ -42,6 +48,7 @@ export default function PresetChangeEditor({
     Math.min(samples - 1, Math.max(0, Math.round(seconds * sampleRate)));
   const seek = (seconds: number) => {
     setCursorSample(toSample(seconds));
+    positionDirty.current = false;
     setPositionText(String(seconds));
     if (active && !playback.loading) playback.seek(seconds);
   };
@@ -62,9 +69,8 @@ export default function PresetChangeEditor({
   }
   const format = (sample: number) => (sample / sampleRate).toFixed(3);
   const precise = (sample: number) => (sample / sampleRate).toFixed(9);
-  useEffect(() => {
-    if (!positionEditing.current) setPositionText(Number(precise(cursorSample)).toString());
-  }, [cursorSample, sampleRate]);
+  // Never mirror cursorSample back into positionText here: focus/blur and
+  // playback effects can run after a user edit and erase the entered time.
   const editSample = (seconds: number) => {
     if (!Number.isFinite(seconds) || seconds <= 0 || seconds >= duration) {
       throw new Error("変更点はWAV開始より後、終了より前に指定してください");
@@ -94,6 +100,7 @@ export default function PresetChangeEditor({
           onBlur={() => { positionEditing.current = false; }}
           onChange={(event) => {
             const next = event.target.value;
+            positionDirty.current = true;
             setPositionText(next);
             const seconds = Number(next);
             if (next.trim() && Number.isFinite(seconds) &&

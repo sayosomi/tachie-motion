@@ -1734,7 +1734,11 @@ test("preset change points stay independent per WAV and reach the solo render pa
   await addWav(page, "/tmp/first.wav");
   await addWav(page, "/tmp/second.wav");
   let editor = page.locator(".preset-change-editor");
-  await editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" }).fill("0.3");
+  const addPosition = editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" });
+  await addPosition.fill("0.3");
+  await editor.getByRole("combobox", { name: "追加するプリセット" }).focus();
+  await expect(addPosition).toHaveValue("0.3");
+  await expect(editor.getByRole("button", { name: "現在位置に変更点を追加" })).toBeEnabled();
   await editor.getByRole("button", { name: "現在位置に変更点を追加" }).click();
   await expect(editor.locator(".preset-change-points li")).toHaveCount(1);
   await expect(editor.locator(".preset-change-marker")).toHaveCount(1);
@@ -1810,7 +1814,11 @@ test("batch MOV requests carry only their own preset changes", async ({ page }) 
   await addWav(page, "/tmp/a.wav");
   await addWav(page, "/tmp/b.wav");
   const editor = page.locator(".preset-change-editor");
-  await editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" }).fill("0.5");
+  const addPosition = editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" });
+  await addPosition.fill("0.5");
+  await editor.getByRole("combobox", { name: "追加するプリセット" }).focus();
+  await expect(addPosition).toHaveValue("0.5");
+  await expect(editor.getByRole("button", { name: "現在位置に変更点を追加" })).toBeEnabled();
   await editor.getByRole("button", { name: "現在位置に変更点を追加" }).click();
   await page.getByRole("radio", { name: /^全件/ }).check();
   await page.getByRole("button", { name: "全件を書き出す" }).click();
