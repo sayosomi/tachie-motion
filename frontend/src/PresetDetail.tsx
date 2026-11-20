@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import PresetNameEditor from "./PresetNameEditor";
 import type { BlinkTiming } from "./blinkTiming";
 import BlinkTimingEditor from "./BlinkTimingEditor";
 import type { Layer } from "./LayerTree";
@@ -28,7 +29,7 @@ type Props = {
   nameDraft: string;
   onNameDraftChange: (name: string) => void;
   onBack: () => void;
-  onRename: (name: string) => void;
+  onRename: (name: string) => string | null;
   onToggle: (path: string, visible: boolean) => void;
   mouthGroups: string[];
   eyeGroups: string[];
@@ -293,14 +294,8 @@ export default function PresetDetail({
     <div className="preset-layout">
       <section className="panel preset-editor" data-role-mode={roleMode} data-edit-area={area}>
         <h2>編集</h2>
-        <label htmlFor="preset-name">名前</label>
-        <div className="input-row">
-          <input id="preset-name" value={nameDraft}
-            onChange={(e) => onNameDraftChange(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && nameDraft.trim()) onRename(nameDraft); }} />
-          <button type="button" disabled={!nameDraft.trim() || nameDraft === preset.name}
-            onClick={() => onRename(nameDraft)}>名前を変更</button>
-        </div>
+        <PresetNameEditor key={preset.id} name={preset.name} draft={nameDraft}
+          onDraftChange={onNameDraftChange} onCommit={onRename} />}
         <div className="preset-role-tabs preset-area-tabs" role="group" aria-label="編集区分">
           <button type="button" aria-pressed={area === "normal"}
             onClick={() => { setArea("normal"); setPreviewState("base"); setQuery(""); }}>

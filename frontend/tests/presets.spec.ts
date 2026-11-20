@@ -33,7 +33,9 @@ test("preset-first list, detail ON/OFF, copy, reorder and refresh recovery", asy
   await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
   await expect(page).toHaveURL(/\?preset=/);
   await page.locator("#preset-name").fill("にっこり");
-  await page.getByRole("button", { name: "名前を変更" }).click();
+  await expect(page.getByRole("button", { name: "名前を変更" })).toHaveCount(0);
+  await page.locator("#preset-name").press("Tab");
+  await expect(page.locator("#preset-name-status")).toHaveText("保存済み");
   await page.getByRole("checkbox", { name: "目 [0/1] 固定" }).check();
   await expect(page.getByRole("checkbox", { name: "目 [0/1] 固定" })).toBeChecked();
   await expect.poll(() => previews.at(-1)?.layers.find((x) => x.path === "0/1")?.visible).toBe(true);
@@ -175,6 +177,7 @@ test("uncommitted rename draft survives history and requires confirmation before
   await page.getByRole("button", { name: "読み込む", exact: true }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await page.locator("#preset-name").fill("未確定の名前");
+  await expect(page.locator("#preset-name-status")).toContainText("編集中");
   await expect(page.getByRole("note")).toContainText("このブラウザに自動保存");
 
   // Browser Back detaches the detail view but must not destroy its name draft.
@@ -194,7 +197,8 @@ test("uncommitted rename draft survives history and requires confirmation before
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await page.getByRole("button", { name: "詳細を編集" }).click();
   await expect(page.locator("#preset-name")).toHaveValue("未確定の名前");
-  await page.getByRole("button", { name: "名前を変更" }).click();
+  await page.locator("#preset-name").press("Tab");
+  await expect(page.locator("#preset-name-status")).toHaveText("保存済み");
   await expect(page.getByRole("note")).toContainText("このブラウザに自動保存");
   await expect(page.locator("#preset-name")).toHaveValue("未確定の名前");
 });
@@ -214,11 +218,18 @@ test("unique names on create, duplicate and rename, with preserved stable IDs", 
   await page.getByRole("button", { name: "＋ 作成" }).click();
   await expect(page.locator("#preset-name")).toHaveValue("新しいプリセット 2");
   await page.locator("#preset-name").fill("通常");
-  await page.getByRole("button", { name: "名前を変更" }).click();
-  await expect(page.getByRole("alert")).toContainText("同じ名前のプリセットがあります");
+  await page.locator("#preset-name").press("Tab");
+  await expect(page.locator("#preset-name-error")).toContainText("同じ名前のプリセットがあります");
+  await expect(page.locator("#preset-name")).toHaveAttribute("aria-invalid", "true");
   await page.locator("#preset-name").fill("通常 ");
-  await page.getByRole("button", { name: "名前を変更" }).click();
-  await expect(page.getByRole("alert")).toContainText("同じ名前のプリセットがあります");
+  await page.locator("#preset-name").press("Tab");
+  await expect(page.locator("#preset-name-error")).toContainText("同じ名前のプリセットがあります");
+  await page.locator("#preset-name").fill("   ");
+  await page.locator("#preset-name").press("Tab");
+  await expect(page.locator("#preset-name-error")).toContainText("プリセット名を入力してください");
+  await page.locator("#preset-name").fill("固有の名前");
+  await page.locator("#preset-name").press("Tab");
+  await expect(page.locator("#preset-name-status")).toHaveText("保存済み");
   await page.getByRole("button", { name: "← 一覧へ" }).click();
 
   const originalId = await page.locator("[data-preset-id]").first().getAttribute("data-preset-id");
@@ -257,6 +268,34 @@ test("refresh restores an unfinished name edit and modified ON/OFF states", asyn
   await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
   await expect(page.locator("#preset-name")).toHaveValue("編集中の名前");
   await expect(page.getByRole("checkbox", { name: "目 [0/1] 固定" })).toBeChecked();
+});
+
+test("IME conversion Enter does not rename until composition ends and a real commit occurs", async ({ page }) => {
+  await page.route("**/api/psd", (route) => route.fulfill({ json: {
+    width: 64, height: 64, fingerprint: "ime-source", preview: png, layers,
+  } }));
+  await page.goto("/");
+  await page.locator("#preset-psd-path-advanced").evaluate((el) => {
+    (el as HTMLDetailsElement).open = true;
+  });
+  await page.locator("#preset-psd-path").fill("/tmp/ime.psd");
+  await page.getByRole("button", { name: "読み込む", exact: true }).click();
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  const input = page.locator("#preset-name");
+  await input.fill("あんこもん");
+  await input.evaluate((el) => {
+    el.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  });
+  await input.press("Enter");
+  await expect(input).toBeFocused();
+  await expect(page.locator("#preset-name-status")).toContainText("編集中");
+  await input.evaluate((el) => {
+    el.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+  });
+  await input.press("Enter");
+  await expect(page.locator("#preset-name-status")).toHaveText("保存済み");
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  await expect(page.locator(".preset-card-title strong")).toHaveText("あんこもん");
 });
 
 test("changed PSD fingerprint fails closed without erasing the stored draft", async ({ page }) => {

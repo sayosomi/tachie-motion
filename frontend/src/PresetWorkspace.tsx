@@ -517,12 +517,19 @@ export default function PresetWorkspace() {
         ? nameDrafts[active.id] : active.name}
       onNameDraftChange={(name) => changeNameDraft(active.id, name)}
       previewError={activePreview?.error} onBack={() => navigate(null)}
-      onRename={(name) => { try {
-        const nextDrafts = { ...nameDrafts };
-        delete nextDrafts[active.id];
-        if (!updatePresets(renamePreset(collection, active.id, name), nextDrafts)) return;
-        setNameDrafts(nextDrafts);
-      } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }}
+      onRename={(name) => {
+        try {
+          const nextDrafts = { ...nameDrafts };
+          delete nextDrafts[active.id];
+          if (!updatePresets(renamePreset(collection, active.id, name), nextDrafts)) {
+            return "プリセット名を保存できません。画面上部のエラーを確認してください。";
+          }
+          setNameDrafts(nextDrafts);
+          return null;
+        } catch (e) {
+          return e instanceof Error ? e.message : String(e);
+        }
+      }}
       onToggle={(path, visible) =>
         updatePresets(setBaseLayerChoice(collection, active.id, psd.layers, path, visible))}
       mouthGroups={effectiveMouthGroups(collection, psd.layers)}

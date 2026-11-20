@@ -9,6 +9,12 @@
 - Browser E2E: Playwright import/preview/toggle/change-point/save/export with deterministic fixtures.
 - CI: Linux unit jobs plus macOS/Windows where dependencies allow; manual Resolve import is a separate human gate.
 
+## Public Issue #51 — プリセット名自動確定
+
+- Playwright: 変更ボタンの撤去、blur・IME変換確定後のEnterによる保存、IME変換中のEnterでは未確定のままであること、無変更時の「保存済み」表示、空欄・同名重複・前後空白の拒否と入力欄付近の警告を確認する。
+- 変更途中の名前をブラウザ復元へ保存し、確定名とは区別する。正常確定後のリロード・戻る操作、安定プリセットID・並び順・PSD表示状態を回帰確認する。ローカルストレージ書き込み失敗時は元の確定名と入力値を保持する。
+- Mac Human: 日本語入力時の違和感、名前編集状態・保存済み表示・重複時の案内の見やすさだけを評価する。PSD原本とMOV/OTIO経路は変更しないため、Resolveの再検証は要求しない。
+
 ## Public Issue #47 — WAV波形とシーク
 - Playwrightで合成WAVの無音・有音区間の描画と波形クリックによる再生位置シーク、既存rangeの操作を確認する。
 - WAV切替／停止で前の波形を即座に消す。デコードが遅れて返っても旧WAVの結果を表示しない。Web Audio非対応／解析エラー／大容量ファイルではrangeを維持する。波形用の追加リクエスト・原本更新・JSON保存・書き出し仕様変更はない。
