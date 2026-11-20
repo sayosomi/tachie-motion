@@ -339,8 +339,8 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .utterance-list-panel { margin:0 0 20px; }
 .utterance-list-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .utterance-list-header .meta { margin:0; }
-.utterance-items { list-style:none; padding:0; margin:15px 0 0; max-height:350px;
-  overflow-y:auto; border:1px solid #31465b; border-radius:9px; }
+.utterance-items { list-style:none; padding:0; margin:15px 0 0;
+  overflow:visible; border:1px solid #31465b; border-radius:9px; }
 .utterance-item { display:grid; grid-template-columns:minmax(0,1fr) auto;
   align-items:center; gap:8px; padding:7px; border-bottom:1px solid #263a4b; }
 .utterance-item:last-child { border-bottom:0; }
@@ -403,6 +403,15 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .utterance-item-actions { grid-column:6; grid-row:1; }
 .utterance-row-progress { grid-column:3 / 6; grid-row:2; display:flex; align-items:center; gap:12px;
   padding:0 8px 7px; min-width:0; }
+.utterance-item-edit-toggle { grid-column:3 / -1; grid-row:2; justify-self:start;
+  display:flex; flex-wrap:wrap; gap:12px; align-items:center;
+  min-height:34px; padding:5px 10px; font-size:12px; border:1px solid #42647b;
+  border-radius:5px; background:#192e42; color:#d8f4ec; }
+.utterance-item-edit-toggle .meta { font-size:11px; color:#a9c1d4; }
+.utterance-item-editor { grid-column:1 / -1; grid-row:3; min-width:0; width:100%;
+  padding:7px 0 2px; }
+.utterance-item-editor .preset-change-editor { background:#132536; border-color:#3c5c72; }
+
 .wav-timeline { flex:1; min-width:0; }
 .wav-timeline input[type="range"] { display:block; width:100%; min-width:0; margin:4px 0; }
 .wav-waveform { height:40px; border-radius:4px; background:#142937;
@@ -448,11 +457,15 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   .utterance-row-mode { grid-column:3; grid-row:3; }
   .utterance-item-actions { grid-column:4; grid-row:1 / 4; align-self:center; }
   .utterance-row-progress { grid-column:3 / 5; grid-row:4; }
+  .utterance-item-edit-toggle { grid-column:3 / 5; grid-row:4; }
+  .utterance-item-editor { grid-column:1 / -1; grid-row:5; }
 }
 @media(max-width:650px) {
   .utterance-item { grid-template-columns:30px 34px minmax(0,1fr); }
   .utterance-item-actions { grid-column:3; grid-row:4; justify-content:flex-end; }
   .utterance-row-progress { grid-column:2 / 4; grid-row:5; }
+  .utterance-item-edit-toggle { grid-column:2 / 4; grid-row:5; }
+  .utterance-item-editor { grid-row:6; }
   .export-plan-items li { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
   .export-plan-items .export-plan-path { grid-column:1 / -1; }
   .export-plan-items li > span:nth-child(5) { grid-column:1 / -1; }
@@ -468,6 +481,8 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   .utterance-row-mode { grid-column:2; grid-row:3; }
   .utterance-item-actions { grid-column:3; grid-row:1 / 4; }
   .utterance-row-progress { grid-column:2 / 4; grid-row:4; }
+  .utterance-item-edit-toggle { grid-column:2 / 4; grid-row:4; }
+  .utterance-item-editor { grid-row:5; }
 }
 
 
@@ -610,17 +625,39 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   .export-progress-details { padding:13px; }
 }
 
-/* Per-WAV preset changes: keep edit controls and waveform together. */
-.preset-change-editor { display: grid; gap: .55rem; min-width: 0; width: 100%; padding: .6rem; border: 1px solid var(--border-color, #7776); border-radius: .5rem; }
-.preset-change-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .6rem; }
-.preset-change-add { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
-.preset-change-add label { display: grid; gap: .2rem; font-size: .85rem; }
-.preset-change-add input { max-width: 8rem; }
-.preset-change-points { display: grid; gap: .45rem; margin: 0; padding: 0; list-style: none; }
-.preset-change-points li, .preset-change-points form { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; min-width: 0; }
-.preset-change-points input { width: 6.5rem; }
-.preset-change-points select { min-width: 9rem; max-width: 100%; }
-.wav-waveform svg .preset-change-marker {
-  opacity: .8; cursor: ew-resize; pointer-events: stroke;
-  stroke-width: 8px;
+/* Selected WAV's inline editor: one waveform and one set of controls. */
+.preset-change-editor { display:grid; gap:12px; min-width:0; width:100%;
+  padding:14px; border:1px solid #48667b; border-radius:8px; }
+.preset-change-heading { display:flex; flex-wrap:wrap; align-items:baseline; gap:12px; }
+.preset-change-heading .meta { overflow-wrap:anywhere; }
+.preset-change-active { margin:0; }
+.preset-change-ticks { display:flex; justify-content:space-between; gap:12px;
+  color:#a7bacb; font-size:11px; font-variant-numeric:tabular-nums; }
+.preset-change-legend { margin:0; }
+.preset-change-editor .wav-waveform { height:80px; }
+.preset-change-add { display:flex; flex-wrap:wrap; align-items:end; gap:10px; }
+.preset-change-add label, .preset-change-add-preset { display:grid; gap:5px;
+  font-size:12px; min-width:0; }
+.preset-change-add input { width:140px; max-width:100%; }
+.preset-change-add-preset { min-width:220px; flex:0 1 260px; }
+.preset-change-add > button { min-height:46px; }
+.preset-change-point-heading { display:flex; align-items:center; gap:12px; }
+.preset-change-initial { display:flex; flex-wrap:wrap; align-items:center; gap:10px;
+  background:#182d40; border-radius:6px; padding:7px 10px; }
+.preset-change-points { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+.preset-change-point { display:flex; flex-wrap:wrap; gap:10px; align-items:end;
+  padding:10px; border:1px solid #36556a; border-radius:7px; min-width:0; }
+.preset-change-point[data-selected="true"] { border-color:#9bdccd; background:#1d3a4c; }
+.preset-change-point form { display:flex; flex-wrap:wrap; align-items:end; gap:8px; }
+.preset-change-point form label { display:grid; gap:4px; font-size:11px; }
+.preset-change-point form input { width:135px; max-width:100%; }
+.preset-change-point > .preset-picker { flex:0 1 230px; min-width:170px; }
+.preset-change-point button { min-height:34px; }
+.preset-point-seek { font-variant-numeric:tabular-nums; }
+.wav-waveform svg .preset-change-marker { opacity:.85; cursor:ew-resize;
+  pointer-events:stroke; stroke-width:8px; stroke:#efb866; }
+@media (max-width:650px) {
+  .preset-change-editor { padding:9px; }
+  .preset-change-add-preset { flex:1 1 100%; }
+  .preset-change-point > .preset-picker { flex:1 1 100%; }
 }

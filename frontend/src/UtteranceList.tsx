@@ -43,8 +43,10 @@ export default function UtteranceList({
 }: Props) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
+  const [collapsedId, setCollapsedId] = useState<string | null>(null);
   const orderingLocked = disabled || !!exportingId || addingCount > 0;
-  const selectedItem = items.find((item) => item.id === selectedId);
+  // Only the selected WAV can own the expanded editor. Another selection reopens it.
+  useEffect(() => { setCollapsedId(null); }, [selectedId]);
   // A drag may begin before export. Invalidate it as soon as editing locks.
   useEffect(() => {
     if (orderingLocked) {
@@ -76,7 +78,7 @@ export default function UtteranceList({
       onChange={onPathChange}
       onSelected={onAdd}
       onApply={async () => { await onAdd(pendingPath); }} applyLabel="WAVを確認" />
-    <p className="hint">FinderではCommand/Shiftで複数選択できます。左端で並べ替え、各行で試聴・プリセット・口パクを設定します。元WAVは変更しません。</p>
+    <p className="hint">FinderではCommand/Shiftで複数選択できます。左端で並べ替え、WAV行を選ぶとその直下で波形・編集点を操作できます。元WAVは変更しません。</p>
     {addingCount > 0 && <p className="hint" role="status">WAVを解析中…（{addingCount}件）</p>}
     {addError && <p className="hint warning" role="alert">{addError}</p>}
     {items.length === 0 ? <p className="empty-state">WAVを追加してください。</p> : <>
@@ -88,6 +90,7 @@ export default function UtteranceList({
       <ol className="utterance-items" aria-label="登録済みセリフ">
         {items.map((item, index) => {
           const name = wavFilename(item.wavPath);
+          const expanded = item.id === selectedId && collapsedId !== item.id;
           return <li className="utterance-item" data-utterance-id={item.id}
             data-selected={item.id === selectedId} data-playing={playback.activeId === item.id}
             data-drop-target={hover === item.id}
@@ -185,7 +188,19 @@ export default function UtteranceList({
               <button type="button" aria-label={`削除: ${index + 1} ${name}`}
                 disabled={disabled || !!exportingId || addingCount > 0} onClick={() => onRemove(item.id)}>削除</button>
             </div>
-            {playback.activeId === item.id &&
+            {item.id === selectedId && <button type="button"
+              className="utterance-item-edit-toggle" aria-expanded={expanded}
+              aria-label={expanded ? "プリセット編集を閉じる: " + name : "プリセット編集を開く: " + name}
+              onClick={() => setCollapsedId(expanded ? item.id : null)}>
+              {expanded ? "▾ プリセット編集を閉じる" : "▸ プリセット編集を開く"}
+              <span className="meta">編集点 {(item.presetChanges ?? []).length}件</span>
+            </button>}
+            {expanded && <div className="utterance-item-editor">
+              <PresetChangeEditor key={item.id} item={item}
+                presets={presets} presetImages={presetImages}
+                playback={playback} disabled={disabled} onRevise={onRevise} />
+            </div>}
+            {playback.activeId === item.id && !expanded &&
               <div className="utterance-row-progress">
                 {playback.loading ? <span className="utterance-loading-label">
                   読み込み中止（■を押す）
@@ -201,11 +216,9 @@ export default function UtteranceList({
           </li>;
         })}
       </ol>
-      {selectedItem && <PresetChangeEditor key={selectedItem.id}
-        item={selectedItem} presets={presets} playback={playback} disabled={disabled}
-        onRevise={onRevise} />}
     </>}
     {playback.audioElement}
-    {playback.status && <p className="hint utterance-audio-status" role="status">{playback.status}</p>}
+    {playback.status.startsWith("音声の再生に失敗") &&
+      <p className="hint warning utterance-audio-status" role="alert">{playback.status}</p>}
   </section>;
 }

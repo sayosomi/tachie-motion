@@ -10,6 +10,7 @@ type Props = {
   showSlider?: boolean;
   markers?: Marker[];
   onMoveMarker?: (sample: number, seconds: number) => void;
+  onSelectMarker?: (sample: number) => void;
   onSeek: (seconds: number) => void;
 };
 
@@ -21,9 +22,10 @@ function waveformStrokes(peaks: number[]): string {
 }
 
 export default function WavWaveform({
-  peaks, name, elapsed, duration, disabled, showSlider = true, markers, onSeek, onMoveMarker,
+  peaks, name, elapsed, duration, disabled, showSlider = true, markers, onSeek, onMoveMarker, onSelectMarker,
 }: Props) {
   const dragging = useRef<number | null>(null);
+  const pointerDownX = useRef(0);
   function secondsAt(event: PointerEvent<HTMLDivElement>): number | null {
     const box = event.currentTarget.getBoundingClientRect();
     if (!box.width || duration <= 0) return null;
@@ -42,6 +44,7 @@ export default function WavWaveform({
         const target = event.target as Element;
         const marker = target.closest("[data-change-marker]");
         dragging.current = marker ? Number(marker.getAttribute("data-change-marker")) : null;
+        pointerDownX.current = event.clientX;
         event.currentTarget.setPointerCapture(event.pointerId);
         if (dragging.current === null) seekAt(event);
       }}
@@ -55,7 +58,9 @@ export default function WavWaveform({
         dragging.current = null;
         if (from !== null) {
           const to = secondsAt(event);
-          if (to !== null && onMoveMarker) onMoveMarker(from, to);
+          if (Math.abs(event.clientX - pointerDownX.current) < 4) {
+            onSelectMarker?.(from);
+          } else if (to !== null && onMoveMarker) onMoveMarker(from, to);
         } else seekAt(event);
         event.currentTarget.releasePointerCapture(event.pointerId);
       }}

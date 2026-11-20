@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { createUtterance } from "../src/utteranceItems";
+import { sampleFromPercent, sampleFromSeconds, secondsFromSample,
+  percentFromSample, validEditSample } from "../src/presetPosition";
 import { exportPayload, exportReadinessError } from "../src/utteranceExportRequest";
 import type { PresetDraft } from "../src/presetDraftStorage";
 import {
@@ -139,4 +141,19 @@ test("eye group bindings cover both OFF-to-ON and ON-to-OFF preset timelines", (
   const noBlink = exportPayload(draft, alwaysOff, off, "static", "error");
   expect(noBlink.eye_groups).toBeNull();
   expect(noBlink).not.toHaveProperty("timeline_changes");
+});
+
+test("seconds and percentage edit fields agree on integer PCM samples", () => {
+  const totalSamples = 90_000;
+  const sampleRate = 44_100;
+  const sample = sampleFromPercent(25, totalSamples);
+  expect(sample).toBe(22_500);
+  expect(sampleFromSeconds(Number(secondsFromSample(sample, sampleRate)), sampleRate))
+    .toBe(sample);
+  expect(sampleFromPercent(Number(percentFromSample(sample, totalSamples)), totalSamples))
+    .toBe(sample);
+  expect(validEditSample(sample, totalSamples)).toBe(true);
+  expect(validEditSample(sampleFromPercent(0, totalSamples), totalSamples)).toBe(false);
+  expect(validEditSample(sampleFromPercent(100, totalSamples), totalSamples)).toBe(false);
+  expect(validEditSample(sampleFromPercent(50, 1), 1)).toBe(false);
 });

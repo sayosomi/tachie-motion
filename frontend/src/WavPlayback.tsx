@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { wavFilename, type UtteranceItem } from "./utteranceItems";
+import type { UtteranceItem } from "./utteranceItems";
 import { decodeWavPeaks } from "./wavPeaks";
 
 type Source = Pick<UtteranceItem, "id" | "wavPath">;
@@ -110,7 +110,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
     setPaused(false);
     setLoading(true);
     setElapsed(0);
-    setStatus("音声を読み込み中: " + wavFilename(item.wavPath));
+    setStatus("");
     const controller = new AbortController();
     pending.current = controller;
     try {
@@ -145,7 +145,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
       await player.play();
       if (epoch === generation.current) {
         setLoading(false);
-        setStatus("再生中: " + wavFilename(item.wavPath));
+        setStatus("");
       }
     } catch (error) {
       if (epoch !== generation.current || controller.signal.aborted) return;
@@ -208,7 +208,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
       setPaused(false);
       setLoading(false);
       setElapsed(0);
-      setStatus("再生が終了しました");
+      setStatus("");
     }
   }
 
@@ -227,13 +227,13 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
         if (!objectUrl.current || !source.current) return;
         setPaused(true);
         setLoading(false);
-        setStatus("一時停止: " + wavFilename(source.current.wavPath));
+        setStatus("");
       }}
       onPlay={() => {
         if (!objectUrl.current || !source.current) return;
         setPaused(false);
         setLoading(false);
-        setStatus("再生中: " + wavFilename(source.current.wavPath));
+        setStatus("");
       }}
       aria-label="WAV試聴プレーヤー" />
   </div>;
