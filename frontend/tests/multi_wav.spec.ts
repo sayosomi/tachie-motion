@@ -1740,7 +1740,9 @@ test("preset change points stay independent per WAV and reach the solo render pa
   await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
   let editor = page.locator(".preset-change-editor");
   const addPosition = editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" });
+  await expect(editor.locator(".preset-change-active")).toContainText("編集位置のプリセット");
   await addPosition.fill("0.3");
+  await expect(editor.locator(".preset-change-active")).toContainText("0.300秒");
   await editor.getByRole("combobox", { name: "追加するプリセット" }).focus();
   await expect(addPosition).toHaveValue("0.3");
   await expect(editor.getByRole("button", { name: "現在位置に変更点を追加" })).toBeEnabled();
