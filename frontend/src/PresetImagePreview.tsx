@@ -140,6 +140,8 @@ export default function PresetImagePreview({
   useEffect(() => {
     const stage = viewport.current;
     if (!stage || !image) return;
+    // Use a non-null snapshot in the event handler, rather than the mutable ref.
+    const wheelStage: HTMLDivElement = stage;
     function onWheel(event: WheelEvent) {
       if (!event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
       const g = geometry();
@@ -153,7 +155,7 @@ export default function PresetImagePreview({
         current.zoom - delta * WHEEL_ZOOM_PER_PIXEL));
       if (next === current.zoom) return;
       cancelDrag();
-      const rect = stage.getBoundingClientRect();
+      const rect = wheelStage.getBoundingClientRect();
       const x = event.clientX - rect.left - rect.width / 2;
       const y = event.clientY - rect.top - rect.height / 2;
       const factor = next / current.zoom;
@@ -163,8 +165,8 @@ export default function PresetImagePreview({
       }, next) });
       setSavedMessage("");
     }
-    stage.addEventListener("wheel", onWheel, { passive: false });
-    return () => stage.removeEventListener("wheel", onWheel);
+    wheelStage.addEventListener("wheel", onWheel, { passive: false });
+    return () => wheelStage.removeEventListener("wheel", onWheel);
   }, [image]);
 
   function saveThumbnail() {
