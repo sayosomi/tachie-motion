@@ -298,6 +298,36 @@ test("IME conversion Enter does not rename until composition ends and a real com
   await expect(page.locator(".preset-card-title strong")).toHaveText("あんこもん");
 });
 
+test("failed preset name persistence protects the committed name and keeps the edit", async ({ page }) => {
+  await page.route("**/api/psd", (route) => route.fulfill({ json: {
+    width: 64, height: 64, fingerprint: "quota-source", preview: png, layers,
+  } }));
+  await page.goto("/");
+  await page.locator("#preset-psd-path-advanced").evaluate((el) => {
+    (el as HTMLDetailsElement).open = true;
+  });
+  await page.locator("#preset-psd-path").fill("/tmp/quota.psd");
+  await page.getByRole("button", { name: "読み込む", exact: true }).click();
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === "tachie-motion.preset-draft.v2") throw new Error("QuotaExceeded");
+      return original.call(this, key, value);
+    };
+  });
+  const input = page.locator("#preset-name");
+  await input.fill("保存されない名前");
+  await input.press("Tab");
+  await expect(page.locator("#preset-name-error")).toContainText("保存できません");
+  await expect(input).toHaveValue("保存されない名前");
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v2")!) as {
+      collection: { items: Array<{ name: string }> };
+    });
+  expect(saved.collection.items[0].name).toBe("通常");
+});
+
 test("changed PSD fingerprint fails closed without erasing the stored draft", async ({ page }) => {
   let fingerprint = "source-A";
   await page.route("**/api/psd", (route) => route.fulfill({ json: {
