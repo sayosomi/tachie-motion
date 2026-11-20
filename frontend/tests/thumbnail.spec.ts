@@ -293,6 +293,65 @@ test("asymmetric crop matches detail preview, preset list and WAV choices", asyn
   }
 });
 
+test("non-step wheel crop survives reload and matches preset list and WAV picker", async ({ page }) => {
+  await start(page, asymmetricPng);
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+
+  const stage = page.locator(".preset-image-viewport");
+  const controls = page.locator(".preset-image-controls");
+  await expect(stage.locator("img")).toBeVisible();
+  expect((await savedDraft(page)).collection.items[0].thumbnail).toBeUndefined();
+
+  // 100px of wheel input changes zoom by 0.5x: 140px yields 1.7x.
+  // The off-center anchor gives a real pan on both axes, without touching
+  // any of the discrete + / - buttons.
+  await wheelBurst(stage, [-80, -60], 28, 18);
+  await expect(controls.getByLabel("プレビュー倍率")).toHaveText("1.7×");
+  const pan = previewPan(await stage.locator("img").evaluate((img) => img.style.transform));
+  expect(pan.x).toBeLessThan(-10);
+  expect(pan.y).toBeLessThan(-5);
+  expect((await savedDraft(page)).collection.items[0].thumbnail).toBeUndefined();
+
+  await controls.getByRole("button", { name: "サムネにする" }).click();
+  const expected = await visibleCrop(stage);
+  const saved = (await savedDraft(page)).collection.items[0].thumbnail!;
+  expect(saved.zoom).toBeCloseTo(1.7, 8);
+  expect(saved.centerX).toBeGreaterThan(0.5);
+  expect(saved.centerY).toBeGreaterThan(0.5);
+  expect((expected.left + expected.right) / 2).toBeCloseTo(saved.centerX, 2);
+  expect((expected.top + expected.bottom) / 2).toBeCloseTo(saved.centerY, 2);
+
+  const assertCrop = async (frame: Locator, tolerance: number) => {
+    await expect(frame.locator("img")).toBeVisible();
+    await expect.poll(async () => frame.locator("img").evaluate(
+      (img) => (img as HTMLImageElement).getBoundingClientRect().width)).toBeGreaterThan(0);
+    const actual = await visibleCrop(frame);
+    for (const edge of ["left", "top", "right", "bottom"] as const) {
+      expect(Math.abs(actual[edge] - expected[edge])).toBeLessThan(tolerance);
+    }
+  };
+
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  const listFrame = page.locator(".preset-card-image.thumbnail-frame").first();
+  await assertCrop(listFrame, 0.012);
+
+  await page.reload();
+  await expect(page.locator(".preset-card")).toHaveCount(1);
+  expect((await savedDraft(page)).collection.items[0].thumbnail).toEqual(saved);
+  await assertCrop(page.locator(".preset-card-image.thumbnail-frame").first(), 0.012);
+
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await page.locator("#speech-wav-path-advanced").evaluate(
+    (node) => { (node as HTMLDetailsElement).open = true; });
+  await page.locator("#speech-wav-path").fill("/tmp/non-step.wav");
+  await page.getByRole("button", { name: "WAVを確認" }).click();
+  const row = page.locator("[data-utterance-id]").first();
+  await expect(row).toBeVisible();
+  await row.locator(".preset-picker-trigger").click();
+  const wavFrame = row.locator(".preset-picker-option .preset-picker-thumb").first();
+  await assertCrop(wavFrame, 0.025);
+});
+
 test("thumbnail crop is persisted and reused by the preset list without changing PSD base", async ({ page }) => {
   await start(page);
   const before = await savedDraft(page);
