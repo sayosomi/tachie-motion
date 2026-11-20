@@ -159,7 +159,12 @@ test("wheel zoom anchors at cursor, stays in preview and saves only on explicit 
     (img) => (img as HTMLImageElement).style.transform);
   const match = /translate\(([-\d.]+)px, ([-\d.]+)px\) scale\(1\.5\)/.exec(transform);
   expect(match).not.toBeNull();
-  expect(Number(match![1])).toBeCloseTo(-16, 0);
+  // The fixture is 1:1 inside a 4:3 stage. At intermediate 1.2×
+  // magnification, the image still has horizontal letterboxing, so its
+  // horizontal pan is clamped to zero. The final 1.2×→1.5× step therefore
+  // contributes about -8px, not the -16px of a single 1×→1.5× jump.
+  // Vertical pan has no letterboxing and retains the full cursor anchor.
+  expect(Number(match![1])).toBeCloseTo(-8, 0);
   expect(Number(match![2])).toBeCloseTo(-12, 0);
   expect((await savedDraft(page)).collection.items[0].thumbnail).toBeUndefined();
 
