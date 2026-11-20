@@ -117,6 +117,10 @@ export function exportPayload(
     if (error) throw new Error("変更点のプリセットが書き出せません：" + error);
     return { sample: point.sample, presetId: point.presetId, preset: next };
   });
+  // PSD eye-group bindings belong to the entire WAV timeline. A later
+  // preset may enable blinking even when the initial preset disables it.
+  const usesBlink = preset.blinkEnabled ||
+    timelinePresets.some(({ preset: next }) => next.blinkEnabled);
   const timing = preset.blinkEnabled
     ? blinkFrames(draft.collection.blinkTiming, item.fps) : null;
   if (preset.blinkEnabled && (
@@ -138,7 +142,7 @@ export function exportPayload(
     mode: preset.mouthMotionEnabled === false ? "none" : item.mode,
     blink_enabled: preset.blinkEnabled,
     eyes: preset.blinkEnabled ? preset.eyes ?? null : null,
-    eye_groups: preset.blinkEnabled ? draft.collection.motionGroups?.eyes ?? null : null,
+    eye_groups: usesBlink ? draft.collection.motionGroups?.eyes ?? null : null,
     blink_timing: timing,
     output_dir: item.outputDir,
     basename,

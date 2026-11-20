@@ -1,4 +1,7 @@
 import { expect, test } from "@playwright/test";
+import { createUtterance } from "../src/utteranceItems";
+import { exportPayload, exportReadinessError } from "../src/utteranceExportRequest";
+import type { PresetDraft } from "../src/presetDraftStorage";
 import {
   addPresetChangePoint, assertPresetChangePoints, frameCenterSample,
   movePresetChangePoint, presetAtSample, removePresetChangePoint,
@@ -85,4 +88,55 @@ test("integer arithmetic stays exact above floating-point multiplication limits"
   const expected = Number(((BigInt(2) * BigInt(frame) + BigInt(1)) *
     BigInt(sampleRate)) / BigInt(60));
   expect(frameCenterSample(frame, 30, sampleRate, length)).toBe(expected);
+});
+
+test("eye group bindings cover both OFF-to-ON and ON-to-OFF preset timelines", () => {
+  const draft: PresetDraft = {
+    version: 2, path: "/tmp/character.psd", fingerprint: "synthetic",
+    nameDrafts: {},
+    collection: {
+      defaultId: "off",
+      motionGroups: { mouth: [], eyes: ["0"] },
+      blinkTiming: {
+        intervalMs: 1000, closedMs: 100, jitterMs: 0, phaseMs: 0, seed: 1,
+      },
+      items: [
+        { id: "off", name: "瞬きOFF", blinkEnabled: false,
+          base: [{ path: "0", visible: true }] },
+        { id: "on", name: "瞬きON", blinkEnabled: true,
+          base: [{ path: "0", visible: true }],
+          eyes: { opened: [], closed: [{ path: "0/1", visible: true }] } },
+      ],
+    },
+  };
+  const [off, on] = draft.collection.items;
+  const wav = {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    source_identity: "1:2:3:4:5",
+  };
+
+  const firstOff = createUtterance("wav-off", "/tmp/wav-off.wav", wav, "off", "/tmp", 1);
+  firstOff.presetChanges = [{ sample: 500, presetId: "on" }];
+  expect(exportReadinessError(off, firstOff, undefined, draft.collection)).toBeNull();
+  const offToOn = exportPayload(draft, firstOff, off, "off-to-on", "error");
+  expect(offToOn.eye_groups).toEqual(["0"]);
+  expect(offToOn.blink_enabled).toBe(false);
+  expect(offToOn.timeline_changes).toMatchObject([
+    { sample: 500, preset_id: "on", blink_enabled: true },
+  ]);
+
+  const firstOn = createUtterance("wav-on", "/tmp/wav-on.wav", wav, "on", "/tmp", 2);
+  firstOn.presetChanges = [{ sample: 500, presetId: "off" }];
+  expect(exportReadinessError(on, firstOn, undefined, draft.collection)).toBeNull();
+  const onToOff = exportPayload(draft, firstOn, on, "on-to-off", "error");
+  expect(onToOff.eye_groups).toEqual(["0"]);
+  expect(onToOff.blink_enabled).toBe(true);
+  expect(onToOff.timeline_changes).toMatchObject([
+    { sample: 500, preset_id: "off", blink_enabled: false },
+  ]);
+
+  const alwaysOff = createUtterance("wav-static", "/tmp/wav-static.wav", wav, "off", "/tmp", 3);
+  const noBlink = exportPayload(draft, alwaysOff, off, "static", "error");
+  expect(noBlink.eye_groups).toBeNull();
+  expect(noBlink).not.toHaveProperty("timeline_changes");
 });
