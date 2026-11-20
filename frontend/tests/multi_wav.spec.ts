@@ -1922,6 +1922,79 @@ test("a preset used by an initial WAV or edit point cannot be deleted", async ({
   await expect(presetTrigger(second)).toHaveAttribute("data-selected-preset-id", initialId!);
 });
 
+test("pending WAV inspection blocks preset deletion across screens until its row is committed", async ({ page }) => {
+  let releaseInspection: (() => void) | undefined;
+  await page.route("**/api/wav", async (route) => {
+    await new Promise<void>((resolve) => { releaseInspection = resolve; });
+    await route.fulfill({ json: {
+      samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/pending.wav");
+  await expect.poll(() => Boolean(releaseInspection)).toBe(true);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  const card = page.locator(".preset-card").first();
+  await expect(card).toBeVisible();
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "WAVを登録中" })).toBeVisible();
+  await expect(card).toHaveCount(1);
+
+  releaseInspection!();
+  await page.getByRole("button", { name: "エラーを閉じる" }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  const row = page.locator("[data-utterance-id]");
+  await expect(row).toHaveCount(1);
+  await expect(row.first().locator("small").first()).toHaveText("/tmp/pending.wav");
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "使用中" }))
+    .toContainText("pending.wav");
+
+  await page.getByRole("button", { name: "エラーを閉じる" }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await page.getByRole("button", { name: "削除: 1 pending.wav" }).click();
+  await expect(row).toHaveCount(0);
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(card).toHaveCount(0);
+});
+
+test("a late WAV response cannot register a preset removed from persisted storage", async ({ page }) => {
+  let releaseInspection: (() => void) | undefined;
+  await page.route("**/api/wav", async (route) => {
+    await new Promise<void>((resolve) => { releaseInspection = resolve; });
+    await route.fulfill({ json: {
+      samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    } });
+  });
+  await openSpeech(page);
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await page.getByRole("button", { name: "＋ 作成" }).click();
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await addWav(page, "/tmp/stale.wav");
+  await expect.poll(() => Boolean(releaseInspection)).toBe(true);
+  // Model a newer persisted preset snapshot from another tab while the API is pending.
+  await page.evaluate(() => {
+    const key = "tachie-motion.preset-draft.v2";
+    const saved = JSON.parse(localStorage.getItem(key)!) as {
+      collection: { items: Array<{ id: string }>; defaultId: string };
+    };
+    const formerDefault = saved.collection.defaultId;
+    saved.collection.items = saved.collection.items.filter((item) => item.id !== formerDefault);
+    saved.collection.defaultId = saved.collection.items[0].id;
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  releaseInspection!();
+  await expect(page.getByRole("alert").filter({ hasText: "登録開始時のプリセット" }))
+    .toContainText("登録し直してください");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(0);
+});
+
 test("batch MOV requests carry only their own preset changes", async ({ page }) => {
   await page.route("**/api/wav", (route) => route.fulfill({ json: {
     samples: 1000, sample_rate: 1000, duration_seconds: 1,

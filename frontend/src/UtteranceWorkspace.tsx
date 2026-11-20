@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { flushSync } from "react-dom";
 import type { Layer } from "./LayerTree";
 import UtteranceExportPanel, { type ExportScope } from "./UtteranceExportPanel";
 import ExportProgressDialog from "./ExportProgressDialog";
@@ -52,11 +53,13 @@ function openMouthReady(preset?: UnifiedPreset): boolean {
     mouth.opened.some((layer) => layer.visible));
 }
 
-export default function UtteranceWorkspace({ active = true, items, setItems, onProjectBusyChange }: {
+export default function UtteranceWorkspace({ active = true, items, setItems,
+  onProjectBusyChange, onWavRegistrationPendingChange }: {
   active?: boolean;
   items: UtteranceItem[];
   setItems: Dispatch<SetStateAction<UtteranceItem[]>>;
   onProjectBusyChange?: (busy: boolean) => void;
+  onWavRegistrationPendingChange?: (delta: number) => void;
 }) {
   const [draft, setDraft] = useState<PresetDraft | null>(null);
   const [psdLayers, setPsdLayers] = useState<Layer[]>([]);
@@ -334,18 +337,29 @@ export default function UtteranceWorkspace({ active = true, items, setItems, onP
     const atEpoch = selectionEpoch.current;
     const atCatalog = catalogEpoch.current;
     const ordinal = ++sequence.current;
+    onWavRegistrationPendingChange?.(1);
     setAddingCount((count) => count + 1);
     try {
       const wav = await post<WavData>("wav", { path });
       if (!mounted.current || atCatalog !== catalogEpoch.current) return false;
       const id = crypto.randomUUID();
       const presetId = draft.collection.defaultId ?? draft.collection.items[0].id;
+      const currentDraft = readPresetDraft();
+      if (!currentDraft || currentDraft.path !== draft.path ||
+          currentDraft.fingerprint !== draft.fingerprint ||
+          !currentDraft.collection.items.some((preset) => preset.id === presetId)) {
+        throw new Error("登録開始時のプリセットが変更または削除されました。現在のプリセットを確認してWAVを登録し直してください");
+      }
       const item = createUtterance(id, path, wav, presetId, defaultOutputDir, ordinal);
-      // Preserve the order of registration even when two analyses complete backwards.
-      setItems((previous) => {
-        const at = previous.findIndex((entry) => entry.registrationOrder > ordinal);
-        return at < 0 ? [...previous, item] :
-          [...previous.slice(0, at), item, ...previous.slice(at)];
+      // Commit the row before releasing the synchronous deletion guard.
+      // Otherwise a queued React update could leave a brief unguarded gap.
+      flushSync(() => {
+        // Preserve registration order even when WAV analyses finish backwards.
+        setItems((previous) => {
+          const at = previous.findIndex((entry) => entry.registrationOrder > ordinal);
+          return at < 0 ? [...previous, item] :
+            [...previous.slice(0, at), item, ...previous.slice(at)];
+        });
       });
       if (request === latestAdd.current && selectionEpoch.current === atEpoch) {
         setActiveId(id);
@@ -364,6 +378,7 @@ export default function UtteranceWorkspace({ active = true, items, setItems, onP
       }
       return false;
     } finally {
+      onWavRegistrationPendingChange?.(-1);
       if (mounted.current) setAddingCount((count) => count - 1);
     }
   }

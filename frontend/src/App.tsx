@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import PresetWorkspace from "./PresetWorkspace";
 import UtteranceWorkspace from "./UtteranceWorkspace";
 import type { UtteranceItem } from "./utteranceItems";
@@ -10,6 +10,12 @@ export default function App() {
   // Keep the WAV references alive while the preset screen is mounted so a
   // preset cannot be deleted out from under an existing utterance or point.
   const [utterances, setUtterances] = useState<UtteranceItem[]>([]);
+  // WAV inspection may finish after switching screens. Keep this guard
+  // synchronous, independent of React's render/commit scheduling.
+  const pendingWavRegistrations = useRef(0);
+  const changePendingWavRegistrations = (delta: number) => {
+    pendingWavRegistrations.current += delta;
+  };
 
   return <>
     <nav className="app-mode-tabs" aria-label="画面切り替え">
@@ -21,10 +27,12 @@ export default function App() {
           setScreen("speech");
         }}>セリフ</button>
     </nav>
-    {screen === "presets" && <PresetWorkspace utterances={utterances} />}
+    {screen === "presets" && <PresetWorkspace utterances={utterances}
+      isWavRegistrationPending={() => pendingWavRegistrations.current > 0} />}
     {speechVisited && <div hidden={screen !== "speech"}>
       <UtteranceWorkspace active={screen === "speech"}
         items={utterances} setItems={setUtterances}
+        onWavRegistrationPendingChange={changePendingWavRegistrations}
         onProjectBusyChange={setProjectBusy} />
     </div>}
   </>;

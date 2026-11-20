@@ -47,7 +47,10 @@ function signature(preset: UnifiedPreset): string {
 
 const empty: Presets = { items: [], defaultId: null };
 
-export default function PresetWorkspace({ utterances }: { utterances: readonly UtteranceItem[] }) {
+export default function PresetWorkspace({ utterances, isWavRegistrationPending }: {
+  utterances: readonly UtteranceItem[];
+  isWavRegistrationPending: () => boolean;
+}) {
   const [psdPath, setPsdPath] = useState("");
   const [loadedPath, setLoadedPath] = useState("");
   const [psd, setPsd] = useState<PsdData | null>(null);
@@ -437,6 +440,10 @@ export default function PresetWorkspace({ utterances }: { utterances: readonly U
   function remove(id: string) {
     const name = collection.items.find((preset) => preset.id === id)?.name;
     if (!name) return;
+    if (isWavRegistrationPending()) {
+      setError("WAVを登録中です。登録完了後にプリセットの使用状況を確認してから削除してください。");
+      return;
+    }
     const users = utterances.filter((item) => item.presetId === id ||
       (item.presetChanges ?? []).some((point) => point.presetId === id));
     if (users.length) {
