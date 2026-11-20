@@ -486,7 +486,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     <header className="topbar"><div className="brand"><span className="brand-mark">t</span>
       <span>tachie-motion</span></div></header>
     <div className="intro"><h1>セリフ</h1></div>
-    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。選択中の1件は音声入りMOVのみ、全件は各MOVと全体OTIO 1本を生成します。aiueoには同名の有効なLABとプリセット6口形の設定が必要です。瞬きは目のレイヤーとキャラクター共通の時間を設定すると利用できます。待機・変更点は後続対応です。</p>
+    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。選択中の1件は音声入りMOVのみ、全件は各MOVと全体OTIO 1本を生成します。aiueoには同名の有効なLABとプリセット6口形の設定が必要です。瞬きは目のレイヤーとキャラクター共通の時間を設定すると利用できます。待機は後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} labStatuses={labStatuses}
       onRecheckLabs={() => setLabRefreshVersion((previous) => previous + 1)}

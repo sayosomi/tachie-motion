@@ -3,6 +3,7 @@ import NativeFilePicker from "./NativeFilePicker";
 import PresetPicker from "./PresetPicker";
 import type { WavPlaybackControls } from "./WavPlayback";
 import WavWaveform from "./WavWaveform";
+import PresetChangeEditor from "./PresetChangeEditor";
 import type { LabInfo } from "./useLabStatus";
 import type { UnifiedPreset } from "./presetModel";
 import { wavFilename, type LipMode, type UtteranceItem } from "./utteranceItems";
@@ -183,16 +184,19 @@ export default function UtteranceList({
               <button type="button" aria-label={`削除: ${index + 1} ${name}`}
                 disabled={disabled || !!exportingId || addingCount > 0} onClick={() => onRemove(item.id)}>削除</button>
             </div>
-            {playback.activeId === item.id &&
+            {(playback.activeId === item.id || item.id === selectedId) &&
               <div className="utterance-row-progress">
-                {playback.loading ? <span className="utterance-loading-label">
+                {playback.activeId === item.id && playback.loading ? <span className="utterance-loading-label">
                   読み込み中止（■を押す）
                 </span> : <>
-                  <WavWaveform name={name} disabled={selectionLocked}
-                    elapsed={playback.elapsed} duration={item.wav.duration_seconds}
+                  {item.id === selectedId ? <PresetChangeEditor key={item.id}
+                    item={item} presets={presets} playback={playback} disabled={disabled}
+                    onRevise={onRevise} /> : <WavWaveform name={name}
+                    disabled={selectionLocked} elapsed={playback.elapsed}
+                    duration={item.wav.duration_seconds}
                     peaks={playback.waveform?.sourceId === item.id ? playback.waveform.peaks : null}
-                    onSeek={playback.seek} />
-                  <span className="meta">{playback.elapsed.toFixed(1)} / {item.wav.duration_seconds.toFixed(1)}秒</span>
+                    onSeek={playback.seek} />}
+                  {playback.activeId === item.id && <span className="meta">{playback.elapsed.toFixed(1)} / {item.wav.duration_seconds.toFixed(1)}秒</span>}
                 </>}
               </div>}
           </li>;

@@ -30,6 +30,8 @@ from tachie_motion.web.output_destinations import initial_target_identity, publi
 from tachie_motion.web.solo_output import initial_single_identity, publish_single
 from tachie_motion.web.service import load_psd
 from tachie_motion.web.preview_frame import file_identity
+from tachie_motion.web.preset_timeline import validate_timeline_changes
+from tachie_motion.web.preset_timeline_render import render_timeline_states
 
 
 def verify_wav_source(path: Path, expected: str) -> None:
@@ -122,13 +124,14 @@ def export_preset_utterance(
     mouth_groups: list[str] | None = None, lab_source_identity: str | None = None,
     eyes: dict | None = None, eye_groups: list[str] | None = None,
     blink_timing: dict | None = None,
+    timeline_changes: list[dict] | None = None,
     protect_otio_references: bool = False,
     progress: tuple[ExportProgress, str] | None = None,
 ):
     """Generate a preset-backed PCM MOV with optional OTIO for callers that need it.
 
     Supports none/open/aiueo, with fresh blink timing variation per export.
-    Timeline change points and multiple character tracks remain excluded.
+    Preset change points are supported; multi-character tracks remain excluded.
     """
     def report(stage: str, percent: int, frames: int = 0,
                total_frames: int = 0) -> None:
@@ -180,10 +183,11 @@ def export_preset_utterance(
            if mode == "aiueo" else None)
     check_cancel()
     schedule = analyze_wav(wav, fps=fps)
+    changes = validate_timeline_changes(timeline_changes, samples=schedule.sample_count)
     report("WAV・フレーム構成を解析中", 12)
     if source_identity is not None:
         verify_wav_source(wav, source_identity)
-    if six is not None:
+    if six is not None or any(point["mode"] == "aiueo" for point in changes):
         if source_identity is None:
             raise ValueError("aiueo requires registered WAV identity")
         import re
@@ -203,7 +207,7 @@ def export_preset_utterance(
                         for frame in schedule.frames)
     if len(indices) != len(schedule.frames):
         raise ValueError("LAB video frame count disagrees with WAV timing")
-    if closed_eye is not None:
+    if closed_eye is not None and not changes:
         blink_frames = schedule_random_blink_frames(
             frame_count=len(indices), **blink_timing,
         )
@@ -213,7 +217,19 @@ def export_preset_utterance(
     try:
         directory = Path(work.name)
         report("PSD画像を合成中", 16)
-        if closed_eye is not None:
+        if changes:
+            pngs, indices = render_timeline_states(
+                psd,
+                {"layers": layers, "mouth": mouth, "aiueo_mouth": aiueo_mouth,
+                 "mode": mode, "blink_enabled": blink_enabled, "eyes": eyes,
+                 "blink_timing": blink_timing},
+                changes, schedule=schedule, fps=fps, mouth_groups=mouth_groups,
+                eye_groups=eye_groups,
+                lab_indices=indices if intervals is not None else None,
+                directory=directory, check_cancel=check_cancel,
+                validate_open_mouth=validate_open_mouth,
+            )
+        elif closed_eye is not None:
             mouth_poses = (tuple(six[key] for key in AIUEO_KEYS) if six is not None
                            else ({}, shapes["opened"]) if shapes is not None
                            else ({},))

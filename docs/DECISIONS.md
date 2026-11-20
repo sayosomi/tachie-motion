@@ -45,5 +45,7 @@ These decisions are carried from product planning. Changes require an explicit p
 - PSD compositing fidelity boundaries and fallback/error presentation.
 - Exact idle looping rules with blinking and whether loopable motion must be periodic by construction.
 - Default output pixel scaling, preset migration rules and project schema versioning.
+- **Issue #49 / Draft PR #50, pending user confirmation:** The implementation candidate stores change points as ordered PCM integer sample positions and stable preset IDs (the point is identified by its sample location; no separate persistent point ID). The candidate project JSON schema is **v4**, with a required `presetChanges` array per WAV, rejecting v3 instead of silently migrating. Final compatibility and point-ID choices must be confirmed before the PR can be considered complete. A conservative RGBA pose-memory budget protects the WAV timeline renderer.
+
 
 Do not silently resolve any of these as if already user-approved.

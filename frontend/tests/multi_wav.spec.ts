@@ -1717,3 +1717,96 @@ test("PCM memory estimate skips a small compressed-byte WAV before AudioContext 
   expect(await page.evaluate(() =>
     (window as Window & { __waveContextCount: number }).__waveContextCount)).toBe(0);
 });
+
+test("preset change points stay independent per WAV and reach the solo render payload", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  const requests: Array<Record<string, unknown>> = [];
+  await page.route("**/api/preset-utterance-export", (route) => {
+    requests.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill({ json: {
+      mov: "/tmp/output/timeline.mov", frames: 30, sample_count: 1000,
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/first.wav");
+  await addWav(page, "/tmp/second.wav");
+  let editor = page.locator('[data-selected="true"] .preset-change-editor');
+  await editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" }).fill("0.3");
+  await editor.getByRole("button", { name: "現在位置に変更点を追加" }).click();
+  await expect(editor.locator(".preset-change-points li")).toHaveCount(1);
+  await expect(editor.locator(".preset-change-marker")).toHaveCount(1);
+  await editor.getByRole("button", { name: "現在位置に変更点を追加" }).click();
+  await expect(editor.getByRole("alert")).toContainText("すでにプリセット変更点");
+
+  await page.locator("[data-utterance-id]").first().locator(".utterance-item-select").click();
+  editor = page.locator('[data-selected="true"] .preset-change-editor');
+  await expect(editor.locator(".preset-change-points li")).toHaveCount(0);
+  await editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" }).fill("0.2");
+  await editor.getByRole("button", { name: "現在位置に変更点を追加" }).click();
+  await expect(editor.locator(".preset-change-points li")).toHaveCount(1);
+  await page.locator("[data-utterance-id]").nth(1).locator(".utterance-item-select").click();
+  editor = page.locator('[data-selected="true"] .preset-change-editor');
+  await expect(editor.getByRole("spinbutton", { name: "変更点の時刻（秒）" })).toHaveValue(/^0\.3/);
+  await editor.getByRole("spinbutton", { name: "変更点の時刻（秒）" }).fill("0.4");
+  await editor.getByRole("button", { name: "時刻を更新" }).click();
+  await expect(editor.getByRole("spinbutton", { name: "変更点の時刻（秒）" })).toHaveValue(/^0\.4/);
+
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].wav).toBe("/tmp/second.wav");
+  expect(requests[0].timeline_changes).toMatchObject([
+    { sample: 400, mode: "none", preset_id: expect.any(String) },
+  ]);
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
+  await page.locator("[data-utterance-id]").first().locator(".utterance-item-select").click();
+  editor = page.locator('[data-selected="true"] .preset-change-editor');
+  await expect(editor.getByRole("spinbutton", { name: "変更点の時刻（秒）" })).toHaveValue(/^0\.2/);
+  await editor.getByRole("button", { name: "削除" }).click();
+  await expect(editor.locator(".preset-change-points li")).toHaveCount(0);
+});
+
+test("change points stay editable through slider when audio waveform is unavailable", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 800, sample_rate: 8000, duration_seconds: 0.1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/no-waveform.wav");
+  const editor = page.locator('[data-selected="true"] .preset-change-editor');
+  await expect(editor.locator(".wav-waveform")).toHaveCount(0);
+  const slider = editor.getByRole("slider", { name: /再生位置/ });
+  await slider.focus();
+  for (let step = 0; step < 5; step++) await slider.press("ArrowRight");
+  await editor.getByRole("button", { name: "現在位置に変更点を追加" }).click();
+  await expect(editor.locator(".preset-change-points li")).toHaveCount(1);
+  await expect(editor.locator(".preset-change-marker")).toHaveCount(1);
+});
+
+test("batch MOV requests carry only their own preset changes", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  await openSpeech(page);
+  const requests: Array<Record<string, unknown>> = [];
+  await page.route("**/api/preset-batch-mov-export", (route) => {
+    requests.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill({ json: {
+      mov: "/tmp/output/timeline.mov", frames: 30, sample_count: 1000, sample_rate: 1000,
+    } });
+  });
+  await addWav(page, "/tmp/a.wav");
+  await addWav(page, "/tmp/b.wav");
+  const editor = page.locator('[data-selected="true"] .preset-change-editor');
+  await editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" }).fill("0.5");
+  await editor.getByRole("button", { name: "現在位置に変更点を追加" }).click();
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
+  await expect.poll(() => requests.length).toBe(2);
+  expect(requests.map((value) => value.wav)).toEqual(["/tmp/a.wav", "/tmp/b.wav"]);
+  expect(requests[0]).not.toHaveProperty("timeline_changes");
+  expect(requests[1].timeline_changes).toMatchObject([{ sample: 500, mode: "none" }]);
+});

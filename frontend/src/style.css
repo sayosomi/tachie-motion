@@ -608,3 +608,15 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   .export-progress-percent { margin:15px auto; }
   .export-progress-details { padding:13px; }
 }
+
+/* Per-WAV preset changes: keep edit controls and waveform together. */
+.preset-change-editor { display: grid; gap: .55rem; min-width: 0; width: 100%; padding: .6rem; border: 1px solid var(--border-color, #7776); border-radius: .5rem; }
+.preset-change-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .6rem; }
+.preset-change-add { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
+.preset-change-add label { display: grid; gap: .2rem; font-size: .85rem; }
+.preset-change-add input { max-width: 8rem; }
+.preset-change-points { display: grid; gap: .45rem; margin: 0; padding: 0; list-style: none; }
+.preset-change-points li, .preset-change-points form { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; min-width: 0; }
+.preset-change-points input { width: 6.5rem; }
+.preset-change-points select { min-width: 9rem; max-width: 100%; }
+.preset-change-marker { opacity: .8; cursor: ew-resize; }
