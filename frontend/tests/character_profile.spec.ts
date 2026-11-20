@@ -187,7 +187,8 @@ test("character JSON roundtrip keeps ordered preset IDs, Open roles, Unicode and
   const firstId = await page.locator("[data-preset-id]").first().getAttribute("data-preset-id");
   await page.getByRole("button", { name: "＋ 作成" }).click();
   await page.locator("#preset-name").fill("にっこり え\u0301");
-  await page.getByRole("button", { name: "名前を変更" }).click();
+  await page.locator("#preset-name").press("Tab");
+  await expect(page.locator("#preset-name-status")).toHaveText("保存済み");
   await assignOpenPair(page, "0/0", "0/1", "顔");
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   await page.locator("[data-preset-id]").nth(1).getByRole("button", { name: "既定にする" }).click();

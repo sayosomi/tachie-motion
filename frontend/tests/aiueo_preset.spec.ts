@@ -261,8 +261,8 @@ test("parent visibility remains authoritative, presets can disable mouth without
   await expect(page.getByRole("checkbox", { name: "口 ON" })).not.toBeChecked();
   await expect(page.locator(".preset-layer-list")).toHaveCount(0);
   await page.getByRole("checkbox", { name: "口 ON" }).check();
-  await expect(page.locator(".preset-editor [role=status]"))
-    .toContainText("親グループが非表示");
+  await expect(page.locator(".preset-editor [role=status]")
+    .filter({ hasText: "親グループが非表示" })).toBeVisible();
   saved = JSON.parse((await page.evaluate(() =>
     localStorage.getItem("tachie-motion.preset-draft.v2")))!);
   expect(saved.collection.items[0].mouthMotionEnabled).toBe(true);
