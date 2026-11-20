@@ -4,6 +4,18 @@
 
 この文書は実装の進捗と今後の作業範囲を示します。確定した製品要件は [PRODUCT_SPEC.md](PRODUCT_SPEC.md)、実際に使えるコマンドは [README.md](../README.md) を参照してください。PoCで確認したことと、完成したアプリでできることは区別します。
 
+## Public Issue #51 — プリセット名の自動確定と名前変更ボタン廃止（PR #52、2026-11-20受け入れ）
+
+- [x] 詳細画面で名前入力欄からフォーカスが外れると自動確定し、専用の「名前を変更」ボタンを廃止。IME変換中のEnterでは誤確定しない。空欄・重複・保存失敗は確定名と入力途中の文字列を保護し、入力欄近くに理由を表示。保存エラー時は一覧へ戻る操作で理由を消さず編集画面に留める。
+- [x] trim後の同名ではプリセット本体の更新を避け、必要な下書き整理のみ行う。空白入力仕様をTEST_PLANと統一。ブラウザ復元・安定ID・キャラクター設定JSON・保存失敗・直接一覧クリックをPlaywrightで回帰確認。Mac実PSDでの通常の名前編集Human UXは2026-11-20 PASS（エラー後の直接一覧クリック操作は自動テストで確認）。
+- [x] 独立ブロッキング差分再監査はexact HEAD `5877cc48c1966465be04be92dcacd1d8e910812d` で**PASS（HIGH 0 / MEDIUM 0 / LOW 2）**。旧MEDIUM-01・LOW-01/02は解消。非ブロッキングLOW 2件（確定名に完全一致する入力への戻しで下書きが残る、no-op後のdirty不変確認不足）は今後の改善候補とし、完了を妨げない。GitHub ActionsのPython PoC tests・Phase 1 local Web UIは同HEADでSUCCESS、Web UI Playwright **201/201 PASS**。この完了記録だけの追加コミットでは製品コード・テストを変更しない。PSD/MOV/OTIO経路の変更なし。
+
+## Public Issue #53 — プレビューのホイール倍率を連続化（PR #54、2026-11-20受け入れ）
+
+- [x] PR #54でホイール倍率を固定段階から移動量比例の連続倍率へ変更。ポインタ基準の1〜8倍、＋／−ボタンの段階操作、サムネイル明示保存を維持。
+- [x] Mac実PSDでの見た目・操作性は2026-11-20 Human PASS。Mac Frontend Build PASS、Playwright `thumbnail.spec.ts` は最新製品コードで10/10 PASS。
+- [x] 独立差分再監査（exact HEAD `e50988e0e29b166b1356bc3b1e93bd6e25b66a27`）はHIGH 0 / MEDIUM 0 / LOW 0でPASS。旧MEDIUM-01・LOW-01は解消。GitHub ActionsのPython PoC tests、Phase 1 local Web UIは同HEADでSUCCESS（Web UI CI Playwright 197/197）。この最後のROADMAP更新では製品コードとテストを変更しない。PSD/MOV/OTIO描画経路は変更なし。
+
 ## Public Issue #44 — 書き出し進捗オーバーレイと安全なキャンセル（PR #45、2026-11-19 main統合）
 
 - [x] 個別／一括の両方で元画面全体を暗く覆い、中央に大きな％・進捗バー・対象WAV・処理段階を表示。Esc／外側クリックは不可。完了・失敗・キャンセル確定後に閉じる。
