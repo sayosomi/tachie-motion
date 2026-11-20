@@ -9,6 +9,12 @@
 - [ ] プリセット詳細の名前欄を離れると自動確定。IME変換中のEnterでは確定しない。空欄・重複名・保存失敗は元の確定名と入力途中の文字列を保持し、欄の近くに説明する。
 - [ ] ブラウザ復元・安定プリセットID・JSONとの整合をPlaywrightで自動確認し、Macで見た目・操作性をHuman評価する。レンダリング・MOV・OTIOへの変更は行わない。
 
+## Public Issue #53 — プレビューのホイール倍率を連続化（PR #54、2026-11-20受け入れ）
+
+- [x] PR #54でホイール倍率を固定段階から移動量比例の連続倍率へ変更。ポインタ基準の1〜8倍、＋／−ボタンの段階操作、サムネイル明示保存を維持。
+- [x] Mac実PSDでの見た目・操作性は2026-11-20 Human PASS。Mac Frontend Build PASS、Playwright `thumbnail.spec.ts` は最新製品コードで10/10 PASS。
+- [x] 独立差分再監査（exact HEAD `e50988e0e29b166b1356bc3b1e93bd6e25b66a27`）はHIGH 0 / MEDIUM 0 / LOW 0でPASS。旧MEDIUM-01・LOW-01は解消。GitHub ActionsのPython PoC tests、Phase 1 local Web UIは同HEADでSUCCESS（Web UI CI Playwright 197/197）。この最後のROADMAP更新では製品コードとテストを変更しない。PSD/MOV/OTIO描画経路は変更なし。
+
 ## Public Issue #44 — 書き出し進捗オーバーレイと安全なキャンセル（PR #45、2026-11-19 main統合）
 
 - [x] 個別／一括の両方で元画面全体を暗く覆い、中央に大きな％・進捗バー・対象WAV・処理段階を表示。Esc／外側クリックは不可。完了・失敗・キャンセル確定後に閉じる。
