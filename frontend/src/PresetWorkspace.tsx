@@ -521,6 +521,18 @@ export default function PresetWorkspace() {
         try {
           const nextDrafts = { ...nameDrafts };
           delete nextDrafts[active.id];
+          // Removing surrounding whitespace may leave the committed name
+          // unchanged. Only clear the recoverable draft; do not create a
+          // new preset collection, mark it dirty, or render the PSD again.
+          if (name.trim() === active.name) {
+            if (Object.hasOwn(nameDrafts, active.id)) {
+              if (!persist(collection, nextDrafts)) {
+                return "プリセット名の入力状態を保存できません。画面上部のエラーを確認してください。";
+              }
+              setNameDrafts(nextDrafts);
+            }
+            return null;
+          }
           if (!updatePresets(renamePreset(collection, active.id, name), nextDrafts)) {
             return "プリセット名を保存できません。画面上部のエラーを確認してください。";
           }

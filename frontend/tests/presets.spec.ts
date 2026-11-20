@@ -252,6 +252,67 @@ test("unique names on create, duplicate and rename, with preserved stable IDs", 
     cards.map((card) => card.getAttribute("data-preset-id")))).toEqual(ids);
 });
 
+test("direct Back click retains duplicate-name error until the edit is corrected", async ({ page }) => {
+  await page.route("**/api/psd", (route) => route.fulfill({ json: {
+    width: 64, height: 64, fingerprint: "back-rename", preview: png, layers,
+  } }));
+  await page.goto("/");
+  await page.locator("#preset-psd-path-advanced").evaluate(
+    (node) => { (node as HTMLDetailsElement).open = true; });
+  await page.locator("#preset-psd-path").fill("/tmp/back-rename.psd");
+  await page.getByRole("button", { name: "読み込む", exact: true }).click();
+  await page.getByRole("button", { name: "＋ 作成" }).click();
+  const input = page.locator("#preset-name");
+
+  // No Tab or Enter: pointerdown blurs the input before Back's click.
+  await input.fill("通常");
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
+  await expect(page).toHaveURL(/\?preset=/);
+  await expect(input).toHaveValue("通常");
+  await expect(input).toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator("#preset-name-error"))
+    .toContainText("同じ名前のプリセットがあります");
+  const pending = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v2")!));
+  expect(pending.collection.items[1].name).toBe("新しいプリセット");
+  expect(pending.nameDrafts[pending.collection.items[1].id]).toBe("通常");
+
+  // A second attempt to leave must not dismiss the error.
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  await expect(page.locator("#preset-name-error"))
+    .toContainText("同じ名前のプリセットがあります");
+
+  await input.fill("  にっこり  ");
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  await expect(page.getByRole("heading", { name: "一覧" })).toBeVisible();
+  const committed = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v2")!));
+  expect(committed.collection.items[1].name).toBe("にっこり");
+  expect(committed.nameDrafts[committed.collection.items[1].id]).toBeUndefined();
+});
+
+test("whitespace-only normalization clears the draft without changing a preset", async ({ page }) => {
+  await page.route("**/api/psd", (route) => route.fulfill({ json: {
+    width: 64, height: 64, fingerprint: "same-rename", preview: png, layers,
+  } }));
+  await page.goto("/");
+  await page.locator("#preset-psd-path-advanced").evaluate(
+    (node) => { (node as HTMLDetailsElement).open = true; });
+  await page.locator("#preset-psd-path").fill("/tmp/same-rename.psd");
+  await page.getByRole("button", { name: "読み込む", exact: true }).click();
+  await page.getByRole("button", { name: "詳細を編集" }).click();
+  const input = page.locator("#preset-name");
+  await input.fill("  通常  ");
+  await input.press("Tab");
+  await expect(page.locator("#preset-name-status")).toHaveText("保存済み");
+  await expect(input).toHaveValue("通常");
+  const result = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("tachie-motion.preset-draft.v2")!));
+  expect(result.collection.items[0].name).toBe("通常");
+  expect(result.nameDrafts[result.collection.items[0].id]).toBeUndefined();
+});
+
 test("refresh restores an unfinished name edit and modified ON/OFF states", async ({ page }) => {
   await page.route("**/api/psd", (route) => route.fulfill({ json: {
     width: 64, height: 64, fingerprint: "source-A", preview: png, layers,

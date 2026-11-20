@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import PresetNameEditor from "./PresetNameEditor";
 import type { BlinkTiming } from "./blinkTiming";
 import BlinkTimingEditor from "./BlinkTimingEditor";
@@ -70,6 +70,22 @@ export default function PresetDetail({
   const [motionKind, setMotionKind] = useState<"mouth" | "eyes">("mouth");
   const [aiueoKey, setAiueoKey] = useState<AiueoKey>("a");
   const [shapePreview, setShapePreview] = useState<ShapePreview | null>(null);
+  // Blur fires before the Back button's click. Keep the result synchronously
+  // so a failed auto-commit cannot unmount its only visible error message.
+  const nameCommitError = useRef<string | null>(null);
+  function commitName(value: string): string | null {
+    const error = onRename(value);
+    nameCommitError.current = error;
+    return error;
+  }
+  function returnToList() {
+    if (nameCommitError.current) {
+      document.getElementById("preset-name")?.focus();
+      return;
+    }
+    onBack();
+  }
+  useEffect(() => { nameCommitError.current = null; }, [preset.id]);
   useEffect(() => {
     setExpanded(layers.filter((layer) => layer.kind === "group").map((layer) => layer.path));
     setSelectedPath(null);
@@ -289,13 +305,16 @@ export default function PresetDetail({
 
   return <div className="preset-detail-page">
     <div className="preset-detail-head">
-      <button type="button" className="secondary" onClick={onBack}>← 一覧へ</button>
+      <button type="button" className="secondary" onClick={returnToList}>← 一覧へ</button>
     </div>
     <div className="preset-layout">
       <section className="panel preset-editor" data-role-mode={roleMode} data-edit-area={area}>
         <h2>編集</h2>
         <PresetNameEditor key={preset.id} name={preset.name} draft={nameDraft}
-          onDraftChange={onNameDraftChange} onCommit={onRename} />
+          onDraftChange={(value) => {
+            nameCommitError.current = null;
+            onNameDraftChange(value);
+          }} onCommit={commitName} />
         <div className="preset-role-tabs preset-area-tabs" role="group" aria-label="編集区分">
           <button type="button" aria-pressed={area === "normal"}
             onClick={() => { setArea("normal"); setPreviewState("base"); setQuery(""); }}>

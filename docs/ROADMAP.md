@@ -8,7 +8,7 @@
 
 - [x] 詳細画面のプリセット名はフォーカス離脱で自動確定し、専用の「名前を変更」ボタンを廃止。IME変換中のEnterは誤確定せず、空欄・重複・保存失敗時には確定済みの名前と編集中の文字列を保護し、入力欄近くに理由を表示する。
 - [x] ブラウザ復元・安定ID・キャラクター設定JSON・保存失敗のPlaywright回帰を実施。旧ボタンを参照した既存4テストを更新し、GitHub Actions（HEAD `11180179521bb51ac74e7313da60cabccde128ff`）でWeb UI Playwright **199/199 PASS**、Python PoC tests SUCCESS。Mac実PSDでの名前編集・保存状態表示のHuman UXは2026-11-20 PASS（製品コードは以降変更なし）。
-- [ ] 最新HEADの独立ブロッキング差分監査とPR統合が未完了。レンダリング・PSD・MOV・OTIOへの変更はない。
+- [ ] 独立監査はHEAD `d6aa3082b5314210e00e2d3c65daef23ea8a4168` でHIGH 0 / MEDIUM 1 / LOW 2のためBLOCKED（一覧への直接クリックで名前エラーが消える、同名trim時の不要な本体更新、TEST_PLAN記述差異）。修正後の最新HEADで自動テスト・CI・独立差分再監査を確認し、PR統合後に完了とする。レンダリング・PSD・MOV・OTIOは変更しない。
 
 ## Public Issue #53 — プレビューのホイール倍率を連続化（PR #54、2026-11-20受け入れ）
 
