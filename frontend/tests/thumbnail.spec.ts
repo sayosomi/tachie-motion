@@ -393,7 +393,8 @@ test("WAV choices display per-preset thumbnails and assign by stable ID", async 
   await start(page);
   await page.getByRole("button", { name: "＋ 作成" }).click();
   await page.locator("#preset-name").fill("にっこり");
-  await page.getByRole("button", { name: "名前を変更" }).click();
+  await page.locator("#preset-name").press("Tab");
+  await expect(page.locator("#preset-name-status")).toHaveText("保存済み");
   await editAndSave(page);
   await page.getByRole("button", { name: "← 一覧へ" }).click();
   const items = (await savedDraft(page)).collection.items;

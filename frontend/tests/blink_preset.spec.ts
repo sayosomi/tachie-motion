@@ -428,7 +428,9 @@ test("failed rename persistence preserves the visible error and unchanged preset
       return original.call(this, key, value);
     };
   });
-  await page.getByRole("button", { name: "名前を変更" }).click();
+  await page.locator("#preset-name").press("Tab");
+  await expect(page.locator("#preset-name-error")).toContainText("保存できません");
+  await expect(page.locator("#preset-name")).toHaveValue("保存失敗テスト");
   await expect(page.locator(".preset-error-toast")).toContainText("ブラウザに自動保存できません");
   expect((await saved(page)).collection.items[0].name).toBe("通常");
   await page.getByRole("button", { name: "← 一覧へ" }).click();
