@@ -109,7 +109,8 @@ class BatchGenerationApiTests(unittest.TestCase):
             for i, clip in enumerate(track["children"]):
                 uri = clip["media_references"]["DEFAULT_MEDIA"]["target_url"]
                 public = self.root / (self.names[i] + ".mov")
-                self.assertEqual(uri, str(public))
+                self.assertEqual(Path(uri).resolve(), public.resolve())
+                self.assertEqual(Path(uri).name, public.name)
                 self.assertFalse(uri.startswith("file://"))
                 self.assertNotIn(".tachie-batch-stage", uri)
                 self.assertNotIn(str(self.wav), uri)

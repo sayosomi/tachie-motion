@@ -136,13 +136,13 @@ class BatchBlockingAuditTests(unittest.TestCase):
             guard.succeeded(token, 0, response)
             materialized = [{ "basename": planned["basename"], "frames": 30,
                               "fps": 30, "samples": 48000, "sample_rate": 48000 }]
-            self.assertEqual(len(guard.before_timeline(token, folder, "timeline",
+            self.assertEqual(len(guard.before_timeline(token, folder.resolve(), "timeline",
                                                        "error", materialized)), 1)
             substitute = folder / "replacement.mov"
             substitute.write_bytes(b"rendered from tab B")
             os.replace(substitute, mov)
             with self.assertRaisesRegex(ValueError, "replaced"):
-                guard.before_timeline(token, folder, "timeline", "error", materialized)
+                guard.before_timeline(token, folder.resolve(), "timeline", "error", materialized)
             self.assertTrue(guard.release(token))
             guard.require_idle()
 
@@ -164,7 +164,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
             guard.succeeded(token, 0, {
                 "frames": 30, "sample_count": 48000, "sample_rate": 48000,
             })
-            self.assertEqual(len(guard.before_timeline(token, folder, "timeline",
+            self.assertEqual(len(guard.before_timeline(token, folder.resolve(), "timeline",
                 "error", [{"basename": planned["basename"], "frames": 30,
                            "fps": 30, "samples": 48000, "sample_rate": 48000}])), 1)
             self.assertTrue(guard.release(token))
@@ -197,7 +197,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
             entries = [{"basename": planned["basename"], "frames": 30, "fps": 30,
                         "samples": 48000, "sample_rate": 48000}]
             with self.assertRaisesRegex(ValueError, "replaced"):
-                guard.before_timeline(token, folder, "timeline", "error", entries)
+                guard.before_timeline(token, folder.resolve(), "timeline", "error", entries)
             self.assertTrue(guard.release(token))
 
     def test_existing_timeline_overwrite_stages_without_touching_old_generation(self):
@@ -231,7 +231,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
             })
             guard.failed(token, 1)
             with self.assertRaisesRegex(ValueError, "incomplete"):
-                guard.before_timeline(token, folder, "作品", "overwrite", [])
+                guard.before_timeline(token, folder.resolve(), "作品", "overwrite", [])
             self.assertEqual(
                 [first.read_bytes(), second.read_bytes(), timeline.read_bytes()],
                 [b"OLD-FIRST", b"OLD-SECOND", b"OLD-TIMELINE"],
@@ -289,7 +289,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
                 guard.before(token, 1, folder, "002_あんこもん", wav,
                              planned["source_identity"], 30, "error")
             with self.assertRaisesRegex(ValueError, "incomplete"):
-                guard.before_timeline(token, folder, "timeline", "error", [])
+                guard.before_timeline(token, folder.resolve(), "timeline", "error", [])
             self.assertTrue(guard.release(token))
 
     def test_recovery_state_is_shared_between_pair_and_single_export(self):
