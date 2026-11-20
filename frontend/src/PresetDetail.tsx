@@ -295,7 +295,7 @@ export default function PresetDetail({
       <section className="panel preset-editor" data-role-mode={roleMode} data-edit-area={area}>
         <h2>編集</h2>
         <PresetNameEditor key={preset.id} name={preset.name} draft={nameDraft}
-          onDraftChange={onNameDraftChange} onCommit={onRename} />}
+          onDraftChange={onNameDraftChange} onCommit={onRename} />
         <div className="preset-role-tabs preset-area-tabs" role="group" aria-label="編集区分">
           <button type="button" aria-pressed={area === "normal"}
             onClick={() => { setArea("normal"); setPreviewState("base"); setQuery(""); }}>
