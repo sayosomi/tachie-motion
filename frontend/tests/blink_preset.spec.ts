@@ -433,8 +433,12 @@ test("failed rename persistence preserves the visible error and unchanged preset
   await expect(page.locator("#preset-name")).toHaveValue("保存失敗テスト");
   await expect(page.locator(".preset-error-toast")).toContainText("ブラウザに自動保存できません");
   expect((await saved(page)).collection.items[0].name).toBe("通常");
+  // An invalid auto-commit must keep its error visible instead of navigating
+  // away and unmounting the only explanation for the failed save.
   await page.getByRole("button", { name: "← 一覧へ" }).click();
-  await expect(page.getByText("通常", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "編集" })).toBeVisible();
+  await expect(page.locator("#preset-name-error")).toContainText("保存できません");
+  await expect(page.locator("#preset-name")).toHaveValue("保存失敗テスト");
 });
 
 const initialTiming = {
