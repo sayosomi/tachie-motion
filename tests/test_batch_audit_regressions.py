@@ -128,7 +128,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Another batch"):
                 guard.require_idle()
             self.assertFalse(guard.release("wrong-tab-token"))
-            guard.before(token, 0, folder, planned["basename"], wav,
+            guard.before(token, 0, folder.resolve(), planned["basename"], wav.resolve(),
                          planned["source_identity"], 30, "error")
             mov = guard.active.stage / (planned["basename"] + ".mov")
             mov.write_bytes(b"rendered from tab A")
@@ -155,7 +155,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
             planned = entry(wav)
             guard = BatchCoordinator()
             token = guard.start(folder, "timeline", "error", [planned])
-            guard.before(token, 0, folder, planned["basename"], wav,
+            guard.before(token, 0, folder.resolve(), planned["basename"], wav.resolve(),
                          planned["source_identity"], 30, "error")
             movie = guard.active.stage / (planned["basename"] + ".mov")
             movie.write_bytes(b"slow rendered media")
@@ -178,7 +178,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
             planned = entry(wav)
             guard = BatchCoordinator()
             token = guard.start(folder, "timeline", "error", [planned])
-            guard.before(token, 0, folder, planned["basename"], wav,
+            guard.before(token, 0, folder.resolve(), planned["basename"], wav.resolve(),
                          planned["source_identity"], 30, "error")
             mov = guard.active.stage / (planned["basename"] + ".mov")
             mov.write_bytes(b"OLD MOV SAME SIZE")
@@ -223,7 +223,7 @@ class BatchBlockingAuditTests(unittest.TestCase):
                 [b"OLD-FIRST", b"OLD-SECOND", b"OLD-TIMELINE"],
             )
             # A failed second MOV never publishes the first or the OTIO.
-            guard.before(token, 0, folder, "first", wav, entries[0]["source_identity"],
+            guard.before(token, 0, folder.resolve(), "first", wav.resolve(), entries[0]["source_identity"],
                          30, "overwrite")
             (guard.active.stage / "first.mov").write_bytes(b"STAGED-FIRST")
             guard.succeeded(token, 0, {
