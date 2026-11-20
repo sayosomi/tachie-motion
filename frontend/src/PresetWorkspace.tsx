@@ -22,6 +22,7 @@ import { saveCharacterProfileFile } from "./characterProfileSave";
 import { effectiveMouthGroups, effectiveEyeGroups, setMouthGroups, setEyeGroups,
   validMotionGroups } from "./motionGroups";
 import { validatePsdChoices } from "./psdChoice";
+import { wavFilename, type UtteranceItem } from "./utteranceItems";
 
 type PsdData = {
   width: number; height: number; fingerprint: string; source_identity?: string;
@@ -46,7 +47,7 @@ function signature(preset: UnifiedPreset): string {
 
 const empty: Presets = { items: [], defaultId: null };
 
-export default function PresetWorkspace() {
+export default function PresetWorkspace({ utterances }: { utterances: readonly UtteranceItem[] }) {
   const [psdPath, setPsdPath] = useState("");
   const [loadedPath, setLoadedPath] = useState("");
   const [psd, setPsd] = useState<PsdData | null>(null);
@@ -435,10 +436,18 @@ export default function PresetWorkspace() {
 
   function remove(id: string) {
     const name = collection.items.find((preset) => preset.id === id)?.name;
-    if (!name || !window.confirm("プリセット「" + name + "」を削除しますか？")) return;
+    if (!name) return;
+    const users = utterances.filter((item) => item.presetId === id ||
+      (item.presetChanges ?? []).some((point) => point.presetId === id));
+    if (users.length) {
+      const names = users.slice(0, 3).map((item) => wavFilename(item.wavPath)).join("、");
+      setError(`プリセット「${name}」はセリフのWAV ${users.length}件で使用中です（${names}${users.length > 3 ? "、ほか" : ""}）。「セリフ」で初期プリセットと編集点の割り当てを変更してから削除してください。`);
+      return;
+    }
+    if (!window.confirm("プリセット「" + name + "」を削除しますか？")) return;
     const drafts = { ...nameDrafts };
     delete drafts[id];
-    updatePresets(removeSessionPreset(collection, id), drafts);
+    if (!updatePresets(removeSessionPreset(collection, id), drafts)) return;
     setNameDrafts(drafts);
     setPreviews((old) => {
       const next = { ...old };

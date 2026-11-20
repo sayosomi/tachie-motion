@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { Layer } from "./LayerTree";
 import UtteranceExportPanel, { type ExportScope } from "./UtteranceExportPanel";
 import ExportProgressDialog from "./ExportProgressDialog";
@@ -52,8 +52,10 @@ function openMouthReady(preset?: UnifiedPreset): boolean {
     mouth.opened.some((layer) => layer.visible));
 }
 
-export default function UtteranceWorkspace({ active = true, onProjectBusyChange }: {
+export default function UtteranceWorkspace({ active = true, items, setItems, onProjectBusyChange }: {
   active?: boolean;
+  items: UtteranceItem[];
+  setItems: Dispatch<SetStateAction<UtteranceItem[]>>;
   onProjectBusyChange?: (busy: boolean) => void;
 }) {
   const [draft, setDraft] = useState<PresetDraft | null>(null);
@@ -63,7 +65,6 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const [naming, setNaming] = useState<BatchNaming>(initialNaming());
   const [projectBusy, setProjectBusy] = useState(false);
   const projectBusyRef = useRef(false);
-  const [items, setItems] = useState<UtteranceItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [pendingPath, setPendingPath] = useState("");
   const [defaultOutputDir, setDefaultOutputDir] = useState("");

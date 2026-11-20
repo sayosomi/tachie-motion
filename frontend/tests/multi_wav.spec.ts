@@ -1819,6 +1819,109 @@ test("change points stay editable through slider when audio waveform is unavaila
   await expect(editor.locator(".wav-waveform")).toHaveCount(0);
 });
 
+test("Escape cancels both edit-point fields before blur can commit", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+  } }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/cancel.wav");
+  const editor = page.locator(".preset-change-editor");
+  await editor.getByRole("slider", { name: /再生位置/ }).press("ArrowRight");
+  await editor.getByRole("button", { name: /編集点を追加/ }).click();
+  const row = editor.locator(".preset-change-point");
+  const initial = Number(await row.getAttribute("data-edit-point"));
+  expect(initial).toBeGreaterThan(0);
+  const seconds = editor.getByRole("spinbutton", { name: "編集点の時刻（秒）" });
+  const percent = editor.getByRole("spinbutton", { name: "編集点の位置（%）" });
+  const originalSeconds = await seconds.inputValue();
+  const originalPercent = await percent.inputValue();
+
+  await seconds.fill("0.7");
+  await seconds.press("Escape");
+  await expect(row).toHaveAttribute("data-edit-point", String(initial));
+  await expect(seconds).toHaveValue(originalSeconds);
+  await expect(percent).toHaveValue(originalPercent);
+  await seconds.fill("-3");
+  await seconds.press("Escape");
+  await expect(row).toHaveAttribute("data-edit-point", String(initial));
+
+  await percent.fill("80");
+  await percent.press("Escape");
+  await expect(row).toHaveAttribute("data-edit-point", String(initial));
+  await expect(percent).toHaveValue(originalPercent);
+  await percent.fill("100");
+  await percent.press("Escape");
+  await expect(row).toHaveAttribute("data-edit-point", String(initial));
+
+  await seconds.fill("0.6");
+  await seconds.press("Enter");
+  await expect(editor.locator('[data-edit-point="600"]')).toHaveCount(1);
+  await percent.fill("70");
+  await percent.press("Tab");
+  await expect(editor.locator('[data-edit-point="700"]')).toHaveCount(1);
+});
+
+test("a preset used by an initial WAV or edit point cannot be deleted", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+  } }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/first.wav");
+  const first = page.locator("[data-utterance-id]").first();
+  const initialId = await presetTrigger(first).getAttribute("data-selected-preset-id");
+  expect(initialId).toBeTruthy();
+
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await page.getByRole("button", { name: "＋ 作成" }).click();
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  const card = page.locator(".preset-card").filter({ hasText: "新しいプリセット" });
+  const addedId = await card.getAttribute("data-preset-id");
+  expect(addedId).toBeTruthy();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+
+  await addWav(page, "/tmp/second.wav");
+  const second = page.locator("[data-utterance-id]").nth(1);
+  await choosePreset(second, addedId!); // Referenced as an initial WAV preset.
+  await first.locator(".utterance-item-select").click();
+  const editor = first.locator(".preset-change-editor");
+  await editor.getByRole("slider", { name: /再生位置/ }).press("ArrowRight");
+  await editor.getByRole("button", { name: /編集点を追加/ }).click();
+  await editor.locator(".preset-change-point .preset-picker-trigger").click();
+  await editor.locator(`.preset-change-point .preset-picker-option[data-preset-id="${addedId}"]`).click();
+  await expect(editor.locator(".preset-change-point .preset-picker-trigger"))
+    .toHaveAttribute("data-selected-preset-id", addedId!);
+
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  const alert = page.getByRole("alert").filter({ hasText: "使用中" });
+  await expect(alert).toContainText("WAV 2件");
+  await expect(alert).toContainText("first.wav");
+  await expect(alert).toContainText("second.wav");
+  await expect(card).toHaveCount(1);
+
+  // Only the explicit assignments are changed; all other WAV data survives.
+  await page.getByRole("button", { name: "エラーを閉じる" }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await choosePreset(second, initialId!);
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "使用中" }))
+    .toContainText("WAV 1件");
+  await expect(card).toHaveCount(1); // The remaining edit point alone protects B.
+  await page.getByRole("button", { name: "エラーを閉じる" }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await first.locator(".utterance-item-select").click();
+  await editor.getByRole("button", { name: "編集点を削除" }).click();
+  await expect(editor.locator(".preset-change-point")).toHaveCount(0);
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(card).toHaveCount(0);
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await expect(presetTrigger(first)).toHaveAttribute("data-selected-preset-id", initialId!);
+  await expect(presetTrigger(second)).toHaveAttribute("data-selected-preset-id", initialId!);
+});
+
 test("batch MOV requests carry only their own preset changes", async ({ page }) => {
   await page.route("**/api/wav", (route) => route.fulfill({ json: {
     samples: 1000, sample_rate: 1000, duration_seconds: 1,

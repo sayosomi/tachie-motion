@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import PresetPicker from "./PresetPicker";
 import {
   sampleFromPercent, sampleFromSeconds, validEditSample,
@@ -38,6 +38,9 @@ export default function PresetPointRow({
   const [draftSample, setDraftSample] = useState(point.sample);
   const [valid, setValid] = useState(true);
   const [dirty, setDirty] = useState(false);
+  // React state updates from Escape are not committed before the synchronous
+  // blur event. This ref must suppress that blur's normal save operation.
+  const cancellingBlur = useRef(false);
 
   useEffect(() => {
     if (dirty) return;
@@ -84,6 +87,10 @@ export default function PresetPointRow({
   }
 
   function commit() {
+    if (cancellingBlur.current) {
+      cancellingBlur.current = false;
+      return;
+    }
     if (!dirty) return;
     if (!valid) { reset(); return; }
     if (draftSample !== point.sample && !onMove(draftSample)) {
@@ -99,6 +106,7 @@ export default function PresetPointRow({
       event.currentTarget.blur(); // Commit on blur; never on a partial number.
     } else if (event.key === "Escape") {
       event.preventDefault();
+      cancellingBlur.current = true;
       reset();
       event.currentTarget.blur();
     }
@@ -109,13 +117,19 @@ export default function PresetPointRow({
     <input type="number" min={0} max={samples / sampleRate} step="any"
       aria-label="編集点の時刻（秒）" aria-invalid={!valid}
       title="秒数。Enterまたはフォーカスを外すと確定"
-      disabled={disabled} value={secondsText} onFocus={onSelect}
+      disabled={disabled} value={secondsText} onFocus={() => {
+        cancellingBlur.current = false;
+        onSelect();
+      }}
       onChange={(event) => updateSeconds(event.target.value)}
       onKeyDown={inputKeyDown} onBlur={commit} />
     <input type="number" min={0} max={100} step="any"
       aria-label="編集点の位置（%）" aria-invalid={!valid}
       title="割合。Enterまたはフォーカスを外すと確定"
-      disabled={disabled} value={percentText} onFocus={onSelect}
+      disabled={disabled} value={percentText} onFocus={() => {
+        cancellingBlur.current = false;
+        onSelect();
+      }}
       onChange={(event) => updatePercent(event.target.value)}
       onKeyDown={inputKeyDown} onBlur={commit} />
     <PresetPicker presets={presets} imageMap={presetImages}

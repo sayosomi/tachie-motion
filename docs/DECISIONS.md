@@ -39,7 +39,7 @@ These decisions are carried from product planning. Changes require an explicit p
 - Public OSS license, attribution, trademark/project identity.
 - Exact package/distribution method for Python backend; FFmpeg external.
 - Parent visibility follows the source PSD (D26). Precedence and conflict handling when mouth/eye targets overlap remain unresolved; do not infer a priority.
-- Deletion behavior for presets referenced by project snapshots, and precise migration policy for earlier single-layer bindings.
+- **Issue #49（2026-11-20承認）**：現在編集中のWAV初期プリセット・変更点で参照中のプリセットは削除拒否（`PRODUCT_SPEC.md` §4）。未読の別ファイルに保存された制作プロジェクトの参照まで調査する仕様、および以前の単一レイヤーバインドの移行方針は未決。
 - Absolute vs relative media-link behavior per OTIO importer; verification required.
 - **2026-11-06 decision, Issue #2:** WAV-derived non-compressed PCM in utterance MOV is the agreed output contract; do **not** offer WAV copying, even as an optional portable-output feature. Mac DaVinci Resolve standalone MOV and individual OTIO Human E2E PASS; independent code review and synthetic CI PASS were recorded separately. Combined OTIO / multi-character behavior remains planned, including selection of the single audio-owner MOV when multiple characters or no speaker image is rendered; do not describe the future workflow as implemented.
 - PSD compositing fidelity boundaries and fallback/error presentation.
