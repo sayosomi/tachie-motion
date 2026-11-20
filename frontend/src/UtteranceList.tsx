@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import NativeFilePicker from "./NativeFilePicker";
 import PresetPicker from "./PresetPicker";
 import type { WavPlaybackControls } from "./WavPlayback";
@@ -44,9 +44,32 @@ export default function UtteranceList({
   const [dragging, setDragging] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const [collapsedId, setCollapsedId] = useState<string | null>(null);
+  const seekPositions = useRef<Record<string, number>>({});
   const orderingLocked = disabled || !!exportingId || addingCount > 0;
   // Only the selected WAV can own the expanded editor. Another selection reopens it.
   useEffect(() => { setCollapsedId(null); }, [selectedId]);
+  // Space toggles playback of the selected WAV. Keep native Space behavior for
+  // text editing, dropdowns, ordinary buttons and modal/export UI.
+  useEffect(() => {
+    function onSpace(event: KeyboardEvent) {
+      if ((event.code !== "Space" && event.key !== " ") || event.defaultPrevented ||
+          event.repeat || event.isComposing || event.altKey || event.ctrlKey ||
+          event.metaKey || event.shiftKey || !selectedId || disabled ||
+          selectionLocked || exportingId || addingCount > 0) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('input, textarea, select, [contenteditable], [role="textbox"], [role="combobox"]')) return;
+      // Selecting a WAV leaves its row-selection button focused: Space should
+      // start playback rather than redundantly reselecting the WAV.
+      if (target.closest('button, a, [role="button"]') &&
+          !target.closest(".utterance-item-select")) return;
+      if (document.querySelector('[aria-modal="true"], dialog[open], .export-progress-backdrop')) return;
+      event.preventDefault();
+      playback.toggleItem(selectedId, seekPositions.current[selectedId]);
+    }
+    document.addEventListener("keydown", onSpace);
+    return () => document.removeEventListener("keydown", onSpace);
+  }, [selectedId, disabled, selectionLocked, exportingId, addingCount, playback]);
   // A drag may begin before export. Invalidate it as soon as editing locks.
   useEffect(() => {
     if (orderingLocked) {
@@ -125,11 +148,16 @@ export default function UtteranceList({
               }}
               onDragEnd={() => { setDragging(null); setHover(null); }}>⠿</button>
             <button type="button" className="utterance-item-play"
+              title="Space：選択中のWAVを再生・一時停止"
               disabled={selectionLocked}
               aria-label={`${playback.activeId === item.id && playback.loading ? "読み込み中止" :
                 playback.activeId === item.id && !playback.paused ? "一時停止" : "再生"}: ${index + 1} ${name}`}
               aria-pressed={playback.activeId === item.id && !playback.paused && !playback.loading}
-              onClick={() => { onSelect(item.id); playback.toggleItem(item.id); }}>
+              onClick={() => {
+                const at = item.id === selectedId ? seekPositions.current[item.id] : undefined;
+                onSelect(item.id);
+                playback.toggleItem(item.id, at);
+              }}>
               {playback.activeId === item.id && playback.loading ? "■" :
                 playback.activeId === item.id && !playback.paused ? "Ⅱ" : "▶"}
             </button>
@@ -198,7 +226,8 @@ export default function UtteranceList({
             {expanded && <div className="utterance-item-editor">
               <PresetChangeEditor key={item.id} item={item}
                 presets={presets} presetImages={presetImages}
-                playback={playback} disabled={disabled} onRevise={onRevise} />
+                playback={playback} disabled={disabled} onRevise={onRevise}
+                onCursorChange={(seconds) => { seekPositions.current[item.id] = seconds; }} />
             </div>}
             {playback.activeId === item.id && !expanded &&
               <div className="utterance-row-progress">

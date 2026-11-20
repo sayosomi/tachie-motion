@@ -38,9 +38,19 @@ export default function WavWaveform({
   const progress = duration ? Math.min(1, Math.max(0, elapsed / duration)) : 0;
   return <div className="wav-timeline">
     {(peaks || markers?.length) ? <div className="wav-waveform"
-      title="クリックで再生位置を移動・変更点をドラッグで移動"
+      title="クリックで再生位置を移動・編集点をドラッグで移動"
+      aria-label={"波形: " + name}
+      tabIndex={onSelectMarker ? 0 : undefined}
+      onKeyDown={(event) => {
+        if (!disabled && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+          event.preventDefault();
+          onSeek(Math.max(0, Math.min(duration,
+            elapsed + (event.key === "ArrowRight" ? 0.01 : -0.01))));
+        }
+      }}
       onPointerDown={(event) => {
         if (disabled) return;
+        if (onSelectMarker) event.currentTarget.focus();
         const target = event.target as Element;
         const marker = target.closest("[data-change-marker]");
         dragging.current = marker ? Number(marker.getAttribute("data-change-marker")) : null;

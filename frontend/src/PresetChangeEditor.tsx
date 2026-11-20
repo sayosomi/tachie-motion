@@ -1,15 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import PresetPicker from "./PresetPicker";
+import { useEffect, useState } from "react";
 import PresetPointRow from "./PresetPointRow";
-import PresetThumbnail from "./PresetThumbnail";
 import {
   addPresetChangePoint, movePresetChangePoint, removePresetChangePoint,
   replacePresetChangePoint, presetAtSample,
 } from "./presetChangePoints";
-import {
-  percentFromSample, sampleFromPercent, sampleFromSeconds,
-  secondsFromSample, validEditSample,
-} from "./presetPosition";
+import { sampleFromSeconds } from "./presetPosition";
 import { wavFilename, type UtteranceItem } from "./utteranceItems";
 import type { WavPlaybackControls } from "./WavPlayback";
 import WavWaveform from "./WavWaveform";
@@ -18,8 +13,9 @@ import type { UnifiedPreset } from "./presetModel";
 
 type PresetOption = Pick<UnifiedPreset, "id" | "name" | "thumbnail">;
 
+/** Waveform and editable list rows share a single position and PCM sample timeline. */
 export default function PresetChangeEditor({
-  item, presets, presetImages, playback, disabled, onRevise,
+  item, presets, presetImages, playback, disabled, onRevise, onCursorChange,
 }: {
   item: UtteranceItem;
   presets: PresetOption[];
@@ -27,15 +23,11 @@ export default function PresetChangeEditor({
   playback: WavPlaybackControls;
   disabled: boolean;
   onRevise: (id: string, patch: Partial<UtteranceItem>) => boolean;
+  onCursorChange: (seconds: number) => void;
 }) {
   const [cursorSample, setCursorSample] = useState(0);
-  const [positionText, setPositionText] = useState("0");
-  const [percentText, setPercentText] = useState("0");
-  const [newPresetId, setNewPresetId] = useState(item.presetId);
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null);
   const [error, setError] = useState("");
-  const positionEditing = useRef(false);
-  const positionDirty = useRef(false);
   const { samples, sample_rate: sampleRate } = item.wav;
   const duration = samples / sampleRate;
   const active = playback.activeId === item.id;
@@ -43,58 +35,25 @@ export default function PresetChangeEditor({
   const points = item.presetChanges ?? [];
   const ids = new Set(presets.map((preset) => preset.id));
   const effectivePresetId = presetAtSample(item.presetId, points, cursorSample);
-  const effectivePresetName = presets.find((value) => value.id === effectivePresetId)?.name
-    ?? "参照先のないプリセット";
-  const initialPreset = presets.find((value) => value.id === item.presetId);
 
   useEffect(() => {
-    if (!active || playback.loading || positionEditing.current || positionDirty.current) return;
+    if (!active || playback.loading) return;
     const sample = Math.min(samples - 1,
       Math.max(0, Math.round(playback.elapsed * sampleRate)));
     setCursorSample(sample);
-    setPositionText(secondsFromSample(sample, sampleRate));
-    setPercentText(percentFromSample(sample, samples));
   }, [active, playback.loading, playback.elapsed, samples, sampleRate]);
 
-  useEffect(() => {
-    if (!ids.has(newPresetId)) setNewPresetId(item.presetId);
-  }, [presets, newPresetId, item.presetId]);
-
-  const clampSample = (sample: number) =>
-    Math.min(samples - 1, Math.max(0, sample));
-  const format = (sample: number) => (sample / sampleRate).toFixed(3);
-
   function seek(seconds: number) {
-    const sample = clampSample(sampleFromSeconds(seconds, sampleRate));
+    const sample = Math.min(samples - 1, Math.max(0, sampleFromSeconds(seconds, sampleRate)));
     setCursorSample(sample);
-    setPositionText(secondsFromSample(sample, sampleRate));
-    setPercentText(percentFromSample(sample, samples));
-    positionDirty.current = false;
-    if (active && !playback.loading) playback.seek(seconds);
+    onCursorChange(sample / sampleRate);
+    setSelectedPoint(null);
+    if (active && !playback.loading) playback.seek(sample / sampleRate);
   }
 
-  function changeSeconds(raw: string) {
-    positionDirty.current = true;
-    setPositionText(raw);
-    const seconds = Number(raw);
-    if (raw.trim() && Number.isFinite(seconds) && seconds >= 0 && seconds <= duration) {
-      const sample = clampSample(sampleFromSeconds(seconds, sampleRate));
-      setCursorSample(sample);
-      setPercentText(percentFromSample(sample, samples));
-      if (active && !playback.loading) playback.seek(seconds);
-    }
-  }
-
-  function changePercent(raw: string) {
-    positionDirty.current = true;
-    setPercentText(raw);
-    const percent = Number(raw);
-    if (raw.trim() && Number.isFinite(percent) && percent >= 0 && percent <= 100) {
-      const sample = clampSample(sampleFromPercent(percent, samples));
-      setCursorSample(sample);
-      setPositionText(secondsFromSample(sample, sampleRate));
-      if (active && !playback.loading) playback.seek(sample / sampleRate);
-    }
+  function selectPoint(sample: number) {
+    seek(sample / sampleRate);
+    setSelectedPoint(sample);
   }
 
   function edit(action: () => NonNullable<UtteranceItem["presetChanges"]>): boolean {
@@ -112,41 +71,26 @@ export default function PresetChangeEditor({
   }
 
   function add() {
-    const seconds = Number(positionText);
-    if (!positionText.trim() || !Number.isFinite(seconds)) return;
-    const sample = sampleFromSeconds(seconds, sampleRate);
-    if (edit(() => addPresetChangePoint(points, sample, newPresetId, samples, ids))) {
-      setSelectedPoint(sample);
+    if (!canAdd) return;
+    if (edit(() => addPresetChangePoint(points, cursorSample,
+      effectivePresetId, samples, ids))) {
+      setSelectedPoint(cursorSample);
     }
   }
 
-  function selectPoint(sample: number) {
-    setSelectedPoint(sample);
-    seek(sample / sampleRate);
-  }
+  const canAdd = !disabled && cursorSample > 0 && cursorSample < samples &&
+    !points.some((point) => point.sample === cursorSample) &&
+    ids.has(effectivePresetId);
 
-  const seconds = Number(positionText);
-  const percent = Number(percentText);
-  const addSample = sampleFromSeconds(seconds, sampleRate);
-  const canAdd = !!positionText.trim() && !!percentText.trim() &&
-    Number.isFinite(seconds) && Number.isFinite(percent) &&
-    seconds > 0 && seconds < duration && percent > 0 && percent < 100 &&
-    validEditSample(addSample, samples) && ids.has(newPresetId);
-  return <section className="preset-change-editor" aria-label={wavFilename(item.wavPath) + " のプリセット編集"}>
-    <div className="preset-change-heading">
-      <strong>プリセットの切替</strong>
-      <span className="meta">{wavFilename(item.wavPath)}</span>
-    </div>
-    <p className="hint preset-change-active">編集位置のプリセット：
-      <strong>{effectivePresetName}</strong>（{format(cursorSample)}秒）
-    </p>
+  return <section className="preset-change-editor"
+    aria-label={wavFilename(item.wavPath) + " のプリセット編集"}>
     <WavWaveform name={wavFilename(item.wavPath)}
       disabled={disabled || playback.loading}
       elapsed={cursorSample / sampleRate} duration={duration}
-      peaks={peaks}
-      markers={points.map((point) => ({
+      peaks={peaks} showSlider={!peaks}
+      markers={peaks ? points.map((point) => ({
         sample: point.sample, seconds: point.sample / sampleRate,
-      }))}
+      })) : []}
       onSelectMarker={selectPoint}
       onMoveMarker={(oldSample, seconds) => {
         const sample = sampleFromSeconds(seconds, sampleRate);
@@ -157,51 +101,18 @@ export default function PresetChangeEditor({
       }}
       onSeek={seek} />
     <div className="preset-change-ticks" aria-hidden="true">
-      <span>0秒</span><span>{(duration / 2).toFixed(2)}秒</span>
-      <span>{duration.toFixed(2)}秒</span>
+      <span>0秒</span><span>{duration.toFixed(2)}秒</span>
     </div>
-    {unavailable && <p className="hint">波形を表示できません。下のスライダー・秒数・割合で編集できます。</p>}
-    <p className="hint preset-change-legend">波形をクリックして位置を指定。編集点はドラッグで移動、クリックで選択できます。</p>
-    <div className="preset-change-add">
-      <label>位置（秒）
-        <input aria-label="編集点の追加位置（秒）" type="number" min={0}
-          max={duration} step="any" disabled={disabled} value={positionText}
-          onFocus={() => { positionEditing.current = true; }}
-          onBlur={() => { positionEditing.current = false; }}
-          onChange={(event) => changeSeconds(event.target.value)} />
-      </label>
-      <label>位置（割合 %）
-        <input aria-label="編集点の追加位置（%）" type="number" min={0}
-          max={100} step="any" disabled={disabled} value={percentText}
-          onFocus={() => { positionEditing.current = true; }}
-          onBlur={() => { positionEditing.current = false; }}
-          onChange={(event) => changePercent(event.target.value)} />
-      </label>
-      <div className="preset-change-add-preset">
-        <span>切替先プリセット</span>
-        <PresetPicker presets={presets} imageMap={presetImages}
-          selectedId={newPresetId} status="ready" disabled={disabled}
-          label="追加するプリセット" onChoose={(id) => {
-            setNewPresetId(id);
-            return true;
-          }} />
-      </div>
-      <button type="button" onClick={add} disabled={disabled || !canAdd}>編集点を追加</button>
+    {unavailable && <p className="hint preset-change-fallback">
+      波形を表示できないため、スライダーで位置を指定します。
+    </p>}
+    <div className="preset-change-table-heading" aria-hidden="true">
+      <span>時刻（秒）</span><span>割合（%）</span><span>切替先プリセット</span><span />
     </div>
-    {error && <p role="alert" className="hint warning">{error}</p>}
-    <div className="preset-change-point-heading"><strong>編集点一覧</strong>
-      <span className="meta">{points.length}件</span></div>
-    <div className="preset-change-initial">
-      <span className="meta">0.000秒 / 0%（初期）</span>
-      <PresetThumbnail className="preset-picker-thumb"
-        image={initialPreset && presetImages[initialPreset.id]}
-        view={initialPreset?.thumbnail} alt="初期プリセットのサムネイル" fallback="画像待ち" />
-      <span>{initialPreset?.name ?? "参照先のないプリセット"}</span>
-    </div>
-    {points.length ? <ol className="preset-change-points" aria-label="登録済み編集点">
+    <ol className="preset-change-points" aria-label="登録済み編集点">
       {points.map((point) => <PresetPointRow key={point.sample}
         point={point} samples={samples} sampleRate={sampleRate}
-        presets={presets} presetImages={presetImages} presetStatus="ready"
+        presets={presets} presetImages={presetImages}
         disabled={disabled} selected={selectedPoint === point.sample}
         onSelect={() => selectPoint(point.sample)}
         onMove={(sample) => {
@@ -217,6 +128,13 @@ export default function PresetChangeEditor({
             if (selectedPoint === point.sample) setSelectedPoint(null);
           }
         }} />)}
-    </ol> : <p className="hint">編集点はありません。初期プリセットがWAVの最後まで続きます。</p>}
+    </ol>
+    <button type="button" className="preset-change-add-button"
+      disabled={!canAdd} onClick={add}
+      title={canAdd ? "現在の波形位置に編集点を追加" :
+        "波形またはスライダーでWAVの開始・終了以外の位置を選択"}>
+      ＋ 編集点を追加
+    </button>
+    {error && <p role="alert" className="hint warning">{error}</p>}
   </section>;
 }

@@ -1,16 +1,24 @@
-import { useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import PresetPicker from "./PresetPicker";
 import {
-  percentFromSample, sampleFromPercent, sampleFromSeconds,
-  secondsFromSample, validEditSample,
+  sampleFromPercent, sampleFromSeconds, validEditSample,
 } from "./presetPosition";
 import type { PresetChangePoint } from "./presetChangePoints";
 import type { UnifiedPreset } from "./presetModel";
 
 type PresetOption = Pick<UnifiedPreset, "id" | "name" | "thumbnail">;
 
+// Display fewer digits without rounding the saved PCM sample position.
+function secondsLabel(sample: number, rate: number): string {
+  return Number((sample / rate).toFixed(6)).toString();
+}
+function percentLabel(sample: number, samples: number): string {
+  return Number((sample / samples * 100).toFixed(3)).toString();
+}
+
+/** A change point is edited in its own list row, without a separate form. */
 export default function PresetPointRow({
-  point, samples, sampleRate, presets, presetImages, presetStatus,
+  point, samples, sampleRate, presets, presetImages,
   disabled, selected, onSelect, onMove, onChoose, onRemove,
 }: {
   point: PresetChangePoint;
@@ -18,7 +26,6 @@ export default function PresetPointRow({
   sampleRate: number;
   presets: PresetOption[];
   presetImages: Record<string, string>;
-  presetStatus: "loading" | "ready" | "error";
   disabled: boolean;
   selected: boolean;
   onSelect: () => void;
@@ -26,62 +33,96 @@ export default function PresetPointRow({
   onChoose: (id: string) => boolean;
   onRemove: () => void;
 }) {
-  const [secondsText, setSecondsText] = useState(secondsFromSample(point.sample, sampleRate));
-  const [percentText, setPercentText] = useState(percentFromSample(point.sample, samples));
-  const [editedSample, setEditedSample] = useState(point.sample);
+  const [secondsText, setSecondsText] = useState(() => secondsLabel(point.sample, sampleRate));
+  const [percentText, setPercentText] = useState(() => percentLabel(point.sample, samples));
+  const [draftSample, setDraftSample] = useState(point.sample);
   const [valid, setValid] = useState(true);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (dirty) return;
+    setSecondsText(secondsLabel(point.sample, sampleRate));
+    setPercentText(percentLabel(point.sample, samples));
+    setDraftSample(point.sample);
+    setValid(true);
+  }, [point.sample, sampleRate, samples, dirty]);
+
+  function reset() {
+    setSecondsText(secondsLabel(point.sample, sampleRate));
+    setPercentText(percentLabel(point.sample, samples));
+    setDraftSample(point.sample);
+    setValid(true);
+    setDirty(false);
+  }
 
   function updateSeconds(raw: string) {
     setSecondsText(raw);
-    const seconds = Number(raw);
-    const sample = sampleFromSeconds(seconds, sampleRate);
-    const acceptable = raw.trim() !== "" && Number.isFinite(seconds) &&
-      seconds >= 0 && seconds <= samples / sampleRate &&
-      validEditSample(sample, samples);
-    setValid(acceptable);
-    if (acceptable) {
-      setEditedSample(sample);
-      setPercentText(percentFromSample(sample, samples));
+    setDirty(true);
+    const value = Number(raw);
+    const sample = sampleFromSeconds(value, sampleRate);
+    const ok = raw.trim() !== "" && Number.isFinite(value) &&
+      value > 0 && value < samples / sampleRate && validEditSample(sample, samples);
+    setValid(ok);
+    if (ok) {
+      setDraftSample(sample);
+      setPercentText(percentLabel(sample, samples));
     }
   }
+
   function updatePercent(raw: string) {
     setPercentText(raw);
-    const percent = Number(raw);
-    const sample = sampleFromPercent(percent, samples);
-    const acceptable = raw.trim() !== "" && Number.isFinite(percent) &&
-      percent >= 0 && percent <= 100 && validEditSample(sample, samples);
-    setValid(acceptable);
-    if (acceptable) {
-      setEditedSample(sample);
-      setSecondsText(secondsFromSample(sample, sampleRate));
+    setDirty(true);
+    const value = Number(raw);
+    const sample = sampleFromPercent(value, samples);
+    const ok = raw.trim() !== "" && Number.isFinite(value) && value > 0 &&
+      value < 100 && validEditSample(sample, samples);
+    setValid(ok);
+    if (ok) {
+      setDraftSample(sample);
+      setSecondsText(secondsLabel(sample, sampleRate));
     }
   }
-  return <li className="preset-change-point" data-edit-point={point.sample}
-      data-selected={selected}>
-    <button type="button" className="preset-point-seek" onClick={onSelect}
-      aria-label={((point.sample / sampleRate).toFixed(3)) + "秒の編集点を選択"}>
-      {(point.sample / sampleRate).toFixed(3)}秒
-    </button>
-    <form onSubmit={(event) => {
+
+  function commit() {
+    if (!dirty) return;
+    if (!valid) { reset(); return; }
+    if (draftSample !== point.sample && !onMove(draftSample)) {
+      reset();
+    } else {
+      setDirty(false);
+    }
+  }
+
+  function inputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
       event.preventDefault();
-      if (valid) onMove(editedSample);
-    }}>
-      <label>秒
-        <input type="number" aria-label="編集点の時刻（秒）" min={0}
-          max={samples / sampleRate} step="any" disabled={disabled}
-          value={secondsText} onChange={(event) => updateSeconds(event.target.value)} />
-      </label>
-      <label>割合（%）
-        <input type="number" aria-label="編集点の位置（%）" min={0} max={100}
-          step="any" disabled={disabled} value={percentText}
-          onChange={(event) => updatePercent(event.target.value)} />
-      </label>
-      <button type="submit" disabled={disabled || !valid}>位置を更新</button>
-    </form>
+      event.currentTarget.blur(); // Commit on blur; never on a partial number.
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      reset();
+      event.currentTarget.blur();
+    }
+  }
+
+  return <li className="preset-change-point" data-edit-point={point.sample}
+    data-selected={selected}>
+    <input type="number" min={0} max={samples / sampleRate} step="any"
+      aria-label="編集点の時刻（秒）" aria-invalid={!valid}
+      title="秒数。Enterまたはフォーカスを外すと確定"
+      disabled={disabled} value={secondsText} onFocus={onSelect}
+      onChange={(event) => updateSeconds(event.target.value)}
+      onKeyDown={inputKeyDown} onBlur={commit} />
+    <input type="number" min={0} max={100} step="any"
+      aria-label="編集点の位置（%）" aria-invalid={!valid}
+      title="割合。Enterまたはフォーカスを外すと確定"
+      disabled={disabled} value={percentText} onFocus={onSelect}
+      onChange={(event) => updatePercent(event.target.value)}
+      onKeyDown={inputKeyDown} onBlur={commit} />
     <PresetPicker presets={presets} imageMap={presetImages}
-      selectedId={point.presetId} status={presetStatus}
-      disabled={disabled} label={(point.sample / sampleRate).toFixed(3) + "秒のプリセット"}
+      selectedId={point.presetId} status="ready" disabled={disabled}
+      label={(point.sample / sampleRate).toFixed(3) + "秒のプリセット"}
       onChoose={onChoose} />
-    <button type="button" disabled={disabled} onClick={onRemove}>削除</button>
+    <button type="button" className="preset-change-remove" disabled={disabled}
+      title="編集点を削除" aria-label="編集点を削除" onClick={onRemove}>×</button>
   </li>;
 }
