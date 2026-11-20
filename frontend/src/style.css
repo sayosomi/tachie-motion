@@ -407,7 +407,8 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .wav-timeline input[type="range"] { display:block; width:100%; min-width:0; margin:4px 0; }
 .wav-waveform { height:40px; border-radius:4px; background:#142937;
   cursor:ew-resize; touch-action:none; overflow:hidden; }
-.wav-waveform svg { display:block; width:100%; height:100%; pointer-events:none; }
+.wav-waveform svg { display:block; width:100%; height:100%; }
+.wav-waveform svg path, .wav-waveform svg line:not([data-change-marker]) { pointer-events:none; }
 .wav-waveform path { fill:none; stroke:#95dccc; stroke-width:1.4; }
 .wav-waveform line { stroke:#f6d795; stroke-width:1.4; }
 .wav-waveform:has(+ input:disabled) { opacity:.6; cursor:default; }
@@ -619,4 +620,7 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .preset-change-points li, .preset-change-points form { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; min-width: 0; }
 .preset-change-points input { width: 6.5rem; }
 .preset-change-points select { min-width: 9rem; max-width: 100%; }
-.preset-change-marker { opacity: .8; cursor: ew-resize; }
+.wav-waveform svg .preset-change-marker {
+  opacity: .8; cursor: ew-resize; pointer-events: stroke;
+  stroke-width: 8px;
+}

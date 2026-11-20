@@ -44,6 +44,7 @@ export default function UtteranceList({
   const [dragging, setDragging] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const orderingLocked = disabled || !!exportingId || addingCount > 0;
+  const selectedItem = items.find((item) => item.id === selectedId);
   // A drag may begin before export. Invalidate it as soon as editing locks.
   useEffect(() => {
     if (orderingLocked) {
@@ -184,24 +185,26 @@ export default function UtteranceList({
               <button type="button" aria-label={`削除: ${index + 1} ${name}`}
                 disabled={disabled || !!exportingId || addingCount > 0} onClick={() => onRemove(item.id)}>削除</button>
             </div>
-            {(playback.activeId === item.id || item.id === selectedId) &&
+            {playback.activeId === item.id &&
               <div className="utterance-row-progress">
-                {playback.activeId === item.id && playback.loading ? <span className="utterance-loading-label">
+                {playback.loading ? <span className="utterance-loading-label">
                   読み込み中止（■を押す）
                 </span> : <>
-                  {item.id === selectedId ? <PresetChangeEditor key={item.id}
-                    item={item} presets={presets} playback={playback} disabled={disabled}
-                    onRevise={onRevise} /> : <WavWaveform name={name}
+                  <WavWaveform name={name}
                     disabled={selectionLocked} elapsed={playback.elapsed}
                     duration={item.wav.duration_seconds}
                     peaks={playback.waveform?.sourceId === item.id ? playback.waveform.peaks : null}
-                    onSeek={playback.seek} />}
-                  {playback.activeId === item.id && <span className="meta">{playback.elapsed.toFixed(1)} / {item.wav.duration_seconds.toFixed(1)}秒</span>}
+                    onSeek={playback.seek} />
+                  <span className="meta">{playback.elapsed.toFixed(1)} / {item.wav.duration_seconds.toFixed(1)}秒</span>
                 </>}
               </div>}
           </li>;
         })}
-      </ol></>}
+      </ol>
+      {selectedItem && <PresetChangeEditor key={selectedItem.id}
+        item={selectedItem} presets={presets} playback={playback} disabled={disabled}
+        onRevise={onRevise} />}
+    </>}
     {playback.audioElement}
     {playback.status && <p className="hint utterance-audio-status" role="status">{playback.status}</p>}
   </section>;

@@ -7,6 +7,7 @@ type Props = {
   elapsed: number;
   duration: number;
   disabled: boolean;
+  showSlider?: boolean;
   markers?: Marker[];
   onMoveMarker?: (sample: number, seconds: number) => void;
   onSeek: (seconds: number) => void;
@@ -20,7 +21,7 @@ function waveformStrokes(peaks: number[]): string {
 }
 
 export default function WavWaveform({
-  peaks, name, elapsed, duration, disabled, markers, onSeek, onMoveMarker,
+  peaks, name, elapsed, duration, disabled, showSlider = true, markers, onSeek, onMoveMarker,
 }: Props) {
   const dragging = useRef<number | null>(null);
   function secondsAt(event: PointerEvent<HTMLDivElement>): number | null {
@@ -74,9 +75,9 @@ export default function WavWaveform({
         <line x1={progress * 360} x2={progress * 360} y1="0" y2="56" />
       </svg>
     </div> : null}
-    <input type="range" aria-label={`再生位置: ${name}`} disabled={disabled}
+    {showSlider && <input type="range" aria-label={`再生位置: ${name}`} disabled={disabled}
       min={0} max={Math.max(0.01, duration)} step="0.01"
       value={Math.min(elapsed, duration)}
-      onChange={(event) => onSeek(Number(event.target.value))} />
+      onChange={(event) => onSeek(Number(event.target.value))} />}
   </div>;
 }

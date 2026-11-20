@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   addPresetChangePoint, movePresetChangePoint, removePresetChangePoint,
   replacePresetChangePoint,
 } from "./presetChangePoints";
-import type { UtteranceItem } from "./utteranceItems";
+import { wavFilename, type UtteranceItem } from "./utteranceItems";
 import type { WavPlaybackControls } from "./WavPlayback";
 import WavWaveform from "./WavWaveform";
 import type { UnifiedPreset } from "./presetModel";
@@ -21,7 +21,8 @@ export default function PresetChangeEditor({
 }) {
   const [cursorSample, setCursorSample] = useState(0);
   const [positionText, setPositionText] = useState("0");
-  const [positionFocused, setPositionFocused] = useState(false);
+  // Blur must not reset an edited time to an older playback cursor.
+  const positionEditing = useRef(false);
   const [newPresetId, setNewPresetId] = useState(item.presetId);
   const [error, setError] = useState("");
   const active = playback.activeId === item.id;
@@ -41,6 +42,7 @@ export default function PresetChangeEditor({
     Math.min(samples - 1, Math.max(0, Math.round(seconds * sampleRate)));
   const seek = (seconds: number) => {
     setCursorSample(toSample(seconds));
+    setPositionText(String(seconds));
     if (active && !playback.loading) playback.seek(seconds);
   };
   function edit(action: () => NonNullable<UtteranceItem["presetChanges"]>) {
@@ -61,8 +63,8 @@ export default function PresetChangeEditor({
   const format = (sample: number) => (sample / sampleRate).toFixed(3);
   const precise = (sample: number) => (sample / sampleRate).toFixed(9);
   useEffect(() => {
-    if (!positionFocused) setPositionText(Number(precise(cursorSample)).toString());
-  }, [cursorSample, sampleRate, positionFocused]);
+    if (!positionEditing.current) setPositionText(Number(precise(cursorSample)).toString());
+  }, [cursorSample, sampleRate]);
   const editSample = (seconds: number) => {
     if (!Number.isFinite(seconds) || seconds <= 0 || seconds >= duration) {
       throw new Error("変更点はWAV開始より後、終了より前に指定してください");
@@ -76,8 +78,8 @@ export default function PresetChangeEditor({
       <span className="meta">時刻を指定して変更点を追加（初期プリセットは0秒）</span>
     </div>
     <WavWaveform
-      name={item.wavPath} disabled={disabled || playback.loading}
-      elapsed={cursorSample / sampleRate} duration={duration}
+      name={wavFilename(item.wavPath)} disabled={disabled || playback.loading}
+      showSlider={!active} elapsed={cursorSample / sampleRate} duration={duration}
       peaks={active ? playback.waveform?.sourceId === item.id
         ? playback.waveform.peaks : null : null}
       markers={points.map((point) => ({ sample: point.sample, seconds: point.sample / sampleRate }))}
@@ -88,8 +90,8 @@ export default function PresetChangeEditor({
       <label>位置（秒）
         <input aria-label="変更点の追加位置（秒）" type="number" min={0}
           max={duration} step="any" disabled={disabled}
-          value={positionText} onFocus={() => setPositionFocused(true)}
-          onBlur={() => setPositionFocused(false)}
+          value={positionText} onFocus={() => { positionEditing.current = true; }}
+          onBlur={() => { positionEditing.current = false; }}
           onChange={(event) => {
             const next = event.target.value;
             setPositionText(next);

@@ -1733,7 +1733,7 @@ test("preset change points stay independent per WAV and reach the solo render pa
   await openSpeech(page);
   await addWav(page, "/tmp/first.wav");
   await addWav(page, "/tmp/second.wav");
-  let editor = page.locator('[data-selected="true"] .preset-change-editor');
+  let editor = page.locator(".preset-change-editor");
   await editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" }).fill("0.3");
   await editor.getByRole("button", { name: "現在位置に変更点を追加" }).click();
   await expect(editor.locator(".preset-change-points li")).toHaveCount(1);
@@ -1742,13 +1742,13 @@ test("preset change points stay independent per WAV and reach the solo render pa
   await expect(editor.getByRole("alert")).toContainText("すでにプリセット変更点");
 
   await page.locator("[data-utterance-id]").first().locator(".utterance-item-select").click();
-  editor = page.locator('[data-selected="true"] .preset-change-editor');
+  editor = page.locator(".preset-change-editor");
   await expect(editor.locator(".preset-change-points li")).toHaveCount(0);
   await editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" }).fill("0.2");
   await editor.getByRole("button", { name: "現在位置に変更点を追加" }).click();
   await expect(editor.locator(".preset-change-points li")).toHaveCount(1);
   await page.locator("[data-utterance-id]").nth(1).locator(".utterance-item-select").click();
-  editor = page.locator('[data-selected="true"] .preset-change-editor');
+  editor = page.locator(".preset-change-editor");
   await expect(editor.getByRole("spinbutton", { name: "変更点の時刻（秒）" })).toHaveValue(/^0\.3/);
   await editor.getByRole("spinbutton", { name: "変更点の時刻（秒）" }).fill("0.4");
   await editor.getByRole("button", { name: "時刻を更新" }).click();
@@ -1762,7 +1762,7 @@ test("preset change points stay independent per WAV and reach the solo render pa
   ]);
   await page.getByRole("button", { name: "編集画面に戻る" }).click();
   await page.locator("[data-utterance-id]").first().locator(".utterance-item-select").click();
-  editor = page.locator('[data-selected="true"] .preset-change-editor');
+  editor = page.locator(".preset-change-editor");
   await expect(editor.getByRole("spinbutton", { name: "変更点の時刻（秒）" })).toHaveValue(/^0\.2/);
   await editor.getByRole("button", { name: "削除" }).click();
   await expect(editor.locator(".preset-change-points li")).toHaveCount(0);
@@ -1775,7 +1775,7 @@ test("change points stay editable through slider when audio waveform is unavaila
   } }));
   await openSpeech(page);
   await addWav(page, "/tmp/no-waveform.wav");
-  const editor = page.locator('[data-selected="true"] .preset-change-editor');
+  const editor = page.locator(".preset-change-editor");
   await expect(editor.locator(".wav-waveform")).toHaveCount(0);
   const slider = editor.getByRole("slider", { name: /再生位置/ });
   await slider.focus();
@@ -1783,6 +1783,15 @@ test("change points stay editable through slider when audio waveform is unavaila
   await editor.getByRole("button", { name: "現在位置に変更点を追加" }).click();
   await expect(editor.locator(".preset-change-points li")).toHaveCount(1);
   await expect(editor.locator(".preset-change-marker")).toHaveCount(1);
+  const waveform = editor.locator(".wav-waveform");
+  const bounds = await waveform.boundingBox();
+  expect(bounds).not.toBeNull();
+  await page.mouse.move(bounds!.x + bounds!.width * 0.5, bounds!.y + bounds!.height * 0.5);
+  await page.mouse.down();
+  await page.mouse.move(bounds!.x + bounds!.width * 0.75, bounds!.y + bounds!.height * 0.5,
+    { steps: 6 });
+  await page.mouse.up();
+  await expect(editor.locator('[data-change-marker="600"]')).toHaveCount(1);
 });
 
 test("batch MOV requests carry only their own preset changes", async ({ page }) => {
@@ -1800,7 +1809,7 @@ test("batch MOV requests carry only their own preset changes", async ({ page }) 
   });
   await addWav(page, "/tmp/a.wav");
   await addWav(page, "/tmp/b.wav");
-  const editor = page.locator('[data-selected="true"] .preset-change-editor');
+  const editor = page.locator(".preset-change-editor");
   await editor.getByRole("spinbutton", { name: "変更点の追加位置（秒）" }).fill("0.5");
   await editor.getByRole("button", { name: "現在位置に変更点を追加" }).click();
   await page.getByRole("radio", { name: /^全件/ }).check();
