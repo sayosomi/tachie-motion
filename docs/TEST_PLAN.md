@@ -9,6 +9,12 @@
 - Browser E2E: Playwright import/preview/toggle/change-point/save/export with deterministic fixtures.
 - CI: Linux unit jobs plus macOS/Windows where dependencies allow; manual Resolve import is a separate human gate.
 
+## Public Issue #55 — 無音の場面専用待機MOV・内部描画基盤
+
+- Python合成PSDで、固定プリセット・指定フレーム数・24/30/60fpsの透過ProRes 4444 MOVを生成。独立全フレーム復号検証後にのみ公開し、映像フレーム数が正確で、同一姿勢は同じ復号画素、音声ストリーム・個別OTIOは存在しないことを確認する。瞬きONでは既存の閉眼グループ割当を使用し、決定的な揺らぎ0の例で開眼／閉眼画素が別々の指定フレームへ出ることを検証する。
+- WAV/PCM/LABへの入力依存なし。元PSDと合成WAVのバイト列不変、PSD fingerprint変更・不正レイヤー・不正フレーム数／fps／名前／出力先・未設定瞬きの即時拒否。途中キャンセル・検証後〜公開直前のキャンセル、出力先の第三者ファイル出現、既存MOV・OTIOによる衝突を故障注入し、外部ファイルを上書きしない。許可された単一MOVの上書きでは古い世代を履歴領域へ残し、新MOVを検証する。公開済み100%進捗通知に失敗しても保存成功を偽の失敗へしない。
+- このPRはPython内部関数と合成素材テストだけ。HTTP API、UI、JSON、変更点編集、ループライブラリと完全なシームレス連続性は**検証対象外・未実装**。CI・独立監査・Mac実PSD／Resolve Human E2Eを別のゲートとして記録する。実機E2Eは帰宅後の後続受け入れで行う。
+
 ## Public Issue #47 — WAV波形とシーク
 - Playwrightで合成WAVの無音・有音区間の描画と波形クリックによる再生位置シーク、既存rangeの操作を確認する。
 - WAV切替／停止で前の波形を即座に消す。デコードが遅れて返っても旧WAVの結果を表示しない。Web Audio非対応／解析エラー／大容量ファイルではrangeを維持する。波形用の追加リクエスト・原本更新・JSON保存・書き出し仕様変更はない。
