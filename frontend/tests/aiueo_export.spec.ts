@@ -44,6 +44,61 @@ test("aiueo is gated by six shapes and actual LAB status; Open and none stay val
   expect(exportReady(fixed, aiueo, { status: "missing", reason: null })).toBe(true);
 });
 
+test("corrupt aiueo shapes fail closed without throwing, including the explicit rest mouth", () => {
+  const item = { ...createUtterance("w-corrupt", "/tmp/検証.wav", {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    source_identity: "1:2:3:4:5",
+  }, "p1", "/tmp", 1), mode: "aiueo" as const };
+  const validLab = { status: "valid" as const, reason: null, source_identity: "lab:1" };
+  const corrupt: Array<{ name: string; mouth: unknown; message: string }> = [
+    { name: "missing entire mouth", mouth: undefined, message: "あ" },
+    { name: "non-object mouth", mouth: "bad", message: "あ" },
+    { name: "missing vowel", mouth: Object.fromEntries(keys.filter((key) => key !== "a")
+      .map((key) => [key, shapes[key]])), message: "あ" },
+    { name: "missing rest", mouth: Object.fromEntries(keys.filter((key) => key !== "n")
+      .map((key) => [key, shapes[key]])), message: "ん" },
+    { name: "empty rest", mouth: { ...shapes, n: [] }, message: "ん" },
+    { name: "non-array vowel", mouth: { ...shapes, a: {} }, message: "あ" },
+    { name: "null rest", mouth: { ...shapes, n: null }, message: "ん" },
+    { name: "null entry", mouth: { ...shapes, n: [null] }, message: "ん" },
+    { name: "non-string path", mouth: { ...shapes, n: [{ path: 4, visible: true }] }, message: "ん" },
+    { name: "non-boolean visibility", mouth: { ...shapes, n: [{ path: "0/0", visible: "true" }] }, message: "ん" },
+    { name: "only hidden rest", mouth: { ...shapes, n: [{ path: "0/0", visible: false }] }, message: "ん" },
+    { name: "valid rest with corrupt extra entry", mouth: {
+      ...shapes, n: [...shapes.n, { path: "0/1", visible: null }],
+    }, message: "ん" },
+    { name: "unknown mouth key", mouth: { ...shapes, x: shapes.a }, message: "不明なキー" },
+  ];
+  for (const { name, mouth, message } of corrupt) {
+    const broken: UnifiedPreset = { ...preset,
+      aiueoMouth: mouth as UnifiedPreset["aiueoMouth"] };
+    expect(aiueoMouthReady(broken), name).toBe(false);
+    expect(exportReady(broken, item, validLab), name).toBe(false);
+    expect(exportReadinessError(broken, item, validLab), name).toContain(message);
+    expect(exportReady({ ...broken, mouthMotionEnabled: false }, item, validLab), name).toBe(true);
+  }
+  expect(aiueoMouthReady(preset)).toBe(true);
+  expect(exportReadinessError(preset, item, validLab)).toBeNull();
+});
+
+test("timeline change-point presets use the same defensive six-mouth guard", () => {
+  const item = { ...createUtterance("w-timeline", "/tmp/検証.wav", {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    source_identity: "1:2:3:4:5",
+  }, "p1", "/tmp", 1), mode: "aiueo" as const,
+    presetChanges: [{ sample: 500, presetId: "p2" }] };
+  const broken: UnifiedPreset = { ...preset, id: "p2", name: "変更先",
+    aiueoMouth: { ...shapes, n: null } as unknown as UnifiedPreset["aiueoMouth"] };
+  const collection = { ...draft.collection, items: [preset, broken] };
+  const lab = { status: "valid" as const, reason: null, source_identity: "lab:1" };
+  expect(exportReadinessError(preset, item, lab, collection)).toContain("変更点 0.500秒");
+  expect(exportReadinessError(preset, item, lab, collection)).toContain("ん");
+  expect(exportReady(preset, item, lab, collection)).toBe(false);
+  expect(exportReadinessError(preset, item, lab, {
+    ...collection, items: [preset, { ...broken, aiueoMouth: shapes }],
+  })).toBeNull();
+});
+
 test("mode-specific LAB identity is shared by the manifest and rendered payload", () => {
   const item = { ...createUtterance("w1", "/tmp/声 e\u0301.wav", {
     samples: 1000, sample_rate: 1000, duration_seconds: 1,
