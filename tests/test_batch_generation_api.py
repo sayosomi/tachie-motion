@@ -90,7 +90,8 @@ class BatchGenerationApiTests(unittest.TestCase):
         a = self.mov(0, policy)
         public = self.root / (self.names[0] + ".mov")
         self.assertTrue(a["staged"])
-        self.assertEqual(a["mov"], str(public))
+        self.assertEqual(Path(a["mov"]).resolve(), public.resolve())
+        self.assertEqual(Path(a["mov"]).name, public.name)
         self.assertFalse(public.exists())
         self.assertFalse((self.root / (self.timeline + ".otio")).exists())
         b = self.mov(1, policy)
@@ -108,7 +109,8 @@ class BatchGenerationApiTests(unittest.TestCase):
             for i, clip in enumerate(track["children"]):
                 uri = clip["media_references"]["DEFAULT_MEDIA"]["target_url"]
                 public = self.root / (self.names[i] + ".mov")
-                self.assertEqual(uri, str(public))
+                self.assertEqual(Path(uri).resolve(), public.resolve())
+                self.assertEqual(Path(uri).name, public.name)
                 self.assertFalse(uri.startswith("file://"))
                 self.assertNotIn(".tachie-batch-stage", uri)
                 self.assertNotIn(str(self.wav), uri)

@@ -1,8 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import NativeFilePicker from "./NativeFilePicker";
 import PresetPicker from "./PresetPicker";
 import type { WavPlaybackControls } from "./WavPlayback";
 import WavWaveform from "./WavWaveform";
+import PresetChangeEditor from "./PresetChangeEditor";
 import type { LabInfo } from "./useLabStatus";
 import type { UnifiedPreset } from "./presetModel";
 import { wavFilename, type LipMode, type UtteranceItem } from "./utteranceItems";
@@ -42,7 +43,33 @@ export default function UtteranceList({
 }: Props) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
+  const [collapsedId, setCollapsedId] = useState<string | null>(null);
+  const seekPositions = useRef<Record<string, number>>({});
   const orderingLocked = disabled || !!exportingId || addingCount > 0;
+  // Only the selected WAV can own the expanded editor. Another selection reopens it.
+  useEffect(() => { setCollapsedId(null); }, [selectedId]);
+  // Space toggles playback of the selected WAV. Keep native Space behavior for
+  // text editing, dropdowns, ordinary buttons and modal/export UI.
+  useEffect(() => {
+    function onSpace(event: KeyboardEvent) {
+      if ((event.code !== "Space" && event.key !== " ") || event.defaultPrevented ||
+          event.repeat || event.isComposing || event.altKey || event.ctrlKey ||
+          event.metaKey || event.shiftKey || !selectedId || disabled ||
+          selectionLocked || exportingId || addingCount > 0) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('input, textarea, select, [contenteditable], [role="textbox"], [role="combobox"]')) return;
+      // Selecting a WAV leaves its row-selection button focused: Space should
+      // start playback rather than redundantly reselecting the WAV.
+      if (target.closest('button, a, [role="button"]') &&
+          !target.closest(".utterance-item-select")) return;
+      if (document.querySelector('[aria-modal="true"], dialog[open], .export-progress-backdrop')) return;
+      event.preventDefault();
+      playback.toggleItem(selectedId, seekPositions.current[selectedId]);
+    }
+    document.addEventListener("keydown", onSpace);
+    return () => document.removeEventListener("keydown", onSpace);
+  }, [selectedId, disabled, selectionLocked, exportingId, addingCount, playback]);
   // A drag may begin before export. Invalidate it as soon as editing locks.
   useEffect(() => {
     if (orderingLocked) {
@@ -74,7 +101,7 @@ export default function UtteranceList({
       onChange={onPathChange}
       onSelected={onAdd}
       onApply={async () => { await onAdd(pendingPath); }} applyLabel="WAVを確認" />
-    <p className="hint">FinderではCommand/Shiftで複数選択できます。左端で並べ替え、各行で試聴・プリセット・口パクを設定します。元WAVは変更しません。</p>
+    <p className="hint">FinderではCommand/Shiftで複数選択できます。左端で並べ替え、WAV行を選ぶとその直下で波形・編集点を操作できます。元WAVは変更しません。</p>
     {addingCount > 0 && <p className="hint" role="status">WAVを解析中…（{addingCount}件）</p>}
     {addError && <p className="hint warning" role="alert">{addError}</p>}
     {items.length === 0 ? <p className="empty-state">WAVを追加してください。</p> : <>
@@ -86,6 +113,7 @@ export default function UtteranceList({
       <ol className="utterance-items" aria-label="登録済みセリフ">
         {items.map((item, index) => {
           const name = wavFilename(item.wavPath);
+          const expanded = item.id === selectedId && collapsedId !== item.id;
           return <li className="utterance-item" data-utterance-id={item.id}
             data-selected={item.id === selectedId} data-playing={playback.activeId === item.id}
             data-drop-target={hover === item.id}
@@ -120,11 +148,16 @@ export default function UtteranceList({
               }}
               onDragEnd={() => { setDragging(null); setHover(null); }}>⠿</button>
             <button type="button" className="utterance-item-play"
+              title="Space：選択中のWAVを再生・一時停止"
               disabled={selectionLocked}
               aria-label={`${playback.activeId === item.id && playback.loading ? "読み込み中止" :
                 playback.activeId === item.id && !playback.paused ? "一時停止" : "再生"}: ${index + 1} ${name}`}
               aria-pressed={playback.activeId === item.id && !playback.paused && !playback.loading}
-              onClick={() => { onSelect(item.id); playback.toggleItem(item.id); }}>
+              onClick={() => {
+                const at = item.id === selectedId ? seekPositions.current[item.id] : undefined;
+                onSelect(item.id);
+                playback.toggleItem(item.id, at);
+              }}>
               {playback.activeId === item.id && playback.loading ? "■" :
                 playback.activeId === item.id && !playback.paused ? "Ⅱ" : "▶"}
             </button>
@@ -183,13 +216,27 @@ export default function UtteranceList({
               <button type="button" aria-label={`削除: ${index + 1} ${name}`}
                 disabled={disabled || !!exportingId || addingCount > 0} onClick={() => onRemove(item.id)}>削除</button>
             </div>
-            {playback.activeId === item.id &&
+            {item.id === selectedId && <button type="button"
+              className="utterance-item-edit-toggle" aria-expanded={expanded}
+              aria-label={expanded ? "プリセット編集を閉じる: " + name : "プリセット編集を開く: " + name}
+              onClick={() => setCollapsedId(expanded ? item.id : null)}>
+              {expanded ? "▾ プリセット編集を閉じる" : "▸ プリセット編集を開く"}
+              <span className="meta">編集点 {(item.presetChanges ?? []).length}件</span>
+            </button>}
+            {expanded && <div className="utterance-item-editor">
+              <PresetChangeEditor key={item.id} item={item}
+                presets={presets} presetImages={presetImages}
+                playback={playback} disabled={disabled} onRevise={onRevise}
+                onCursorChange={(seconds) => { seekPositions.current[item.id] = seconds; }} />
+            </div>}
+            {playback.activeId === item.id && !expanded &&
               <div className="utterance-row-progress">
                 {playback.loading ? <span className="utterance-loading-label">
                   読み込み中止（■を押す）
                 </span> : <>
-                  <WavWaveform name={name} disabled={selectionLocked}
-                    elapsed={playback.elapsed} duration={item.wav.duration_seconds}
+                  <WavWaveform name={name}
+                    disabled={selectionLocked} elapsed={playback.elapsed}
+                    duration={item.wav.duration_seconds}
                     peaks={playback.waveform?.sourceId === item.id ? playback.waveform.peaks : null}
                     onSeek={playback.seek} />
                   <span className="meta">{playback.elapsed.toFixed(1)} / {item.wav.duration_seconds.toFixed(1)}秒</span>
@@ -197,8 +244,10 @@ export default function UtteranceList({
               </div>}
           </li>;
         })}
-      </ol></>}
+      </ol>
+    </>}
     {playback.audioElement}
-    {playback.status && <p className="hint utterance-audio-status" role="status">{playback.status}</p>}
+    {playback.status.startsWith("音声の再生に失敗") &&
+      <p className="hint warning utterance-audio-status" role="alert">{playback.status}</p>}
   </section>;
 }

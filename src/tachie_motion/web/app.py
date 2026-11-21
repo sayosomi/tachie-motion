@@ -89,6 +89,7 @@ class PresetUtteranceRequest(BaseModel):
     eyes: dict | None = None
     eye_groups: list[str] | None = None
     blink_timing: dict | None = None
+    timeline_changes: list[dict] | None = None
     conflict_policy: str = "error"
     output_dir: str
     basename: str
@@ -418,6 +419,7 @@ async def preset_utterance_export(payload: PresetUtteranceRequest):
                     lab_source_identity=payload.lab_source_identity,
                     blink_enabled=payload.blink_enabled, eyes=payload.eyes,
                     eye_groups=payload.eye_groups, blink_timing=payload.blink_timing,
+                    timeline_changes=payload.timeline_changes,
                     conflict_policy=payload.conflict_policy,
                     mov=folder / (payload.basename + ".mov"),
                     otio=None,
@@ -566,6 +568,7 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
                     lab_source_identity=payload.lab_source_identity,
                     blink_enabled=payload.blink_enabled, eyes=payload.eyes,
                     eye_groups=payload.eye_groups, blink_timing=payload.blink_timing,
+                    timeline_changes=payload.timeline_changes,
                     conflict_policy="error",
                     mov=stage / (payload.basename + ".mov"), otio=None,
                     fps=payload.fps, source_identity=payload.source_identity,

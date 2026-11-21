@@ -1,4 +1,4 @@
-# Decision log — updated 2026-11-18
+# Decision log — updated 2026-11-21
 
 These decisions are carried from product planning. Changes require an explicit product decision and docs update.
 
@@ -15,7 +15,7 @@ These decisions are carried from product planning. Changes require an explicit p
 | D09 | Each **WAV × character item** chooses lip mode: none/Open/aiueo. One preset can store the movable Open-open shape and independent aiueo (a/i/u/e/o/ん) definitions. Resting Open-close always uses the preset fixed-layer state; fixed and selected movable leaves may coincide, while unselected movable leaves remain hidden. Earlier JSON formats are not migrated (revised 2026-11-18, Issue #32). None still uses WAV timing/preview. |
 | D10 | Blink intervals configurable per character, non-synchronized via phase/random variation; each unified preset can disable eye motion or set multi-layer close eyes. Resting eye-open uses fixed layers; the close-eye shape must be explicitly selected, even when it matches the fixed pose; unselected editable eye leaves are hidden. **Approved 2026-11-18 (Issue #34):** character-wide initial blink timing is interval 3000ms, closed 120ms, jitter ±500ms, first blink phase 700ms and seed 0, saved durably on character initialization rather than displayed as unsaved suggestions. Missing timing in an existing current-format character/draft/project is initialized and persisted on successful load; explicitly customized timing is never replaced. Eye motion still starts OFF per preset until the user enables it and selects the close-eye pose. **Revised 2026-11-19 (Issue #36):** per-export reproducibility is NOT required; each utterance MOV generates fresh randomness to vary both the first blink around the configured phase (± jitter) and subsequent intervals (interval ± jitter). Re-exporting the same WAV may produce a different blink pattern. Remove the user-facing reproducibility seed control; the legacy seed field is retained only to load current stored JSON but is ignored during rendering. Zero jitter preserves intentionally fixed timing. |
 | D11 | Timeline editing uses change points (not draggable duration clips). |
-| D12 | Every WAV/idle item has an independent initial unified preset per character; no implicit inheritance. |
+| D12 | Every WAV/idle item has an independent initial unified preset per character; no implicit inheritance. Per-time preset change points belong to WAV utterances only. Idle MOVs use one fixed preset and optional blinking (2026-11-21 user decision). |
 | D13 | Reusable loopable idle MOV library plus special per-scene idle of arbitrary duration. |
 | D14 | Export character-sized fixed transparent canvas, consistent across poses/items/rerenders. |
 | D15 | Initial media output is ProRes 4444 alpha MOV; 30fps default, configurable 24/60. |
@@ -33,17 +33,20 @@ These decisions are carried from product planning. Changes require an explicit p
 | D27 | **2026-11-17 user-approved aiueo MOV rule:** sample the center of each video frame in WAV sample-time using exact integers, clamping the last partial frame to an actual PCM sample; map consonants to the **next LAB vowel** (including vowels shorter than one video frame) until a silence, gap or moraic nasal N; use ん if no next vowel. Uppercase devoiced A/I/U/E/O use their lowercase vowel shape. LAB pause/silence/N/gaps use ん, with no inferred phonemes or Open fallback. |
 
 | D28 | **2026-11-19 approved, Issue #44:** A large blocking modal overlays the editing screen during solo or batch exports; show real stage/frame-based percentage, active WAV, item count and error state. Allow the user to cancel while media generation is running, but only report “cancelled” after the server stops. Never cancel partway through the generation-wide public batch commit. Preserve originals, existing MOV/OTIO, recovery evidence and the existing transactional safety contract. Closing or refreshing the tab is not a cancel action. |
+| D29 | **2026-11-21 approved, Issue #49 / Draft PR #50:** Adopt project JSON **v4** with required per-WAV `presetChanges` (PCM integer sample position + stable preset ID), and explicitly reject v1–v3 on import rather than silently migrate. Change points have no separate persistent ID; the sample position is their key. Preserve source-identity validation and original media. The current renderer retains a conservative **64 distinct configurations / 512 MiB RGBA pose image** safety limit; an over-budget export fails without publication. The cap may be reconsidered using actual PSD measurements, not silently bypassed. |
+| D30 | **2026-11-21 approved:** A silent idle MOV needs a single fixed preset with optional eye blinking, not timed expression/pose changes. When character A speaks and character B reacts, B's expression changes belong to the *WAV utterance's listener-character* timeline, not the idle MOV. Multi-character listener reactions remain a future feature. |
 
 ## Unresolved decisions / validation
 
 - Public OSS license, attribution, trademark/project identity.
 - Exact package/distribution method for Python backend; FFmpeg external.
 - Parent visibility follows the source PSD (D26). Precedence and conflict handling when mouth/eye targets overlap remain unresolved; do not infer a priority.
-- Deletion behavior for presets referenced by project snapshots, and precise migration policy for earlier single-layer bindings.
+- **Issue #49（2026-11-20承認）**：現在編集中のWAV初期プリセット・変更点で参照中のプリセットは削除拒否（`PRODUCT_SPEC.md` §4）。登録中のWAVも保護し、API応答後に参照が無効なら登録を中止。未読の別ファイルに保存された制作プロジェクトの参照まで調査する仕様、および以前の単一レイヤーバインドの移行方針は未決。
 - Absolute vs relative media-link behavior per OTIO importer; verification required.
 - **2026-11-06 decision, Issue #2:** WAV-derived non-compressed PCM in utterance MOV is the agreed output contract; do **not** offer WAV copying, even as an optional portable-output feature. Mac DaVinci Resolve standalone MOV and individual OTIO Human E2E PASS; independent code review and synthetic CI PASS were recorded separately. Combined OTIO / multi-character behavior remains planned, including selection of the single audio-owner MOV when multiple characters or no speaker image is rendered; do not describe the future workflow as implemented.
 - PSD compositing fidelity boundaries and fallback/error presentation.
 - Exact idle looping rules with blinking and whether loopable motion must be periodic by construction.
-- Default output pixel scaling, preset migration rules and project schema versioning.
+- Default output pixel scaling, future preset migration rules, and schema-version changes beyond the approved project JSON v4.
+
 
 Do not silently resolve any of these as if already user-approved.
