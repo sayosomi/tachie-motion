@@ -18,6 +18,7 @@ import { blinkFrames } from "./blinkTiming";
 import type { UnifiedPreset } from "./presetModel";
 import { PreviewSourceChangedError, useBrowserPreview } from "./useBrowserPreview";
 import { matchesSource, persistMissingBlinkTiming, PresetDraftChangedError, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
+import { guardWavRegistrationPreset } from "./wavRegistrationGuard";
 import {
   createUtterance, moveUtterance, reorderUtterances, updateUtterance,
   type ExportData, type UtteranceItem, type WavData,
@@ -340,16 +341,12 @@ export default function UtteranceWorkspace({ active = true, items, setItems,
     onWavRegistrationPendingChange?.(1);
     setAddingCount((count) => count + 1);
     try {
+      const presetId = draft.collection.defaultId ?? draft.collection.items[0].id;
+      const verifyRegistrationPreset = guardWavRegistrationPreset(draft, presetId, psdLayers);
       const wav = await post<WavData>("wav", { path });
       if (!mounted.current || atCatalog !== catalogEpoch.current) return false;
       const id = crypto.randomUUID();
-      const presetId = draft.collection.defaultId ?? draft.collection.items[0].id;
-      const currentDraft = readPresetDraft();
-      if (!currentDraft || currentDraft.path !== draft.path ||
-          currentDraft.fingerprint !== draft.fingerprint ||
-          !currentDraft.collection.items.some((preset) => preset.id === presetId)) {
-        throw new Error("登録開始時のプリセットが変更または削除されました。現在のプリセットを確認してWAVを登録し直してください");
-      }
+      verifyRegistrationPreset();
       const item = createUtterance(id, path, wav, presetId, defaultOutputDir, ordinal);
       // Commit the row before releasing the synchronous deletion guard.
       // Otherwise a queued React update could leave a brief unguarded gap.

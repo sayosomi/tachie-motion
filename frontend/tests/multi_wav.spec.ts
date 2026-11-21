@@ -1995,6 +1995,61 @@ test("a late WAV response cannot register a preset removed from persisted storag
   await expect(page.locator("[data-utterance-id]")).toHaveCount(0);
 });
 
+test("a late WAV response rejects a same-ID preset with invalid PSD paths", async ({ page }) => {
+  let releaseInspection: (() => void) | undefined;
+  await page.route("**/api/wav", async (route) => {
+    await new Promise<void>((resolve) => { releaseInspection = resolve; });
+    await route.fulfill({ json: {
+      samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/invalid-same-id.wav");
+  await expect.poll(() => Boolean(releaseInspection)).toBe(true);
+  const otherTab = await page.context().newPage();
+  await otherTab.goto("/");
+  await otherTab.evaluate(() => {
+    const key = "tachie-motion.preset-draft.v2";
+    const saved = JSON.parse(localStorage.getItem(key)!) as {
+      collection: { items: Array<{ id: string; base: Array<{ path: string; visible: boolean }> }>;
+        defaultId: string };
+    };
+    const preset = saved.collection.items.find((item) => item.id === saved.collection.defaultId)!;
+    preset.base[0].path = "404"; // Valid JSON shape, but absent from the inspected PSD.
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  await otherTab.close();
+  releaseInspection!();
+  await expect(page.getByRole("alert").filter({ hasText: "登録開始時のプリセット" }))
+    .toContainText("登録し直してください");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(0);
+});
+
+test("a late WAV response rejects a changed preset even if its ID and PSD paths remain valid", async ({ page }) => {
+  let releaseInspection: (() => void) | undefined;
+  await page.route("**/api/wav", async (route) => {
+    await new Promise<void>((resolve) => { releaseInspection = resolve; });
+    await route.fulfill({ json: {
+      samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/changed-same-id.wav");
+  await expect.poll(() => Boolean(releaseInspection)).toBe(true);
+  await page.evaluate(() => {
+    const key = "tachie-motion.preset-draft.v2";
+    const saved = JSON.parse(localStorage.getItem(key)!) as {
+      collection: { items: Array<{ id: string; name: string }>; defaultId: string };
+    };
+    saved.collection.items.find((item) => item.id === saved.collection.defaultId)!.name = "別タブで改名";
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  releaseInspection!();
+  await expect(page.getByRole("alert").filter({ hasText: "登録開始時のプリセット" }))
+    .toContainText("登録し直してください");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(0);
+});
+
 test("batch MOV requests carry only their own preset changes", async ({ page }) => {
   await page.route("**/api/wav", (route) => route.fulfill({ json: {
     samples: 1000, sample_rate: 1000, duration_seconds: 1,
