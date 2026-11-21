@@ -4,6 +4,7 @@ This is the backend building block for future idle-item editing.  It does not
 implement loopable-library clips, project persistence, or a user-facing API.
 """
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 import tempfile
@@ -12,10 +13,13 @@ from tachie_motion.animation.blink import schedule_random_blink_frames
 from tachie_motion.psd.crop import write_fixed_crop_png
 from tachie_motion.render.sequence import encode_prores_sequence
 from tachie_motion.web.eye_renderer import validate_closed_eye, render_blink_states
+from tachie_motion.render.file_integrity import FileProof, require_file_proof
 from tachie_motion.web.preset_preview import psd_snapshot_token
 from tachie_motion.web.preset_utterance import validated_snapshot
+from tachie_motion.web.preview_frame import file_identity
 from tachie_motion.web.solo_output import (
-    initial_single_identity, publish_single, validate_media_basename,
+    initial_single_identity, publish_single, published_media_identity,
+    validate_media_basename,
 )
 
 
@@ -25,7 +29,8 @@ MAX_IDLE_FRAMES = 216_000
 
 
 def export_idle_motion(
-    *, psd_path: Path, fingerprint: str, layers: list[dict],
+    *, psd_path: Path, fingerprint: str, source_identity: str,
+    layers: list[dict],
     mov: Path, frame_count: int, fps: int = 30,
     blink_enabled: bool = False, eyes: dict | None = None,
     eye_groups: list[str] | None = None,
@@ -67,12 +72,26 @@ def export_idle_motion(
             }):
         raise ValueError("Blink requires explicit frame timing")
 
+    if (type(source_identity) is not str or
+            ":".join(map(str, file_identity(psd_path))) != source_identity):
+        raise ValueError("PSD identity changed since preset registration")
+
+    def check_psd() -> None:
+        if ":".join(map(str, file_identity(psd_path))) != source_identity:
+            raise ValueError("PSD identity changed during idle export")
+        if psd_snapshot_token(str(psd_path)) != fingerprint:
+            raise ValueError("PSD changed during idle export")
+
     check()
+    prior_strict = published_media_identity(mov)
     prior = initial_single_identity(
         mov, conflict_policy, protect_otio_references=True,
     )
+    if prior_strict != published_media_identity(mov):
+        raise FileExistsError("Output changed during destination preflight")
     check()
     psd, base = validated_snapshot(psd_path, fingerprint, layers)
+    check_psd()
     closed = (validate_closed_eye(psd, base, eyes, eye_groups)
               if blink_enabled else None)
     blink_frames = (schedule_random_blink_frames(
@@ -93,29 +112,37 @@ def export_idle_motion(
             write_fixed_crop_png(psd, image, padding=16)
             states = [image]
         check()
-        if psd_snapshot_token(str(psd_path)) != fingerprint:
-            raise ValueError("PSD changed while preparing idle frames")
+        check_psd()
         staged = directory / "staged.mov"
         report("待機MOVをエンコード中", 25)
+        proof: FileProof | None = None
+
+        def remember_verified_file(value: FileProof) -> None:
+            nonlocal proof
+            proof = value
+
         encoded = encode_prores_sequence(
             states, indices, staged, fps=fps,
             check_cancel=check,
             on_verify=lambda: report("待機MOVの全フレームを検証中", 70),
+            on_verified_file=remember_verified_file,
         )
         if encoded.frames != frame_count or encoded.decoded_frames != frame_count:
             raise RuntimeError("Idle MOV frame count mismatch")
+        if proof is None:
+            raise RuntimeError("No independent verification proof for idle MOV")
+        require_file_proof(staged, proof)
         check()
-        if psd_snapshot_token(str(psd_path)) != fingerprint:
-            raise ValueError("PSD changed during idle export")
+        check_psd()
         report("待機MOVを保存中", 90)
         check()
-        if psd_snapshot_token(str(psd_path)) != fingerprint:
-            raise ValueError("PSD changed immediately before publication")
+        check_psd()
         # No cancellation after publication begins.  Safe rollback is owned by
         # the publisher; an abort must not be mistaken for a completed cancel.
         warning = publish_single(
             staged, mov, policy=conflict_policy, prior=prior,
-            protect_otio_references=True,
+            protect_otio_references=True, verified_source=proof,
+            prior_strict=prior_strict,
         )
         committed = True
     finally:
@@ -131,10 +158,10 @@ def export_idle_motion(
         result["warning"] = " ".join(warnings)
     try:
         report("待機MOVを保存しました", 100)
-    except Exception as error:
+    except (Exception, asyncio.CancelledError) as error:
         # Publication is already committed.  A failed progress observer must
         # not turn a successful export into a misleading failed/cancelled call.
         previous = result.get("warning", "")
         result["warning"] = (previous + " Progress observer failed: " +
-                             str(error)).strip()
+                             type(error).__name__ + ": " + str(error)).strip()
     return result

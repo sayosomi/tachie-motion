@@ -13,6 +13,9 @@ import tempfile
 
 from tachie_motion.render.prores import ffmpeg_args, read_rgba_states
 from tachie_motion.render.cancel_monitor import ProcessCancelWatcher
+from tachie_motion.render.file_integrity import (
+    FileProof, prove_file, require_file_proof,
+)
 from tachie_motion.render.probe import ProresReport, inspect_prores
 
 
@@ -22,8 +25,15 @@ def encode_prores_sequence(
     on_frame: Callable[[int, int], None] | None = None,
     on_verify: Callable[[], None] | None = None,
     check_cancel: Callable[[], None] | None = None,
+    on_verified_file: Callable[[FileProof], None] | None = None,
 ) -> ProresReport:
-    """Stream scheduled frames and atomically publish only verified media."""
+    """Stream frames and publish only media matching independent verification.
+
+    The optional proof is sampled before the independent decoder and checked
+    afterwards and across the temp->output hard link.  Callers may retain it
+    to bind later publication to the exact verified bytes and originating inode.
+    Existing callers without this hook keep the same encode path and cost.
+    """
     if output.suffix.lower() != ".mov":
         raise ValueError("Output must have a .mov extension")
     if output.exists() or output.is_symlink():
@@ -109,6 +119,7 @@ def encode_prores_sequence(
             )
         if check_cancel:
             check_cancel()
+        proof = prove_file(temp) if on_verified_file is not None else None
         if on_verify:
             on_verify()
         report = inspect_prores(
@@ -119,7 +130,15 @@ def encode_prores_sequence(
         )
         if check_cancel:
             check_cancel()
+        if proof is not None:
+            require_file_proof(temp, proof)
         os.link(temp, output)  # Exclusive and atomic; never replace.
+        if proof is not None:
+            # Remove the encoder's temporary hard link before recording the
+            # identity. Both link and unlink legitimately change inode ctime.
+            temp.unlink()
+            final_proof = require_file_proof(output, proof, linked=True)
+            on_verified_file(final_proof)
         return report
     finally:
         temp.unlink(missing_ok=True)

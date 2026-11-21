@@ -1,5 +1,7 @@
 """Silent idle backend tests with synthetic PSD, never private materials."""
 
+import asyncio
+import os
 import shutil
 import subprocess
 import tempfile
@@ -45,6 +47,7 @@ class IdleMotionTests(unittest.TestCase):
         self.data = {
             "psd_path": self.psd_path,
             "fingerprint": info["fingerprint"],
+            "source_identity": info["source_identity"],
             "layers": [{"path": item["path"], "visible": item["visible"]}
                        for item in info["layers"]],
             "mov": self.root / "待機.mov",
@@ -123,6 +126,7 @@ class IdleMotionTests(unittest.TestCase):
             {"mov": self.root / ".hidden.mov"},
             {"mov": Path("relative.mov")},
             {"fingerprint": "invalid"}, {"layers": []},
+            {"source_identity": "outdated"},
         )
         for changes in invalid:
             with self.subTest(changes=changes):
@@ -185,6 +189,164 @@ class IdleMotionTests(unittest.TestCase):
         self.assertEqual(result["frames"], 1)
         self.assertIn("Progress observer failed", result["warning"])
         self.assertEqual(len(self.decoded_video(self.data["mov"])), 1)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_postcommit_cancelled_error_is_warning_but_keyboard_interrupt_is_not_swallowed(self):
+        def cancelled_on_completion(stage, percent):
+            if percent == 100:
+                raise asyncio.CancelledError("UI task was cancelled")
+
+        result = self.export(on_progress=cancelled_on_completion)
+        self.assertIn("CancelledError", result["warning"])
+        self.assertEqual(len(self.decoded_video(self.data["mov"])), 4)
+
+        other = self.root / "keyboard.mov"
+
+        def interrupted(stage, percent):
+            if percent == 100:
+                raise KeyboardInterrupt()
+
+        with self.assertRaises(KeyboardInterrupt):
+            self.export(mov=other, on_progress=interrupted)
+        self.assertEqual(len(self.decoded_video(other)), 4)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_verified_stage_mutation_and_replacement_before_publication_are_refused(self):
+        for replace in (False, True):
+            with self.subTest(replace=replace):
+                mov = self.root / f"stage_{int(replace)}.mov"
+
+                def tamper(stage, percent):
+                    if percent != 90:
+                        return
+                    staged = next(self.root.glob(".tachie-idle-*/staged.mov"))
+                    if replace:
+                        other = staged.with_name("outsider.mov")
+                        other.write_bytes(b"not a verified movie")
+                        os.replace(other, staged)
+                    else:
+                        staged.write_bytes(b"not a verified movie")
+
+                with self.assertRaises(RuntimeError):
+                    self.export(mov=mov, on_progress=tamper)
+                self.assertFalse(mov.exists())
+                self.assertEqual(list(self.root.glob(".tachie-idle-*")), [])
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_tamper_between_precheck_and_link_is_quarantined_not_successful(self):
+        actual_link = os.link
+
+        def corrupt_before_link(source, target, *args, **kwargs):
+            if Path(source).name == "staged.mov":
+                Path(source).write_bytes(b"broken after precheck")
+            return actual_link(source, target, *args, **kwargs)
+
+        with patch("tachie_motion.web.solo_output.os.link",
+                   side_effect=corrupt_before_link):
+            with self.assertRaisesRegex(RuntimeError, "quarantined"):
+                self.export()
+        self.assertFalse(self.data["mov"].exists())
+        self.assertEqual(
+            (self.root / ".待機.mov.single-backup" / "uncommitted").read_bytes(),
+            b"broken after precheck",
+        )
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_source_changed_after_independent_decode_before_encoder_link(self):
+        from tachie_motion.render.probe import inspect_prores
+
+        def tamper_after_verifier(path, **kwargs):
+            report = inspect_prores(path, **kwargs)
+            Path(path).write_bytes(b"tampered after valid decode")
+            return report
+
+        with patch("tachie_motion.render.sequence.inspect_prores",
+                   side_effect=tamper_after_verifier):
+            with self.assertRaisesRegex(RuntimeError, "Verified media changed"):
+                self.export()
+        self.assertFalse(self.data["mov"].exists())
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_verified_stage_corruption_during_overwrite_restores_prior_mov(self):
+        mov = self.data["mov"]
+        mov.write_bytes(b"prior intact media")
+        original_link = os.link
+
+        def corrupt_on_publish(source, target, *args, **kwargs):
+            if Path(source).name == "staged.mov":
+                Path(source).write_bytes(b"invalid encoded file")
+            return original_link(source, target, *args, **kwargs)
+
+        with patch("tachie_motion.web.solo_output.os.link",
+                   side_effect=corrupt_on_publish):
+            with self.assertRaisesRegex(RuntimeError, "Verified media changed"):
+                self.export(conflict_policy="overwrite")
+        self.assertEqual(mov.read_bytes(), b"prior intact media")
+        archives = list(self.root.glob(".待機.mov.single-backup-retained-*"))
+        self.assertEqual(len(archives), 1)
+        self.assertEqual((archives[0] / "uncommitted").read_bytes(),
+                         b"invalid encoded file")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_replaced_psd_with_identical_size_and_mtime_is_refused(self):
+        old_stat = self.psd_path.stat()
+        other = self.root / "replacement.psd"
+        other.write_bytes(self.psd_path.read_bytes())
+        os.utime(other, ns=(old_stat.st_atime_ns, old_stat.st_mtime_ns))
+
+        def replace_psd(stage, percent):
+            if percent == 90:
+                os.replace(other, self.psd_path)
+
+        with self.assertRaisesRegex(ValueError, "PSD identity changed"):
+            self.export(on_progress=replace_psd)
+        self.assertFalse(self.data["mov"].exists())
+        self.assertNotEqual(self.psd_path.stat().st_ino, old_stat.st_ino)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_psd_same_size_and_restored_mtime_change_is_refused(self):
+        original_stat = self.psd_path.stat()
+        original = self.psd_path.read_bytes()
+
+        def change_psd(stage, percent):
+            if percent != 90:
+                return
+            self.psd_path.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+            os.utime(self.psd_path, ns=(original_stat.st_atime_ns,
+                                        original_stat.st_mtime_ns))
+            self.assertEqual(self.psd_path.stat().st_mtime_ns,
+                             original_stat.st_mtime_ns)
+
+        with self.assertRaisesRegex(ValueError, "PSD identity changed"):
+            self.export(on_progress=change_psd)
+        self.assertFalse(self.data["mov"].exists())
+        self.assertNotEqual(self.psd_path.read_bytes(), original)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_existing_mov_same_size_and_restored_mtime_change_is_refused(self):
+        mov = self.data["mov"]
+        mov.write_bytes(b"OLD_DATA")
+        original_stat = mov.stat()
+
+        def external_write(stage, percent):
+            if percent != 90:
+                return
+            mov.write_bytes(b"NEW_DATA")
+            os.utime(mov, ns=(original_stat.st_atime_ns,
+                              original_stat.st_mtime_ns))
+
+        with self.assertRaisesRegex(FileExistsError, "content changed"):
+            self.export(conflict_policy="overwrite", on_progress=external_write)
+        self.assertEqual(mov.read_bytes(), b"NEW_DATA")
+        self.assertEqual(list(self.root.glob(".待機.mov.single-backup*")), [])
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")
