@@ -5,6 +5,7 @@ export type ExportPhase = "running" | "cancelling" | "finalizing"
 export type ExportProgressView = {
   token: string;
   names: string[];
+  kind?: "idle";
   phase: ExportPhase;
   stage: string;
   percent: number;
@@ -33,18 +34,24 @@ function restoreView(): ExportProgressView | null {
   try {
     const stored = window.sessionStorage.getItem(STORAGE_KEY);
     if (!stored) return null;
-    const data = JSON.parse(stored) as { token?: unknown; names?: unknown };
+    const data = JSON.parse(stored) as { token?: unknown; names?: unknown; kind?: unknown };
     if (typeof data.token !== "string" ||
         !/^[A-Za-z0-9_-]{20,100}$/.test(data.token) ||
         !Array.isArray(data.names) || data.names.length < 1 ||
         data.names.length > 2000 ||
         !data.names.every((name) => typeof name === "string" &&
           name.length <= 1024)) return null;
-    return { token: data.token, names: data.names, phase: "running",
+    return { token: data.token, names: data.names,
+      kind: data.kind === "idle" ? "idle" : undefined, phase: "running",
       stage: "サーバーの処理状態を再確認中", percent: 0, index: 1,
       frames: 0, frameTotal: 0, detail: "",
       connectionError: false };
   } catch { return null; }
+}
+
+/** Keep an idle export visible and locked from the first frame after reload. */
+export function hasRestorableIdleExport(): boolean {
+  return restoreView()?.kind === "idle";
 }
 
 export function useExportProgress() {
@@ -54,13 +61,17 @@ export function useExportProgress() {
     try {
       if (!view || terminal(view.phase)) window.sessionStorage.removeItem(STORAGE_KEY);
       else window.sessionStorage.setItem(STORAGE_KEY,
-        JSON.stringify({ token: view.token, names: view.names }));
+        JSON.stringify({ token: view.token, names: view.names, kind: view.kind }));
     } catch { /* Storage is optional: server-side safety does not depend on it. */ }
-  }, [view?.token, view?.phase, view?.names]);
+  }, [view?.token, view?.phase, view?.names, view?.kind]);
 
-  const begin = useCallback((token: string, names: string[]) => {
+  const begin = useCallback((token: string, names: string[], kind?: "idle") => {
+    // Write before sending the media POST: even an immediate reload can recover.
+    try {
+      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ token, names, kind }));
+    } catch { /* Best effort; the server still owns the media export lock. */ }
     setView({
-      token, names, phase: "running", stage: "準備・素材確認", percent: 0,
+      token, names, kind, phase: "running", stage: "準備・素材確認", percent: 0,
       index: 1, frames: 0, frameTotal: 0, detail: "", connectionError: false,
     });
   }, []);

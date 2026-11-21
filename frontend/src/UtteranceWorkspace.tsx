@@ -52,9 +52,10 @@ function openMouthReady(preset?: UnifiedPreset): boolean {
     mouth.opened.some((layer) => layer.visible));
 }
 
-export default function UtteranceWorkspace({ active = true, onProjectBusyChange }: {
+export default function UtteranceWorkspace({ active = true, onProjectBusyChange, onExportBusyChange }: {
   active?: boolean;
   onProjectBusyChange?: (busy: boolean) => void;
+  onExportBusyChange?: (busy: boolean) => void;
 }) {
   const [draft, setDraft] = useState<PresetDraft | null>(null);
   const [psdLayers, setPsdLayers] = useState<Layer[]>([]);
@@ -112,6 +113,9 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     modalPhase !== "failed" && modalPhase !== "cancelled";
   const editingLocked = batch.running || batch.isBusy() || !!exportingId ||
     projectBusy || exportStillActive;
+  useEffect(() => {
+    onExportBusyChange?.(batch.running || batch.isBusy() || !!exportingId || exportStillActive);
+  }, [batch.running, batch.isBusy(), exportingId, exportStillActive, onExportBusyChange]);
   const projectLock = (locked: boolean) => {
     projectBusyRef.current = locked;
     if (locked) catalogEpoch.current++; // Invalidate any older asynchronous WAV addition.

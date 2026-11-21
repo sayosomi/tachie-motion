@@ -110,6 +110,10 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   background:#101b27; border-bottom:1px solid #304355; }
 .app-mode-tabs button { min-height:42px; }
 .app-mode-tabs button[aria-pressed="true"] { background:#b4eedb; color:#153427; border-color:#b4eedb; font-weight:800; }
+.idle-form { max-width:790px; margin-bottom:30px; }
+.idle-duration-fields { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.idle-section-heading { margin-top:28px; padding-top:23px; border-top:1px solid #32445a; }
+@media (max-width:500px) { .idle-duration-fields { grid-template-columns:1fr; gap:0; } }
 .preset-workspace { max-width:1370px; }
 .preset-workspace .topbar { height:58px; }
 .preset-workspace .intro { margin:18px 0 14px; }
