@@ -372,6 +372,14 @@ Use self-authored / permission-cleared synthetic test PSD and WAV in CI. Do not 
 
 - **Issue #32で旧規則を廃止：** aiueoの休止口`n`も明示的なレイヤー選択が必須。空配列は未設定としてフロント／Pythonの両方で書き出しを拒否する。固定と同じレイヤーを選んだ場合も設定済みとして扱い、合成プレビュー・実MOVで一致すること。旧素材・JSONはGitHubテストフィクスチャへコピーしない。
 
+## Public Issue #29 — aiueoの非ブロッキング回帰強化（旧PR #28 LOW後続）
+
+- `aiueoMouthReady`と単一・一括共通の事前エラー判定は、6形すべての存在、配列型、形状要素の型、明示可視葉をチェックする。キー欠落・未知キー・`n: []`・型破損でもJavaScript例外を出さずに拒否し、具体的な口形名または不明キーを示す。
+- 変更点タイムラインを利用する場合、最初のプリセットだけでなく、途中で参照する全プリセットにも同じ検証を適用する。無関係なnone/open・口パクOFF正常系は変更しない。
+- 合成PSD/WAV/LABの一括経路で全6形の有効選択→全MOV＋全体OTIOを確認。無音時の「ん」を固定状態と異なる明示的な口に設定し、公開されたMOVの復号RGBAが「ん」と一致し、固定状態に暗黙継承されないことを直接比較する。
+- `n: []`の一括APIはエラー終了し、元PSD/WAV/LAB、公開MOV/OTIOを作成・変更しない。新たな製品仕様・保存JSON・出力形式は導入しない。
+- Python/Playwright対象回帰、ビルド、CI、exact remote HEADの独立コード監査を別々に記録。出先ではMac実素材・DaVinci ResolveのHuman E2Eは未実施とする。
+
 
 ## Public Issue #20 — 一括上書き時の別OTIO事前警告
 
