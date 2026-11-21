@@ -40,7 +40,8 @@ export default function IdleMotionWorkspace({ active, onBusyChange }: {
   const [fps, setFps] = useState<IdleFps>(30);
   const [outputDir, setOutputDir] = useState("");
   const [basename, setBasename] = useState("待機");
-  const [conflict, setConflict] = useState<"rename" | "overwrite">("rename");
+  // Consent is for one exact directory + basename, never a reusable UI toggle.
+  const [overwriteTarget, setOverwriteTarget] = useState<string | null>(null);
   const [alternateName, setAlternateName] = useState("");
   const [primary, setPrimary] = useState<CheckedDestination | null>(null);
   const [alternate, setAlternate] = useState<CheckedDestination | null>(null);
@@ -120,6 +121,7 @@ export default function IdleMotionWorkspace({ active, onBusyChange }: {
   catch (error) { basenameError = error instanceof Error ? error.message : String(error); }
 
   const key = outputDir + "\0" + basename;
+  const conflict = overwriteTarget === key ? "overwrite" : "rename";
   useEffect(() => {
     if (!active || !outputDir || basenameError || locked) {
       setPrimary(null); return;
@@ -189,7 +191,7 @@ export default function IdleMotionWorkspace({ active, onBusyChange }: {
         throw new Error("PSDまたはプリセットが変更されています。画面を開き直してください。");
       }
       await post("export-progress-reserve", { token, kind: "single", total: 1 });
-      progress.begin(token, [finalName + ".mov"]);
+      progress.begin(token, [finalName + ".mov"], "idle");
       submitted = true;
       const payload = idleExportPayload(draft, selected, sourceIdentity, count, fps,
         outputDir, finalName, needsAlternate ? "error" :
@@ -224,6 +226,7 @@ export default function IdleMotionWorkspace({ active, onBusyChange }: {
     <div className="intro"><h1>場面専用の待機MOV</h1>
       <p>WAVなしで、選んだプリセットの立ち絵を指定尺の透過MOVに書き出します。</p></div>
     <p className="hint">ここでは1件のMOVを直接生成します。制作プロジェクトへの登録、編集点、ループ素材の管理は未対応です。</p>
+    <p className="hint">PSD変更検出の起点はこの画面を開いて確認した時点です。プリセット保存後にPSDを再保存した場合は「プリセット」で読み込み直してください。</p>
     {sourceError && <p className="notice error" role="alert">{sourceError}</p>}
     {loading && <p className="hint" role="status">PSDと保存済みプリセットを確認中…</p>}
     <section className="panel idle-form" aria-label="待機MOVの設定">
@@ -253,18 +256,18 @@ export default function IdleMotionWorkspace({ active, onBusyChange }: {
       <h2 className="idle-section-heading">出力先</h2>
       <NativeFilePicker id="idle-output-dir" kind="output_dir" label="MOVを保存するフォルダ"
         value={outputDir} disabled={locked}
-        onChange={(value) => { setOutputDir(value); setAlternateName(""); }}
-        onSelected={(value) => { setOutputDir(value); setAlternateName(""); }} />
+        onChange={(value) => { setOutputDir(value); setAlternateName(""); setOverwriteTarget(null); }}
+        onSelected={(value) => { setOutputDir(value); setAlternateName(""); setOverwriteTarget(null); }} />
       <label htmlFor="idle-basename">MOVファイル名（拡張子は自動で追加）</label>
       <input id="idle-basename" value={basename} disabled={locked}
-        onChange={(event) => { setBasename(event.target.value); setAlternateName(""); }} />
+        onChange={(event) => { setBasename(event.target.value); setAlternateName(""); setOverwriteTarget(null); }} />
       {basenameError && <p className="hint warning" role="alert">{basenameError}</p>}
       {main?.state === "complete" && <fieldset className="output-conflict-choice">
         <legend>同名のMOVが存在します</legend>
         <label><input type="radio" name="idle-conflict" checked={conflict === "rename"}
-          disabled={locked} onChange={() => setConflict("rename")} />別名で保存</label>
+          disabled={locked} onChange={() => setOverwriteTarget(null)} />別名で保存</label>
         <label><input type="radio" name="idle-conflict" checked={conflict === "overwrite"}
-          disabled={locked} onChange={() => setConflict("overwrite")} />明示的に上書き</label>
+          disabled={locked} onChange={() => setOverwriteTarget(key)} />明示的に上書き</label>
       </fieldset>}
       {needsAlternate && <>
         <p className="hint warning">{main?.state === "unsafe" ?

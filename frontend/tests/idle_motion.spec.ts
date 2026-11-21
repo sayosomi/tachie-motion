@@ -20,7 +20,8 @@ const draft = {
   nameDrafts: {},
 };
 
-async function setup(page: Page, presetDraft: object = draft, waitReady = true) {
+async function setup(page: Page, presetDraft: object = draft,
+  waitReady = true, openIdle = true) {
   await page.addInitScript((record) => {
     localStorage.setItem("tachie-motion.preset-draft.v2", JSON.stringify(record));
   }, presetDraft);
@@ -38,7 +39,7 @@ async function setup(page: Page, presetDraft: object = draft, waitReady = true) 
     registered: true,
   } }));
   await page.goto("/");
-  await page.getByRole("button", { name: "待機MOV", exact: true }).click();
+  if (openIdle) await page.getByRole("button", { name: "待機MOV", exact: true }).click();
   await expect(page.getByRole("heading", { name: "場面専用の待機MOV" })).toBeVisible();
   if (waitReady) await expect(page.locator("#idle-preset")).toBeEnabled();
 }
@@ -125,6 +126,50 @@ test("same-name MOV defaults to save-as and requires explicit overwrite", async 
   await page.getByRole("button", { name: "待機MOVを書き出す" }).click();
   await expect(page.getByRole("dialog")).toContainText("書き出し完了");
   expect(requests[1]).toMatchObject({ basename: "待機", conflict_policy: "overwrite" });
+});
+
+test("overwrite approval never follows a new basename or output folder", async ({ page }) => {
+  await setup(page);
+  const sent: { basename: string; conflict_policy: string; output_dir: string }[] = [];
+  await page.route("**/api/preset-utterance-destination", (route) => {
+    const { basename } = route.request().postDataJSON() as { basename: string };
+    return route.fulfill({ json: {
+      state: basename === "既存A" || basename === "既存B" ? "complete" : "available",
+      suggested_basename: basename + "_002",
+    } });
+  });
+  await page.route("**/api/idle-motion-export", (route) => {
+    sent.push(route.request().postDataJSON());
+    return route.fulfill({ json: { mov: "saved", frames: 150 } });
+  });
+  const name = page.locator("#idle-basename");
+  const saveAs = page.getByRole("radio", { name: "別名で保存" });
+  const overwrite = page.getByRole("radio", { name: "明示的に上書き" });
+  await name.fill("既存A");
+  await expect(overwrite).toBeVisible();
+  await overwrite.check();
+  await expect(page.getByLabel("待機MOVの出力予定")).toContainText("既存A.mov");
+
+  await name.fill("既存B");
+  await expect(saveAs).toBeChecked();
+  await expect(page.getByLabel("待機MOVの出力予定")).toContainText("既存B_002.mov");
+  await page.getByRole("button", { name: "待機MOVを書き出す" }).click();
+  await expect(page.getByRole("dialog")).toContainText("書き出し完了");
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({ basename: "既存B_002", conflict_policy: "error" });
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
+
+  await overwrite.check();
+  await expect(page.getByLabel("待機MOVの出力予定")).toContainText("既存B.mov");
+  await page.locator("#idle-output-dir-advanced summary").click();
+  await page.locator("#idle-output-dir").fill("/tmp/other-output");
+  await expect(saveAs).toBeChecked();
+  await expect(page.getByLabel("待機MOVの出力予定")).toContainText("既存B_002.mov");
+  await page.locator("#idle-output-dir").fill("/tmp/render-out");
+  await expect(saveAs).toBeChecked();
+  await name.fill("既存A");
+  await expect(saveAs).toBeChecked();
+  await expect(page.getByLabel("待機MOVの出力予定")).toContainText("既存A_002.mov");
 });
 
 test("blink ON cannot export with incomplete eye setup", async ({ page }) => {
@@ -251,7 +296,7 @@ test("lost POST response keeps the operation locked until a terminal progress sn
 test("reload recovery of an active export blocks new work then reloads the PSD", async ({ page }) => {
   await page.addInitScript(() => sessionStorage.setItem(
     "tachie-motion-active-export-progress", JSON.stringify({
-      token: "restored-idle-token-123456789", names: ["待機.mov"],
+      token: "restored-idle-token-123456789", names: ["待機.mov"], kind: "idle",
     })));
   let done = false;
   await page.route("**/api/export-progress/*", (route) => route.fulfill({ json: {
@@ -259,8 +304,10 @@ test("reload recovery of an active export blocks new work then reloads the PSD",
     percent: done ? 100 : 60, index: 1, total: 1,
     frames: done ? 150 : 90, frame_total: 150, can_cancel: !done,
   } }));
-  await setup(page, draft, false);
+  // Do not click the idle tab: recovery must lock from the first app render.
+  await setup(page, draft, false, false);
   await expect(page.getByRole("dialog")).toContainText("書き出し中");
+  await expect(page.getByRole("button", { name: "プリセット", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "セリフ", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "待機MOVを書き出す" })).toBeDisabled();
   done = true;
@@ -268,4 +315,26 @@ test("reload recovery of an active export blocks new work then reloads the PSD",
   await page.getByRole("button", { name: "編集画面に戻る" }).click();
   await expect(page.locator("#idle-preset")).toBeEnabled();
   await expect(page.getByRole("button", { name: "待機MOVを書き出す" })).toBeEnabled();
+});
+
+test("refreshing active idle export restores the modal without opening its tab", async ({ page }) => {
+  await setup(page);
+  let done = false;
+  await page.route("**/api/export-progress/*", (route) => route.fulfill({ json: {
+    status: done ? "success" : "running", stage: "ProRes処理中",
+    percent: done ? 100 : 60, index: 1, total: 1,
+    frames: done ? 150 : 90, frame_total: 150, can_cancel: !done,
+  } }));
+  await page.route("**/api/idle-motion-export", (route) => route.abort("failed"));
+  await page.getByRole("button", { name: "待機MOVを書き出す" }).click();
+  await expect(page.getByRole("dialog")).toContainText("通信が切れました");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "場面専用の待機MOV" })).toBeVisible();
+  await expect(page.getByRole("dialog")).toContainText("書き出し中");
+  await expect(page.getByRole("button", { name: "プリセット", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "セリフ", exact: true })).toBeDisabled();
+  done = true;
+  await expect(page.getByRole("dialog")).toContainText("書き出し完了");
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
+  await expect(page.getByRole("button", { name: "プリセット", exact: true })).toBeEnabled();
 });

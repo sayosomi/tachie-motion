@@ -2,14 +2,17 @@ import { useState } from "react";
 import PresetWorkspace from "./PresetWorkspace";
 import UtteranceWorkspace from "./UtteranceWorkspace";
 import IdleMotionWorkspace from "./IdleMotionWorkspace";
+import { hasRestorableIdleExport } from "./useExportProgress";
 
 export default function App() {
-  const [screen, setScreen] = useState<"presets" | "speech" | "idle">("presets");
+  const [restoringIdle] = useState(hasRestorableIdleExport);
+  const [screen, setScreen] = useState<"presets" | "speech" | "idle">(
+    restoringIdle ? "idle" : "presets");
   const [speechVisited, setSpeechVisited] = useState(false);
-  const [idleVisited, setIdleVisited] = useState(false);
+  const [idleVisited, setIdleVisited] = useState(restoringIdle);
   const [projectBusy, setProjectBusy] = useState(false);
   const [speechBusy, setSpeechBusy] = useState(false);
-  const [idleBusy, setIdleBusy] = useState(false);
+  const [idleBusy, setIdleBusy] = useState(restoringIdle);
   const navigationLocked = projectBusy || speechBusy || idleBusy;
 
   return <>
