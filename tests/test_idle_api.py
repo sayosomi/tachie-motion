@@ -86,6 +86,29 @@ class IdleMotionApiTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob("*.mov")), [])
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), self.original)
 
+    def test_invalid_registration_and_blink_never_invoke_renderer(self):
+        timing = {"interval_frames": 12, "closed_frames": 2,
+                  "jitter_frames": 0, "phase_frames": 1, "seed": 11}
+        malformed = (
+            {"source_identity": "bad"},
+            {"fingerprint": "bad"},
+            {"layers": self.payload["layers"][:-1]},
+            {"blink_enabled": True},
+            {"blink_enabled": True, "blink_timing": {**timing, "seed": None}},
+            {"blink_enabled": True, "blink_timing": {**timing, "interval_frames": 0}},
+            {"blink_enabled": True, "blink_timing": timing},
+            {"blink_enabled": True, "blink_timing": timing,
+             "eyes": {"opened": [], "closed": [{"path": "0/1", "visible": True}]},
+             "eye_groups": ["999"]},
+        )
+        for changes in malformed:
+            with self.subTest(changes=changes):
+                with patch("tachie_motion.web.idle_api.export_idle_motion") as renderer:
+                    response = self.post(**changes)
+                self.assertEqual(response.status_code, 400, response.text)
+                renderer.assert_not_called()
+        self.assertFalse((self.root / (self.payload["basename"] + ".mov")).exists())
+
     def test_reservation_finishes_only_after_publication_and_exposes_progress(self):
         self.assertEqual(self.client.post("/api/export-progress-reserve", json={
             "token": TOKEN, "kind": "single", "total": 1,
@@ -142,8 +165,13 @@ class IdleMotionApiTests(unittest.TestCase):
         self.assertFalse((self.root / (self.payload["basename"] + ".mov")).exists())
 
     def test_explicit_blink_settings_are_forwarded_unchanged(self):
-        eyes = {"opened": [], "closed": [{"path": "0/1", "visible": True}]}
-        eye_groups = ["0"]
+        layers = describe_psd(str(self.psd))["layers"]
+        face = next(item for item in layers if item["name"] == "face")
+        selected = next(item for item in layers if item["kind"] == "pixel"
+                        and item["visible"] and
+                        item["path"].startswith(face["path"] + "/"))
+        eyes = {"opened": [], "closed": [{"path": selected["path"], "visible": True}]}
+        eye_groups = [face["path"]]
         timing = {"interval_frames": 12, "closed_frames": 2,
                   "jitter_frames": 0, "phase_frames": 1, "seed": 11}
 

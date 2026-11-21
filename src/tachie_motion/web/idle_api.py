@@ -10,8 +10,13 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, StrictBool, StrictInt
 
+from tachie_motion.animation.blink import schedule_blink_frames
+from tachie_motion.web.eye_renderer import validate_closed_eye
 from tachie_motion.web.export_progress import ExportCancelled
 from tachie_motion.web.idle_motion import MAX_IDLE_FRAMES, export_idle_motion
+from tachie_motion.web.preset_preview import psd_snapshot_token
+from tachie_motion.web.preset_utterance import validated_snapshot
+from tachie_motion.web.preview_frame import file_identity
 from tachie_motion.web.service import local_file
 from tachie_motion.web.solo_output import validate_media_basename
 
@@ -34,6 +39,36 @@ class IdleMotionExportRequest(BaseModel):
     basename: str
     conflict_policy: str = "error"
     progress_id: str | None = None
+
+
+def validate_idle_preflight(payload: IdleMotionExportRequest, source: Path) -> None:
+    """Reject invalid registration/pose data before invoking the renderer.
+
+    This is an early HTTP admission check, not the renderer's source-safety
+    boundary. The renderer independently checks the PSD again before publish.
+    """
+    identity = file_identity(source)
+    if ":".join(map(str, identity)) != payload.source_identity:
+        raise ValueError("PSD identity changed since preset registration")
+    if psd_snapshot_token(str(source)) != payload.fingerprint:
+        raise ValueError("PSD changed since preset registration")
+
+    if payload.blink_enabled:
+        timing = payload.blink_timing
+        if type(timing) is not dict or set(timing) != {
+                "interval_frames", "closed_frames", "jitter_frames",
+                "phase_frames", "seed",
+        }:
+            raise ValueError("Blink requires explicit frame timing")
+        # Validate the scheduler's exact integer and interval rules without
+        # allocating a video-length frame sequence or drawing random values.
+        schedule_blink_frames(frame_count=0, **timing)
+
+    psd, base = validated_snapshot(source, payload.fingerprint, payload.layers)
+    if payload.blink_enabled:
+        validate_closed_eye(psd, base, payload.eyes, payload.eye_groups)
+    if file_identity(source) != identity:
+        raise ValueError("PSD changed during idle request validation")
 
 
 @router.post("/api/idle-motion-export")
@@ -74,22 +109,31 @@ async def idle_motion_export(payload: IdleMotionExportRequest, request: Request)
 
             try:
                 check_cancel()
+
+                def validated_export():
+                    # Keep PSD parsing off the API event loop. No renderer
+                    # invocation occurs unless the entire preflight passes.
+                    validate_idle_preflight(payload, source)
+                    check_cancel()
+                    return export_idle_motion(
+                        psd_path=source,
+                        fingerprint=payload.fingerprint,
+                        source_identity=payload.source_identity,
+                        layers=payload.layers,
+                        mov=folder / (payload.basename + ".mov"),
+                        frame_count=payload.frame_count,
+                        fps=payload.fps,
+                        blink_enabled=payload.blink_enabled,
+                        eyes=payload.eyes,
+                        eye_groups=payload.eye_groups,
+                        blink_timing=payload.blink_timing,
+                        conflict_policy=payload.conflict_policy,
+                        check_cancel=check_cancel if token else None,
+                        on_progress=report if token else None,
+                    )
+
                 worker = asyncio.create_task(asyncio.to_thread(
-                    export_idle_motion,
-                    psd_path=source,
-                    fingerprint=payload.fingerprint,
-                    source_identity=payload.source_identity,
-                    layers=payload.layers,
-                    mov=folder / (payload.basename + ".mov"),
-                    frame_count=payload.frame_count,
-                    fps=payload.fps,
-                    blink_enabled=payload.blink_enabled,
-                    eyes=payload.eyes,
-                    eye_groups=payload.eye_groups,
-                    blink_timing=payload.blink_timing,
-                    conflict_policy=payload.conflict_policy,
-                    check_cancel=check_cancel if token else None,
-                    on_progress=report if token else None,
+                    validated_export,
                 ))
                 while True:
                     try:
