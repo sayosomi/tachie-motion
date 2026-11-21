@@ -8,34 +8,56 @@ import { assertPresetChangePoints } from "./presetChangePoints";
 
 export type ConflictPolicy = "error" | "overwrite";
 
-/** Guard untrusted restored data before accessing the typed six-shape model. */
-function validAiueoShape(value: unknown): boolean {
-  return Array.isArray(value) && value.every((layer: unknown) =>
-    layer !== null && typeof layer === "object" && !Array.isArray(layer) &&
-    typeof (layer as { path?: unknown }).path === "string" &&
-    (layer as { path: string }).path.length > 0 &&
-    typeof (layer as { visible?: unknown }).visible === "boolean") &&
-    value.some((layer: { visible: boolean }) => layer.visible === true);
+/** Mirror the saved-layer shape contract without requiring another PSD HTTP read. */
+function validAiueoShape(value: unknown, sourcePaths: ReadonlySet<string>): boolean {
+  if (!Array.isArray(value) || !value.length || value.length > sourcePaths.size) return false;
+  const seen = new Set<string>();
+  let selected = false;
+  for (const layer of value) {
+    if (!layer || typeof layer !== "object" || Array.isArray(layer) ||
+        Object.keys(layer).length !== 2 ||
+        !Object.hasOwn(layer, "path") || !Object.hasOwn(layer, "visible")) return false;
+    const { path, visible } = layer as Record<string, unknown>;
+    if (typeof path !== "string" || path.length > 256 ||
+        !/^(0|[1-9][0-9]*)(\/(0|[1-9][0-9]*))*$/.test(path) ||
+        !sourcePaths.has(path) || seen.has(path) || typeof visible !== "boolean") return false;
+    seen.add(path);
+    selected ||= visible;
+  }
+  return selected;
 }
 
-function aiueoShapeProblems(value: unknown): {
-  missing: Array<(typeof AIUEO_KEYS)[number]>; unknown: boolean;
+function aiueoShapeProblems(preset?: UnifiedPreset): {
+  missing: Array<(typeof AIUEO_KEYS)[number]>; unknownKeys: string[];
 } {
+  const value: unknown = preset?.aiueoMouth;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { missing: [...AIUEO_KEYS], unknown: false };
+    return { missing: [...AIUEO_KEYS], unknownKeys: [] };
+  }
+  // All saved shape paths must belong to the same source snapshot as base.
+  const base: unknown = preset?.base;
+  const sourcePaths = new Set<string>();
+  if (Array.isArray(base)) {
+    for (const layer of base) {
+      if (!layer || typeof layer !== "object" || typeof layer.path !== "string") {
+        sourcePaths.clear();
+        break;
+      }
+      sourcePaths.add(layer.path);
+    }
   }
   const shapes = value as Record<string, unknown>;
   return {
-    missing: AIUEO_KEYS.filter((key) => !validAiueoShape(shapes[key])),
-    unknown: Object.keys(shapes).some((key) =>
+    missing: AIUEO_KEYS.filter((key) => !validAiueoShape(shapes[key], sourcePaths)),
+    unknownKeys: Object.keys(shapes).filter((key) =>
       !AIUEO_KEYS.includes(key as typeof AIUEO_KEYS[number])),
   };
 }
 
 /** Both single and batch exports require six explicit, valid visible leaves. */
 export function aiueoMouthReady(preset?: UnifiedPreset): boolean {
-  const { missing, unknown } = aiueoShapeProblems(preset?.aiueoMouth);
-  return missing.length === 0 && !unknown;
+  const { missing, unknownKeys } = aiueoShapeProblems(preset);
+  return missing.length === 0 && unknownKeys.length === 0;
 }
 
 /** Explain the exact preflight guard shared by individual and batch export.
@@ -67,11 +89,14 @@ function singlePresetReadinessError(
     }
     if (!aiueoMouthReady(preset)) {
       const labels = { a: "あ", i: "い", u: "う", e: "え", o: "お", n: "ん" };
-      const { missing, unknown } = aiueoShapeProblems(preset.aiueoMouth);
+      const { missing, unknownKeys } = aiueoShapeProblems(preset);
       if (missing.length) {
         return `aiueo：プリセット「${preset.name}」の口形（${missing.map((key) => labels[key]).join("・")}）が未選択または不正です。`;
       }
-      if (unknown) return `aiueo：プリセット「${preset.name}」の口形に不明なキーがあります。`;
+      if (unknownKeys.length) {
+        const shown = unknownKeys.slice(0, 3).map((key) => JSON.stringify(key.slice(0, 64))).join("・");
+        return `aiueo：プリセット「${preset.name}」の口形に不明なキー（${shown}）があります。`;
+      }
     }
     return null;
   }

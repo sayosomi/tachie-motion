@@ -5,12 +5,16 @@ import tempfile
 from pathlib import Path
 import unittest
 
+from PIL import Image
+from psd_tools import PSDImage
+
 try:
     from fastapi.testclient import TestClient
 except ImportError:
     TestClient = None
 
 from test_web_api import fixture
+from tachie_motion.psd.tree import walk_layers
 from tachie_motion.web.service import describe_psd, describe_wav, describe_wav_lab
 
 
@@ -211,14 +215,31 @@ class BatchGenerationApiTests(unittest.TestCase):
         self.cancel()
 
     def test_aiueo_batch_generates_all_movs_and_one_otio(self):
+        # Give rest n its own yellow leaf, distinct from both the fixed red
+        # mouth and the blue vowel a, without changing the shared fixture.
+        psd = PSDImage.open(self.psd)
+        face = next(layer for layer in psd if layer.name == "face")
+        rest = face.create_pixel_layer(
+            Image.new("RGBA", (14, 8), (250, 200, 20, 255)),
+            name="rest", left=28, top=14,
+        )
+        rest.visible = False
+        psd.save(self.psd)
+        meta = describe_psd(str(self.psd))
+        self.base["fingerprint"] = meta["fingerprint"]
+        self.base["layers"] = [{"path": layer["path"], "visible": layer["visible"]}
+                               for layer in meta["layers"]]
+        rest_path = next("/".join(map(str, layer.index_path))
+                         for layer in walk_layers(PSDImage.open(self.psd))
+                         if layer.name == "rest")
         lab = self.wav.with_suffix(".lab")
         # 30-fps frame centers: rest n, vowel a, then vowel i twice.
-        # The explicit n mouth matches a (open), not the PSD base (closed).
         lab.write_text("0 300000 sil\n300000 700000 a\n700000 1010000 i\n",
                        encoding="utf-8")
         shapes = {key: [
-            {"path": self.closed, "visible": key not in ("a", "u", "o", "n")},
-            {"path": self.opened, "visible": key in ("a", "u", "o", "n")},
+            {"path": self.closed, "visible": key in ("i", "e")},
+            {"path": self.opened, "visible": key in ("a", "u", "o")},
+            {"path": rest_path, "visible": key == "n"},
         ] for key in ("a", "i", "u", "e", "o", "n")}
         self.base.update({
             "mode": "aiueo", "aiueo_mouth": shapes,
@@ -248,9 +269,20 @@ class BatchGenerationApiTests(unittest.TestCase):
             stride = width * height * 4
             self.assertEqual(len(decoded), stride * 4)
             rgba = [decoded[i * stride:(i + 1) * stride] for i in range(4)]
-            self.assertEqual(rgba[0], rgba[1], "rest n must render the explicitly selected a-like open mouth")
+            self.assertNotEqual(rgba[0], rgba[1], "rest n must not alias vowel a")
             self.assertNotEqual(rgba[0], rgba[2], "rest n must not silently inherit the closed base")
+            self.assertNotEqual(rgba[1], rgba[2], "a and i must render different poses")
             self.assertEqual(rgba[2], rgba[3], "later vowel holds its own pose")
+            # A color oracle independent of the mouth scheduler proves that
+            # n selected the synthetic yellow rest leaf, not just a third pose.
+            def has_rest_color(frame):
+                return any(frame[i] > 200 and frame[i + 1] > 150 and
+                           frame[i + 2] < 70 and frame[i + 3] > 200
+                           for i in range(0, len(frame), 4))
+
+            self.assertTrue(has_rest_color(rgba[0]), "n must show the yellow rest leaf")
+            self.assertFalse(has_rest_color(rgba[1]), "a must hide the rest leaf")
+            self.assertFalse(has_rest_color(rgba[2]), "i must hide the rest leaf")
         combined = self.root / (self.timeline + ".otio")
         self.assertTrue(combined.is_file())
         document = json.loads(combined.read_text("utf-8"))

@@ -67,7 +67,22 @@ test("corrupt aiueo shapes fail closed without throwing, including the explicit 
     { name: "valid rest with corrupt extra entry", mouth: {
       ...shapes, n: [...shapes.n, { path: "0/1", visible: null }],
     }, message: "ん" },
-    { name: "unknown mouth key", mouth: { ...shapes, x: shapes.a }, message: "不明なキー" },
+    { name: "extra element field", mouth: {
+      ...shapes, n: [{ path: "0/0", visible: true, unexpected: 1 }],
+    }, message: "ん" },
+    { name: "invalid PSD index path", mouth: {
+      ...shapes, n: [{ path: "invalid/path", visible: true }],
+    }, message: "ん" },
+    { name: "noncanonical PSD index path", mouth: {
+      ...shapes, n: [{ path: "0/00", visible: true }],
+    }, message: "ん" },
+    { name: "unknown PSD index path", mouth: {
+      ...shapes, n: [{ path: "0/404", visible: true }],
+    }, message: "ん" },
+    { name: "duplicate PSD layer path", mouth: {
+      ...shapes, n: [...shapes.n, { path: "0/0", visible: true }],
+    }, message: "ん" },
+    { name: "unknown mouth key", mouth: { ...shapes, x: shapes.a }, message: "\"x\"" },
   ];
   for (const { name, mouth, message } of corrupt) {
     const broken: UnifiedPreset = { ...preset,
@@ -88,7 +103,7 @@ test("timeline change-point presets use the same defensive six-mouth guard", () 
   }, "p1", "/tmp", 1), mode: "aiueo" as const,
     presetChanges: [{ sample: 500, presetId: "p2" }] };
   const broken: UnifiedPreset = { ...preset, id: "p2", name: "変更先",
-    aiueoMouth: { ...shapes, n: null } as unknown as UnifiedPreset["aiueoMouth"] };
+    aiueoMouth: { ...shapes, n: [...shapes.n, { path: "0/0", visible: true }] } };
   const collection = { ...draft.collection, items: [preset, broken] };
   const lab = { status: "valid" as const, reason: null, source_identity: "lab:1" };
   expect(exportReadinessError(preset, item, lab, collection)).toContain("変更点 0.500秒");
