@@ -9,6 +9,15 @@
 - Browser E2E: Playwright import/preview/toggle/change-point/save/export with deterministic fixtures.
 - CI: Linux unit jobs plus macOS/Windows where dependencies allow; manual Resolve import is a separate human gate.
 
+## Public Issue #59 — 場面専用待機MOVの最小Web書き出しUI（Draft）
+
+- 保存済みのプリセットとPSDの一致を画面復帰時・予約直前に検証。プリセット未登録・変更済みPSD・不正な固定レイヤー状態なら開始不可。サーバー側の再検証は残す。
+- 1～216000の整数フレーム、24/30/60fps、プリセット別瞬きON/OFF、正確なフレーム数の秒表示、目グループ／閉眼選択／fpsに不適合な瞬き時間の事前拒否。WAV・PCM・個別OTIOを要求／生成しない。
+- Unicode NFDを含むMOV名・安全な出力先フォルダ・同名MOVの別名保存／明示上書きをテスト。外部OTIOがある場合は上書きせず別名保存、復旧資料がある場合は拒否。最終判定はバックエンドで再実行。
+- 既存UUID予約・実進捗・キャンセル・公開後100%・通信断時の終端待ち・多重送信防止、進行中の画面切替ロックをPlaywrightで検証。元PSD、他MOV／OTIO、隠れた一括処理への回帰を防ぐ。
+- frontend build、Playwright、Python全体回帰、GitHub CI、独立HEAD固定コード監査を別々に判定。Mac実PSDの操作感とResolveの透過ProRes MOVは帰宅後の独立Humanゲートであり、テストのPASSと混同しない。
+- 画面は単独の直接書き出しに限定。待機項目JSON、変更点、全体OTIO、複数キャラ、ループは完成扱いにしない。
+
 ## Public Issue #57 — 待機MOVのローカルHTTP接続（UI・JSONは後続）
 
 - 合成PSDとFFmpegで、`POST /api/idle-motion-export` の固定レイヤー・フレーム数・fps・Unicode／NFD出力名から音声なしMOVを作る。PSD/WAV原本不変、個別OTIOなし、既存OTIO参照と上書き禁止条件を維持。APIはファイルのバイト列をアップロードさせず、登録済みPSDの絶対パス・source_identity・fingerprintを再検証する。
