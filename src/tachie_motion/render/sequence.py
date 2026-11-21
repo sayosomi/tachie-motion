@@ -132,13 +132,15 @@ def encode_prores_sequence(
             check_cancel()
         if proof is not None:
             require_file_proof(temp, proof)
+            # Invoke the observer before exposing the output pathname. A
+            # callback failure must not leave a nominally finished MOV.
+            on_verified_file(proof)
         os.link(temp, output)  # Exclusive and atomic; never replace.
         if proof is not None:
             # Remove the encoder's temporary hard link before recording the
             # identity. Both link and unlink legitimately change inode ctime.
             temp.unlink()
-            final_proof = require_file_proof(output, proof, linked=True)
-            on_verified_file(final_proof)
+            require_file_proof(output, proof, linked=True)
         return report
     finally:
         temp.unlink(missing_ok=True)

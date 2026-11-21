@@ -249,10 +249,132 @@ class IdleMotionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "quarantined"):
                 self.export()
         self.assertFalse(self.data["mov"].exists())
-        self.assertEqual(
-            (self.root / ".待機.mov.single-backup" / "uncommitted").read_bytes(),
-            b"broken after precheck",
-        )
+        recoveries = list(self.root.glob(".tachie-single-recovery-*"))
+        self.assertEqual(len(recoveries), 1)
+        self.assertEqual((recoveries[0] / "待機.mov").read_bytes(),
+                         b"broken after precheck")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_occupied_fixed_recovery_name_does_not_leave_corrupt_public_mov(self):
+        outsider = self.root / ".待機.mov.single-backup"
+        actual_link = os.link
+
+        def corrupt_and_occupy(source, target, *args, **kwargs):
+            if Path(source).name == "staged.mov":
+                actual_link(source, target, *args, **kwargs)
+                Path(source).write_bytes(b"CORRUPT!")
+                outsider.mkdir()
+                (outsider / "third-party").write_bytes(b"THIRD PARTY DATA")
+                return None
+            return actual_link(source, target, *args, **kwargs)
+
+        with patch("tachie_motion.web.solo_output.os.link",
+                   side_effect=corrupt_and_occupy):
+            with self.assertRaisesRegex(RuntimeError, "quarantined"):
+                self.export()
+        self.assertFalse(self.data["mov"].exists())
+        self.assertEqual((outsider / "third-party").read_bytes(), b"THIRD PARTY DATA")
+        recoveries = list(self.root.glob(".tachie-single-recovery-*"))
+        self.assertEqual(len(recoveries), 1)
+        self.assertEqual((recoveries[0] / "待機.mov").read_bytes(), b"CORRUPT!")
+        with self.assertRaisesRegex(RuntimeError, "recovery"):
+            self.export(mov=self.root / "another.mov")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_external_change_right_before_old_mov_hardlink_is_rejected(self):
+        mov = self.data["mov"]
+        mov.write_bytes(b"ORIGINAL")
+        old = mov.stat()
+        actual_link = os.link
+
+        def mutate_before_backup(source, target, *args, **kwargs):
+            if Path(source) == mov and Path(target).name == "saved":
+                mov.write_bytes(b"CORRUPT!")
+                os.utime(mov, ns=(old.st_atime_ns, old.st_mtime_ns))
+            return actual_link(source, target, *args, **kwargs)
+
+        with patch("tachie_motion.web.solo_output.os.link",
+                   side_effect=mutate_before_backup):
+            with self.assertRaisesRegex(RuntimeError, "Verified media changed"):
+                self.export(conflict_policy="overwrite")
+        self.assertEqual(mov.read_bytes(), b"CORRUPT!")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_external_change_just_after_old_mov_relocation_is_rejected(self):
+        from tachie_motion.web.atomic_rename import rename_noreplace
+
+        mov = self.data["mov"]
+        mov.write_bytes(b"ORIGINAL")
+        old = mov.stat()
+
+        def mutate_after_move(source, target):
+            rename_noreplace(source, target)
+            if Path(source) == mov and Path(target).name == "removed":
+                Path(target).write_bytes(b"CORRUPT!")
+                os.utime(target, ns=(old.st_atime_ns, old.st_mtime_ns))
+
+        with patch("tachie_motion.web.solo_output.rename_noreplace",
+                   side_effect=mutate_after_move):
+            with self.assertRaisesRegex(RuntimeError, "Verified media changed"):
+                self.export(conflict_policy="overwrite")
+        self.assertEqual(mov.read_bytes(), b"CORRUPT!")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_psd_modified_during_final_link_is_not_successful_publication(self):
+        old = self.psd_path.stat()
+        original = self.psd_path.read_bytes()
+        actual_link = os.link
+
+        def mutate_psd_after_link(source, target, *args, **kwargs):
+            result = actual_link(source, target, *args, **kwargs)
+            if Path(source).name == "staged.mov":
+                self.psd_path.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+                os.utime(self.psd_path, ns=(old.st_atime_ns, old.st_mtime_ns))
+            return result
+
+        with patch("tachie_motion.web.solo_output.os.link",
+                   side_effect=mutate_psd_after_link):
+            with self.assertRaises(RuntimeError):
+                self.export()
+        self.assertFalse(self.data["mov"].exists())
+        self.assertEqual(len(list(self.root.glob(".tachie-single-recovery-*"))), 1)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_encoder_proof_observer_failure_never_leaves_output(self):
+        from tachie_motion.render.sequence import encode_prores_sequence
+
+        png = self.root / "image.png"
+        Image.new("RGBA", (16, 16), (10, 20, 30, 120)).save(png)
+        output = self.root / "encoder.mov"
+
+        def fail(_proof):
+            raise RuntimeError("observer failed")
+
+        with self.assertRaisesRegex(RuntimeError, "observer failed"):
+            encode_prores_sequence([png], [0, 0], output, on_verified_file=fail)
+        self.assertFalse(output.exists())
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_keyboard_interrupt_inside_new_mov_publication_propagates(self):
+        from tachie_motion.render.file_integrity import require_file_proof
+
+        def interrupt_after_link(path, proof, *, linked=False):
+            if path == self.data["mov"] and linked:
+                raise KeyboardInterrupt()
+            return require_file_proof(path, proof, linked=linked)
+
+        with patch("tachie_motion.web.solo_output.require_file_proof",
+                   side_effect=interrupt_after_link):
+            with self.assertRaises(KeyboardInterrupt):
+                self.export()
+        self.assertFalse(self.data["mov"].exists())
+        self.assertEqual(len(list(self.root.glob(".tachie-single-recovery-*"))), 1)
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "FFmpeg required")

@@ -13,7 +13,9 @@ from tachie_motion.animation.blink import schedule_random_blink_frames
 from tachie_motion.psd.crop import write_fixed_crop_png
 from tachie_motion.render.sequence import encode_prores_sequence
 from tachie_motion.web.eye_renderer import validate_closed_eye, render_blink_states
-from tachie_motion.render.file_integrity import FileProof, require_file_proof
+from tachie_motion.render.file_integrity import (
+    FileProof, prove_file, require_file_proof,
+)
 from tachie_motion.web.preset_preview import psd_snapshot_token
 from tachie_motion.web.preset_utterance import validated_snapshot
 from tachie_motion.web.preview_frame import file_identity
@@ -84,6 +86,12 @@ def export_idle_motion(
 
     check()
     prior_strict = published_media_identity(mov)
+    prior_verified = prove_file(mov) if prior_strict is not None else None
+    if prior_verified is not None and (
+            prior_verified.dev, prior_verified.ino,
+            prior_verified.ctime_ns, prior_verified.size,
+            prior_verified.mtime_ns) != prior_strict:
+        raise FileExistsError("Output changed while recording its original contents")
     prior = initial_single_identity(
         mov, conflict_policy, protect_otio_references=True,
     )
@@ -131,7 +139,9 @@ def export_idle_motion(
             raise RuntimeError("Idle MOV frame count mismatch")
         if proof is None:
             raise RuntimeError("No independent verification proof for idle MOV")
-        require_file_proof(staged, proof)
+        # Encoder hard-link creation/removal changed only ctime. Retain the
+        # resulting full identity for strict checks at final publication.
+        proof = require_file_proof(staged, proof, linked=True)
         check()
         check_psd()
         report("待機MOVを保存中", 90)
@@ -142,7 +152,8 @@ def export_idle_motion(
         warning = publish_single(
             staged, mov, policy=conflict_policy, prior=prior,
             protect_otio_references=True, verified_source=proof,
-            prior_strict=prior_strict,
+            prior_strict=prior_strict, prior_verified=prior_verified,
+            verify_source=check_psd,
         )
         committed = True
     finally:
