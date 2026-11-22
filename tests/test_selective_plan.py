@@ -25,7 +25,7 @@ class SelectivePlanTests(unittest.TestCase):
         self.mov.write_bytes(b"mov")
         self.render = {
             "psd": str(self.psd), "wav": str(self.wav),
-            "source_identity": "identity", "fingerprint": "fp",
+            "source_identity": "1:2:3:4:5", "fingerprint": "fp",
             "layers": [], "mode": "none", "blink_enabled": False, "fps": 30,
         }
         self.saved = SavedMovie(
