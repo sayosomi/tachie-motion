@@ -21,6 +21,12 @@ async function setup(page: Page) {
   }));
   await page.route("**/api/preset-utterance-destination", (route) =>
     route.fulfill({ json: { state: "available", suggested_basename: "new" } }));
+  await page.route("**/api/preset-batch-reuse-candidate", (route) => {
+    const request = route.request().postDataJSON() as { suggested_basename: string };
+    return route.fulfill({ json: {
+      basename: request.suggested_basename, reuse: false,
+    } });
+  });
   await page.route("**/api/preset-batch-check-names", (route) =>
     route.fulfill({ json: { valid: true } }));
   await page.route("**/api/preset-batch-mov-destination", (route) =>

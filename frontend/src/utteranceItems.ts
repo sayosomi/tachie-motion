@@ -12,6 +12,7 @@ export type ExportData = {
 };
 export type LipMode = "none" | "open" | "aiueo";
 export type Fps = 24 | 30 | 60;
+import type { PresetChangePoint } from "./presetChangePoints";
 
 export type UtteranceItem = {
   id: string;
@@ -19,6 +20,8 @@ export type UtteranceItem = {
   wavPath: string;
   wav: WavData;
   presetId: string;
+  /** Optional for internal legacy fixtures; new registrations always own their own list. */
+  presetChanges?: PresetChangePoint[];
   mode: LipMode;
   fps: Fps;
   outputDir: string;
@@ -37,7 +40,7 @@ export function createUtterance(
   outputDir: string, sequence: number,
 ): UtteranceItem {
   return {
-    id, registrationOrder: sequence, wavPath, wav, presetId, mode: "none", fps: 30, outputDir,
+    id, registrationOrder: sequence, wavPath, wav, presetId, presetChanges: [], mode: "none", fps: 30, outputDir,
     basename: "speech_" + String(sequence).padStart(3, "0"), basenameEdited: false,
     conflictChoice: "overwrite", saveAsName: null, result: null, error: "",
   };

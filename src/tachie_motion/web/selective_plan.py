@@ -1,0 +1,141 @@
+"""Read back authentic-looking generation history, then conservatively verify MOVs.
+
+An OTIO is untrusted input: its history is only a *candidate*. Verify its
+schema, both track references, current input bytes and output MOV bytes before
+granting reuse. A corrupt/legacy OTIO never grants reuse.
+"""
+import hashlib
+import json
+import os
+import subprocess
+from pathlib import Path
+import stat
+from typing import Any
+
+from tachie_motion.timeline.media import probe_movie, probe_wav
+from tachie_motion.web.combined_otio import probe_embedded_pcm
+from tachie_motion.web.preview_frame import file_identity
+from tachie_motion.web.selective_history import capture_recipe_sources, render_recipe
+from tachie_motion.web.selective_attestation import authenticated_timeline
+from tachie_motion.web.selective_recipe import digest_regular_file
+from tachie_motion.web.selective_reuse import (
+    SavedMovie, decode_history, verify_published_movie,
+)
+from tachie_motion.web.solo_output import validate_media_basename
+
+_HISTORY_KEY = "tachie_motion_selective"
+_MAX_OTIO_BYTES = 16 * 1024 * 1024
+
+
+def probe_alpha_prores(movie: Path) -> bool:
+    """Reject altered non-ProRes or alpha-less media even with valid timing."""
+    try:
+        result = subprocess.run([
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=codec_name,profile,pix_fmt",
+            "-of", "json", str(movie),
+        ], capture_output=True, check=False, timeout=30)
+        if result.returncode:
+            return False
+        streams = json.loads(result.stdout)["streams"]
+        return (len(streams) == 1 and streams[0]["codec_name"] == "prores" and
+                "4444" in streams[0]["profile"] and
+                streams[0]["pix_fmt"].startswith("yuva444p"))
+    except (OSError, ValueError, TypeError, KeyError, IndexError,
+            subprocess.TimeoutExpired):
+        return False
+
+
+def load_saved_movies(folder: Path, timeline_name: str) -> dict[str, SavedMovie]:
+    """No provenance on legacy/altered OTIOs; never accept arbitrary metadata.
+
+    The stored entry order must match both audio and video clips, whose URLs
+    must reference the identical published MOV, not stale stage media.
+    """
+    validate_media_basename(timeline_name)
+    path = folder / (timeline_name + ".otio")
+    try:
+        before = digest_regular_file(path)
+        if before.size > _MAX_OTIO_BYTES:
+            return {}
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) |
+                     getattr(os, "O_NONBLOCK", 0))
+        try:
+            identity = os.fstat(fd)
+            if (not stat.S_ISREG(identity.st_mode) or
+                    (identity.st_dev, identity.st_ino, identity.st_ctime_ns,
+                     identity.st_size, identity.st_mtime_ns) != before.identity):
+                return {}
+            raw = os.read(fd, _MAX_OTIO_BYTES + 1)
+            after = os.fstat(fd)
+            if (len(raw) != before.size or
+                    hashlib.sha256(raw).hexdigest() != before.sha256 or
+                    (after.st_dev, after.st_ino, after.st_ctime_ns,
+                     after.st_size, after.st_mtime_ns) != before.identity):
+                return {}
+        finally:
+            os.close(fd)
+        if digest_regular_file(path) != before:
+            return {}
+        doc = json.loads(raw)
+        if not isinstance(doc, dict) or doc.get("OTIO_SCHEMA") != "Timeline.1":
+            return {}
+        metadata = doc.get("metadata")
+        if (not isinstance(metadata, dict) or _HISTORY_KEY not in metadata
+                or not authenticated_timeline(doc)):
+            return {}
+        saved = decode_history(metadata[_HISTORY_KEY])
+        entries = metadata[_HISTORY_KEY]["entries"]
+        tracks = doc["tracks"]["children"]
+        if (not isinstance(tracks, list) or len(tracks) != 2 or
+            tracks[0].get("kind") != "Video" or tracks[1].get("kind") != "Audio"):
+            return {}
+        for track in tracks:
+            clips = track["children"]
+            if not isinstance(clips, list) or len(clips) != len(entries):
+                return {}
+            for clip, entry in zip(clips, entries):
+                expected = str(folder / (entry["basename"] + ".mov"))
+                actual = clip["media_references"]["DEFAULT_MEDIA"]["target_url"]
+                if actual != expected:
+                    return {}
+        return saved
+    except (OSError, RuntimeError, ValueError, TypeError, KeyError, IndexError, AttributeError):
+        return {}
+
+
+def verified_reuse(
+    folder: Path, timeline_name: str, *, item_id: str,
+    render: dict[str, Any], expected_basename: str | None = None,
+    saved_movies: dict[str, SavedMovie] | None = None,
+) -> SavedMovie | None:
+    """Server-owned strict check; never trusts a browser cache-hit assertion."""
+    try:
+        saved = (saved_movies if saved_movies is not None else
+                 load_saved_movies(folder, timeline_name)).get(item_id)
+        if saved is None or (
+            expected_basename is not None and saved.basename != expected_basename
+        ):
+            return None
+        wav = Path(render["wav"])
+        if ":".join(map(str, file_identity(wav))) != render["source_identity"]:
+            return None
+        timing = probe_wav(wav)
+        if (timing.samples, timing.sample_rate) != (saved.samples, saved.sample_rate):
+            return None
+        sources = capture_recipe_sources(render)
+        recipe = render_recipe(render, sources)
+        if not verify_published_movie(
+            folder, saved, item_id=item_id, recipe_sha256=recipe,
+            fps=render["fps"], samples=saved.samples, sample_rate=saved.sample_rate,
+            video_probe=probe_movie, audio_probe=probe_embedded_pcm,
+        ):
+            return None
+        if not probe_alpha_prores(folder / (saved.basename + ".mov")):
+            return None
+        # Source must remain stable throughout the MOV validation and probes.
+        if capture_recipe_sources(render) != sources:
+            return None
+        return saved
+    except (OSError, ValueError, RuntimeError, TypeError, KeyError, AttributeError):
+        return None

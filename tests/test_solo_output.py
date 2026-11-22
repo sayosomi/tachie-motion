@@ -56,6 +56,7 @@ class SoloOtioProtectionTests(unittest.TestCase):
     def test_nfc_and_casefold_equivalent_mov_name_is_unsafe(self):
         original = self.folder / "CAFÉ.MOV"
         original.write_bytes(b"OTHER MOV")
+        original_names = {entry.name for entry in self.folder.iterdir()}
         requested = "cafe\u0301"
         path = self.folder / (requested + ".mov")
         probe = solo_destination_info(self.folder, requested)
@@ -68,7 +69,9 @@ class SoloOtioProtectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Equivalent Unicode"):
             publish_single(self.stage, path, policy="error", prior=None,
                            protect_otio_references=True)
-        self.assertFalse(path.exists())
+        # On case/normalization-insensitive APFS, the requested path may
+        # resolve to the same existing file; no new directory entry is allowed.
+        self.assertEqual({entry.name for entry in self.folder.iterdir()}, original_names)
         self.assertEqual(original.read_bytes(), b"OTHER MOV")
         # An unused decomposed basename remains byte-for-byte unchanged.
         self.assertEqual(
@@ -83,11 +86,17 @@ class SoloOtioProtectionTests(unittest.TestCase):
         self.assertEqual(candidate, "あ" * 58 + "_002")
         self.assertLessEqual(len(candidate.encode("utf-8")), 180)
 
+    def _simulated_unicode_collision(self, sentinel: Path):
+        # Real APFS may alias case/NFC variants to one inode. Model a distinct
+        # third-party arrival without accidentally modifying the target.
+        return patch("tachie_motion.web.solo_output._has_equivalent_mov_name",
+                     side_effect=lambda _target: sentinel.exists())
+
     def test_equivalent_unicode_arriving_during_backup_rolls_back(self):
         target = self.folder / "cafe\u0301.mov"
         target.write_bytes(b"OLD MOV")
         prior = initial_single_identity(target, "overwrite", protect_otio_references=True)
-        other = self.folder / "CAFÉ.MOV"
+        other = self.folder / "simulated-colliding-mov.other"
         original_link = os.link
 
         def inject(source, destination):
@@ -96,7 +105,8 @@ class SoloOtioProtectionTests(unittest.TestCase):
                 other.write_bytes(b"THIRD-PARTY MOV")
             return result
 
-        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject):
+        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject), \
+                self._simulated_unicode_collision(other):
             with patch("tachie_motion.web.solo_output.os.unlink",
                        side_effect=AssertionError("no shared pathname unlink")):
                 with self.assertRaisesRegex(ValueError, "Equivalent Unicode"):
@@ -110,14 +120,15 @@ class SoloOtioProtectionTests(unittest.TestCase):
         target = self.folder / "cafe\u0301.mov"
         target.write_bytes(b"OLD MOV")
         prior = initial_single_identity(target, "overwrite", protect_otio_references=True)
-        other = self.folder / "CAFÉ.MOV"
+        other = self.folder / "simulated-colliding-mov.other"
         from tachie_motion.web.atomic_rename import rename_noreplace
         def inject(source, destination):
             rename_noreplace(source, destination)
             if Path(source) == target and Path(destination).name == "removed":
                 other.write_bytes(b"THIRD-PARTY MOV")
 
-        with patch("tachie_motion.web.solo_output.rename_noreplace", side_effect=inject):
+        with patch("tachie_motion.web.solo_output.rename_noreplace", side_effect=inject), \
+                self._simulated_unicode_collision(other):
             with self.assertRaisesRegex(ValueError, "Equivalent Unicode"):
                 publish_single(self.stage, target, policy="overwrite", prior=prior,
                                protect_otio_references=True)
@@ -129,7 +140,7 @@ class SoloOtioProtectionTests(unittest.TestCase):
         target = self.folder / "cafe\u0301.mov"
         target.write_bytes(b"OLD MOV")
         prior = initial_single_identity(target, "overwrite", protect_otio_references=True)
-        other = self.folder / "CAFÉ.MOV"
+        other = self.folder / "simulated-colliding-mov.other"
         original_link = os.link
 
         def inject(source, destination):
@@ -138,7 +149,8 @@ class SoloOtioProtectionTests(unittest.TestCase):
                 other.write_bytes(b"THIRD-PARTY MOV")
             return result
 
-        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject):
+        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject), \
+                self._simulated_unicode_collision(other):
             with self.assertRaisesRegex(ValueError, "Equivalent Unicode"):
                 publish_single(self.stage, target, policy="overwrite", prior=prior,
                                protect_otio_references=True)
@@ -151,7 +163,7 @@ class SoloOtioProtectionTests(unittest.TestCase):
         target = self.folder / "cafe\u0301.mov"
         self.assertIsNone(initial_single_identity(
             target, "error", protect_otio_references=True))
-        other = self.folder / "CAFÉ.MOV"
+        other = self.folder / "simulated-colliding-mov.other"
         original_link = os.link
 
         def inject(source, destination):
@@ -160,7 +172,8 @@ class SoloOtioProtectionTests(unittest.TestCase):
                 other.write_bytes(b"THIRD-PARTY MOV")
             return result
 
-        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject):
+        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject), \
+                self._simulated_unicode_collision(other):
             with patch("tachie_motion.web.solo_output.os.unlink",
                        side_effect=AssertionError("no shared pathname unlink")):
                 with self.assertRaisesRegex(RuntimeError, "manual recovery"):
@@ -176,7 +189,7 @@ class SoloOtioProtectionTests(unittest.TestCase):
 
     def test_equivalent_unicode_new_link_replaced_at_atomic_move_keeps_outsider(self):
         target = self.folder / "cafe\u0301.mov"
-        other = self.folder / "CAFÉ.MOV"
+        other = self.folder / "simulated-colliding-mov.other"
         external_source = self.folder / "outsider.tmp"
         external_source.write_bytes(b"OTHER TARGET MOV")
         original_link = os.link
@@ -191,7 +204,8 @@ class SoloOtioProtectionTests(unittest.TestCase):
                 os.replace(external_source, target)
             rename_noreplace(source, destination)
 
-        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject_link):
+        with patch("tachie_motion.web.solo_output.os.link", side_effect=inject_link), \
+                self._simulated_unicode_collision(other):
             with patch("tachie_motion.web.solo_output.rename_noreplace",
                        side_effect=inject_move):
                 with self.assertRaisesRegex(RuntimeError, "manual review"):
