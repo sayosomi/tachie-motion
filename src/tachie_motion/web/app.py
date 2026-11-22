@@ -609,6 +609,13 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
                         expected_basename=payload.basename)
                     if verified != reuse_saved:
                         raise ValueError("Public MOV no longer matches the approved render recipe")
+                    reuse_sources = await asyncio.to_thread(
+                        capture_recipe_sources, recipe_payload)
+                    if render_recipe(recipe_payload, reuse_sources) != verified.recipe_sha256:
+                        raise ValueError("Sources changed during MOV reuse verification")
+                    app.state.batch.remember_sources(
+                        payload.batch_id, payload.batch_index,
+                        recipe_payload, reuse_sources)
                     reused = app.state.batch.reuse_succeeded(
                         payload.batch_id, payload.batch_index, verified)
                     return {
@@ -640,6 +647,9 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
                     if final_sources != initial_sources:
                         raise ValueError("Source files changed while rendering; refusing history")
                     recipe = render_recipe(recipe_payload, initial_sources)
+                    app.state.batch.remember_sources(
+                        payload.batch_id, payload.batch_index,
+                        recipe_payload, final_sources)
                     app.state.batch.succeeded(
                         payload.batch_id, payload.batch_index, result, recipe)
                 else:
