@@ -217,6 +217,51 @@ class OfficialOtioRoundtrip(unittest.TestCase):
                 str(second.resolve()),
             )
 
+    def test_mixed_idle_gap_survives_official_otio_roundtrip(self):
+        from tachie_motion.timeline.otio_json import build_combined_segments
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first, idle, last = (
+                root / "001_発話.mov",
+                root / "002_待機.mov",
+                root / "003_発話.mov",
+            )
+            for movie in (first, idle, last):
+                movie.touch()
+            document = build_combined_segments([
+                (first, MovieTiming(31, 30), WaveTiming(48001, 48000)),
+                (idle, MovieTiming(48, 24), None),
+                (last, MovieTiming(30, 30), WaveTiming(48000, 48000)),
+            ])
+            location = root / "silent_gap.otio"
+            write_otio(document, location)
+            decoded = otio.adapters.read_from_file(str(location))
+            self.assertEqual(len(decoded.tracks), 2)
+            video, audio = decoded.tracks
+            self.assertEqual(len(video), 3)
+            self.assertEqual(len(audio), 3)
+            self.assertIsInstance(video[1], otio.schema.Clip)
+            self.assertIsInstance(audio[1], otio.schema.Gap)
+            self.assertEqual(
+                (video[1].source_range.duration.value,
+                 video[1].source_range.duration.rate), (48, 24))
+            self.assertEqual(
+                (audio[1].source_range.duration.value,
+                 audio[1].source_range.duration.rate), (48, 24))
+            self.assertAlmostEqual(
+                audio[2].range_in_parent().start_time.to_seconds(),
+                float(Fraction(48001, 48000) + 2), places=6)
+            encoded = otio.adapters.write_to_string(decoded, "otio_json")
+            again = otio.adapters.read_from_string(encoded, "otio_json")
+            self.assertIsInstance(again.tracks[1][1], otio.schema.Gap)
+            self.assertEqual(again.tracks[0][1].media_reference.target_url,
+                             str(idle.resolve()))
+            self.assertEqual(again.tracks[1][2].media_reference.target_url,
+                             str(last.resolve()))
+            self.assertEqual(
+                [type(x) for x in again.tracks[1]],
+                [otio.schema.Clip, otio.schema.Gap, otio.schema.Clip])
+
     def test_staged_fractional_pcm_rewrite_roundtrip_keeps_final_mov_paths(self):
         from tachie_motion.web.combined_otio import create_combined_otio
         with tempfile.TemporaryDirectory() as tmp:

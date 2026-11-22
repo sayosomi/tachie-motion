@@ -6,7 +6,7 @@ import WavWaveform from "./WavWaveform";
 import PresetChangeEditor from "./PresetChangeEditor";
 import type { LabInfo } from "./useLabStatus";
 import type { UnifiedPreset } from "./presetModel";
-import { wavFilename, type LipMode, type UtteranceItem } from "./utteranceItems";
+import { wavFilename, type LipMode, type UtteranceItem, type Fps } from "./utteranceItems";
 
 type Props = {
   projectControls?: ReactNode;
@@ -242,6 +242,52 @@ export default function UtteranceList({
                   <span className="meta">{playback.elapsed.toFixed(1)} / {item.wav.duration_seconds.toFixed(1)}秒</span>
                 </>}
               </div>}
+            {item.idleAfter ? <div className="idle-segment-editor" aria-label={"待機区間: " + name}>
+              <strong>待機区間</strong>
+              {index === items.length - 1 && <p className="hint warning" role="alert">
+                待機の後ろにセリフがありません。待機を削除するかセリフ順を変更してください。
+              </p>}
+              <div className="utterance-row-field utterance-row-preset">
+                <span className="utterance-row-field-label">待機プリセット</span>
+                <PresetPicker presets={presets} imageMap={presetImages}
+                  selectedId={item.idleAfter.presetId} status={presetStatus}
+                  disabled={disabled} label={"待機プリセット: " + name}
+                  onChoose={(id) => onRevise(item.id, {
+                    idleAfter: { ...item.idleAfter!, presetId: id },
+                  })} />
+              </div>
+              <label className="utterance-row-field">
+                <span className="utterance-row-field-label">待機フレーム</span>
+                <input type="number" min={1} max={216000} step={1}
+                  aria-label={"待機フレーム: " + name} disabled={disabled}
+                  value={item.idleAfter.frames}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    if (Number.isSafeInteger(value) && value >= 1 && value <= 216000)
+                      onRevise(item.id, { idleAfter: { ...item.idleAfter!, frames: value } });
+                  }} />
+              </label>
+              <label className="utterance-row-field">
+                <span className="utterance-row-field-label">待機FPS</span>
+                <select disabled={disabled} aria-label={"待機FPS: " + name}
+                  value={item.idleAfter.fps} onChange={(event) => onRevise(item.id, {
+                    idleAfter: { ...item.idleAfter!, fps: Number(event.target.value) as Fps },
+                  })}>
+                  <option value={24}>24</option>
+                  <option value={30}>30</option>
+                  <option value={60}>60</option>
+                </select>
+              </label>
+              <span className="meta">{(item.idleAfter.frames / item.idleAfter.fps).toFixed(3)}秒 ／ 無音・口パクなし</span>
+              <button type="button" disabled={disabled} className="secondary"
+                onClick={() => onRevise(item.id, { idleAfter: null })}>待機を削除</button>
+            </div> : index < items.length - 1 && <div className="idle-segment-add">
+              <button type="button" disabled={disabled} className="secondary"
+                onClick={() => onRevise(item.id, { idleAfter: {
+                  id: crypto.randomUUID(), presetId: item.presetId,
+                  fps: item.fps, frames: item.fps,
+                } })}>＋ このセリフの後に待機を挿入</button>
+            </div>}
           </li>;
         })}
       </ol>

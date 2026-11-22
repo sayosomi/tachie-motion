@@ -486,6 +486,42 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 }
 
 
+/* Explicit silent segments live directly below their parent WAV row. */
+.idle-segment-add, .idle-segment-editor {
+  grid-column:1 / -1;
+  grid-row:auto;
+  min-width:0;
+}
+.idle-segment-add { padding:4px 10px 8px 34px; }
+.idle-segment-add button { padding:7px 12px; font-size:12px; }
+.idle-segment-editor {
+  display:grid;
+  grid-template-columns:minmax(180px,1fr) 120px 110px auto;
+  gap:9px 12px;
+  align-items:end;
+  padding:12px;
+  border:1px solid #496b80;
+  border-left:3px solid #a9dcca;
+  background:#162e3d;
+  border-radius:7px;
+}
+.idle-segment-editor > strong { grid-column:1 / -1; color:#d9f4ed; font-size:13px; }
+.idle-segment-editor .utterance-row-preset { grid-column:auto; grid-row:auto; }
+.idle-segment-editor .utterance-row-field-label { display:block; }
+.idle-segment-editor input[type="number"] { display:block; width:100%; height:36px;
+  min-width:0; padding:7px 10px; border-radius:5px; font-size:12px; }
+.idle-segment-editor > .hint,
+.idle-segment-editor > .meta { grid-column:1 / -1; margin:0; }
+.idle-segment-editor > button { justify-self:start; padding:7px 12px; }
+@media(max-width:800px) {
+  .idle-segment-editor { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  .idle-segment-editor > .utterance-row-preset { grid-column:1 / -1; }
+}
+@media(max-width:480px) {
+  .idle-segment-editor { grid-template-columns:1fr; }
+  .idle-segment-editor > .utterance-row-preset { grid-column:1; }
+}
+
 /* Project import stays within the existing WAV list, not a third workspace. */
 .project-controls { margin: 14px 0 18px; }
 .project-file-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }

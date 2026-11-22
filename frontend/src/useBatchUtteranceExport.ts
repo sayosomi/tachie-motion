@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { PresetDraft } from "./presetDraftStorage";
 import type { UnifiedPreset } from "./presetModel";
+import { blinkFrames } from "./blinkTiming";
 import { effectiveLabSourceIdentity, exportPayload, exportReadinessError } from "./utteranceExportRequest";
 import { movName, otioName, suffixedOutputName, validateBatchNaming, type BatchNaming } from "./nameTemplate";
-import { wavFilename, type UtteranceItem } from "./utteranceItems";
+import { wavFilename, type UtteranceItem, type IdleAfter } from "./utteranceItems";
 import type { LabInfo } from "./useLabStatus";
 
 type Destination = {
@@ -29,8 +30,20 @@ export type TimelinePlan = {
   conflict_policy: Conflict;
   canonicalOutputDir: string;
 };
+export type IdlePlan = {
+  item: UtteranceItem;
+  idle: IdleAfter;
+  preset: UnifiedPreset;
+  basename: string;
+  conflict_policy: Conflict;
+  canonicalOutputDir: string;
+};
+export type BatchSegment =
+  | { kind: "speech"; plan: Plan }
+  | { kind: "idle"; plan: IdlePlan };
 export type PreparedBatch = {
   plans: Plan[];
+  sequence: BatchSegment[];
   timeline: TimelinePlan;
   overwrites: number;
 };
@@ -72,19 +85,48 @@ const cancelledByServer = (error: unknown) =>
   error instanceof Error && error.message.includes("書き出しをキャンセルしました");
 
 
+function idlePayload(draft: PresetDraft, psdIdentity: string, plan: IdlePlan) {
+  const { preset, idle } = plan;
+  const timing = preset.blinkEnabled ? blinkFrames(draft.collection.blinkTiming, idle.fps) : null;
+  if (preset.blinkEnabled && (!timing ||
+    !draft.collection.motionGroups?.eyes?.length ||
+    !preset.eyes?.closed.some((entry) => entry.visible))) {
+    throw new Error("待機プリセットの瞬き設定が未完了です");
+  }
+  return {
+    psd: draft.path, fingerprint: draft.fingerprint,
+    source_identity: psdIdentity, layers: preset.base,
+    frame_count: idle.frames, fps: idle.fps,
+    blink_enabled: preset.blinkEnabled,
+    eyes: preset.blinkEnabled ? preset.eyes ?? null : null,
+    eye_groups: preset.blinkEnabled ? draft.collection.motionGroups?.eyes ?? null : null,
+    blink_timing: timing, output_dir: plan.canonicalOutputDir,
+    basename: plan.basename, conflict_policy: plan.conflict_policy,
+  };
+}
+
 async function prepare(items: UtteranceItem[], draft: PresetDraft,
   naming: BatchNaming, choice: BatchConflictChoice,
-  labStatuses: Record<string, LabInfo>): Promise<PreparedBatch> {
+  labStatuses: Record<string, LabInfo>, psdIdentity: string | null): Promise<PreparedBatch> {
   validateBatchNaming(naming);
+  const hasIdle = items.some((item) => !!item.idleAfter);
+  if (items.at(-1)?.idleAfter) {
+    throw new Error("末尾のセリフに待機が設定されています。待機を削除するか順序を変更してください");
+  }
+  if (hasIdle && !psdIdentity) throw new Error("待機MOVに必要なPSD同一性が未確認です");
   const rawMovieNames = items.map((item, index) => movName(
     naming.movTemplate, index + 1, item.wavPath,
     naming.characterName, naming.projectName,
   ));
   const rawTimelineName = otioName(naming.otioTemplate, naming.projectName);
+  const rawIdleNames = items.map((item, index) => item.idleAfter
+    ? suffixedOutputName(rawMovieNames[index], "_待機") : null);
+  const rawAllNames = rawMovieNames.flatMap((name, index) =>
+    rawIdleNames[index] ? [name, rawIdleNames[index]!] : [name]);
   // Catch exact duplicates locally even when a server/mock responds "valid".
   // Python NFC+casefold remains the authoritative cross-platform check.
-  if (new Set([...rawMovieNames, rawTimelineName]).size !==
-      rawMovieNames.length + 1) {
+  if (new Set([...rawAllNames, rawTimelineName]).size !==
+      rawAllNames.length + 1) {
     throw new Error("MOVの保存名が重複します");
   }
   const inputs = items.map((item, index) => {
@@ -103,7 +145,7 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   });
   // Reused MOVs keep their original public basenames. This browser preflight
   // is advisory; server start and media checks repeat all safety decisions.
-  const hints = choice === "overwrite" ? await Promise.all(inputs.map(async (input, index) =>
+  const hints = choice === "overwrite" && !hasIdle ? await Promise.all(inputs.map(async (input, index) =>
     post<{ basename: string; reuse: boolean; reason?: string }>("preset-batch-reuse-candidate", {
       timeline_basename: rawTimelineName, item_id: input.item.id,
       suggested_basename: rawMovieNames[index],
@@ -112,7 +154,9 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
     })
   )) : rawMovieNames.map((basename) => ({ basename, reuse: false,
     reason: "別名保存のため全件新規生成" }));
-  const preferredMovieNames = hints.map((hint) => hint.basename);
+  const preferredMovieNames = items.flatMap((item, index) => [
+    hints[index].basename, ...(item.idleAfter ? [rawIdleNames[index]!] : []),
+  ]);
   // A rename affects the entire generation together. Do not silently mix
   // new and overwritten names, or suffix just one MOV of a combined timeline.
   let resolved: { movieNames: string[]; timelineName: string;
@@ -148,63 +192,95 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   if (!resolved) throw new Error("別名の保存先が見つかりません。ファイル名またはフォルダを変更してください");
   const { movieNames, timelineName, movies, timeline: dest } = resolved;
   const plans: Plan[] = [];
+  const sequence: BatchSegment[] = [];
   let overwrites = 0;
+  let cursor = 0;
   for (const [index, input] of inputs.entries()) {
-    const basename = movieNames[index];
-    const destination = movies[index];
+    const basename = movieNames[cursor];
+    const destination = movies[cursor++];
     const conflict_policy = allowedDestination(destination, basename);
-    const reuse = hints[index].reuse && choice === "overwrite" &&
+    const reuse = hints[index].reuse && choice === "overwrite" && !hasIdle &&
       basename === hints[index].basename && conflict_policy === "overwrite";
     if (conflict_policy === "overwrite" && !reuse) overwrites++;
-    plans.push({ ...input, basename, suggestedBasename: rawMovieNames[index],
+    const plan: Plan = { ...input, basename, suggestedBasename: rawMovieNames[index],
       reuse, reuseReason: hints[index].reason ?? (reuse
         ? "保存済みMOVを検証済み" : "検証可能な再利用条件がないため生成"),
       conflict_policy, canonicalOutputDir: destination.canonical_output_dir,
-      labSourceIdentity: input.labSourceIdentity });
+      labSourceIdentity: input.labSourceIdentity };
+    plans.push(plan);
+    sequence.push({ kind: "speech", plan });
+    const idle = input.item.idleAfter;
+    if (idle) {
+      if (index === items.length - 1 || !Number.isSafeInteger(idle.frames) ||
+          idle.frames < 1 || idle.frames > 216000 ||
+          ![24, 30, 60].includes(idle.fps)) {
+        throw new Error("待機区間の順序・長さ・FPSが不正です");
+      }
+      const preset = draft.collection.items.find((value) => value.id === idle.presetId);
+      if (!preset) throw new Error("待機区間のプリセットが見つかりません");
+      const name = movieNames[cursor];
+      const target = movies[cursor++];
+      const idlePolicy = allowedDestination(target, name);
+      if (idlePolicy === "overwrite") overwrites++;
+      const waiting: IdlePlan = {
+        item: input.item, idle, preset, basename: name,
+        conflict_policy: idlePolicy, canonicalOutputDir: target.canonical_output_dir,
+      };
+      idlePayload(draft, psdIdentity!, waiting);
+      sequence.push({ kind: "idle", plan: waiting });
+    }
   }
   const basename = timelineName;
   const policy = allowedDestination(dest, basename);
   if (policy === "overwrite") overwrites++;
-  if (plans.some((plan) => plan.canonicalOutputDir !== dest.canonical_output_dir)) {
+  if (sequence.some(({ plan }) => plan.canonicalOutputDir !== dest.canonical_output_dir)) {
     throw new Error("一括MOVと全体OTIOの出力先が一致しません");
   }
   // Match BatchCoordinator.start: another OTIO might reference a MOV being
   // replaced. Show this before enabling the button, without weakening the
   // server's second check when the folder changes between preview and start.
-  if (plans.some((plan) => plan.conflict_policy === "overwrite" && !plan.reuse) &&
+  if (sequence.some((segment) => segment.plan.conflict_policy === "overwrite" &&
+        (segment.kind === "idle" || !segment.plan.reuse)) &&
       dest.other_otio_present) {
     throw new Error(
       "別のOTIOが同じフォルダにあります。上書き対象MOVを参照している可能性があるため、" +
       "保護のため停止します。「別名で保存」を選ぶか、別の出力フォルダを指定してください。"
     );
   }
-  return { plans, overwrites, timeline: {
+  return { plans, sequence, overwrites, timeline: {
     basename, conflict_policy: policy, canonicalOutputDir: dest.canonical_output_dir,
   } };
 }
 
 /** Render-affecting properties only; prior export status does not invalidate the plan. */
 function snapshotKey(draft: PresetDraft | null, items: UtteranceItem[],
-  naming: BatchNaming): string {
+  naming: BatchNaming, psdIdentity: string | null): string {
   if (!draft) return "";
   return JSON.stringify({
-    psd: draft.path, fingerprint: draft.fingerprint, presets: draft.collection.items,
+    psd: draft.path, fingerprint: draft.fingerprint, psdIdentity,
+    presets: draft.collection.items,
     blinkTiming: draft.collection.blinkTiming, motionGroups: draft.collection.motionGroups,
     naming, items: items.map((item) => ({
       id: item.id, wavPath: item.wavPath, wav: item.wav, presetId: item.presetId,
-      presetChanges: item.presetChanges ?? [],
+      presetChanges: item.presetChanges ?? [], idleAfter: item.idleAfter ?? null,
       mode: item.mode, fps: item.fps,
     })),
   });
 }
 
-function planKey(draft: PresetDraft, batch: PreparedBatch): string {
+function planKey(draft: PresetDraft, batch: PreparedBatch, psdIdentity: string | null): string {
   return JSON.stringify({
     timeline: batch.timeline,
-    plans: batch.plans.map((plan) => ({
-      id: plan.item.id, folder: plan.canonicalOutputDir, reuse: plan.reuse,
-      payload: exportPayload(draft, { ...plan.item, outputDir: plan.canonicalOutputDir },
-        plan.preset, plan.basename, plan.conflict_policy, plan.labSourceIdentity),
+    sequence: batch.sequence.map((segment) => segment.kind === "speech" ? ({
+      kind: "speech", id: segment.plan.item.id,
+      folder: segment.plan.canonicalOutputDir, reuse: segment.plan.reuse,
+      payload: exportPayload(draft, {
+        ...segment.plan.item, outputDir: segment.plan.canonicalOutputDir,
+      }, segment.plan.preset, segment.plan.basename,
+        segment.plan.conflict_policy, segment.plan.labSourceIdentity),
+    }) : ({
+      kind: "idle", id: segment.plan.idle.id,
+      payload: idlePayload(draft, psdIdentity!, segment.plan),
     })),
   });
 }
@@ -214,7 +290,7 @@ export function useBatchUtteranceExport(
   setItems: Dispatch<SetStateAction<UtteranceItem[]>>,
   onFinished: () => void, enabled: boolean, naming: BatchNaming,
   otherBusy: () => boolean, labStatuses: Record<string, LabInfo>,
-  overlay: ExportProgressCallbacks,
+  psdIdentity: string | null, overlay: ExportProgressCallbacks,
 ) {
   const [conflictChoice, setConflictChoice] = useState<BatchConflictChoice>("overwrite");
   const [running, setRunning] = useState(false);
@@ -239,7 +315,7 @@ export function useBatchUtteranceExport(
         ? "サーバーが中断を確認しました。旧ファイルは保護されています。"
         : "書き出しの終了を確認しました。出力先・復旧情報をご確認ください。");
   }, [overlay.terminalPhase, reconcileVersion]);
-  const key = snapshotKey(draft, items, naming) + "|" + conflictChoice +
+  const key = snapshotKey(draft, items, naming, psdIdentity) + "|" + conflictChoice +
     "|" + JSON.stringify(items.map((item) => [
       item.id, item.mode === "aiueo"
         ? [labStatuses[item.id]?.status, labStatuses[item.id]?.source_identity] : null,
@@ -253,7 +329,7 @@ export function useBatchUtteranceExport(
     }
     let cancelled = false;
     setReview(null); setReviewError(""); setReviewing(true);
-    void prepare([...items], draft, naming, conflictChoice, labStatuses).then((prepared) => {
+    void prepare([...items], draft, naming, conflictChoice, labStatuses, psdIdentity).then((prepared) => {
       if (!cancelled) setReview({ key, prepared });
     }).catch((error: unknown) => {
       if (!cancelled) setReviewError(error instanceof Error ? error.message : String(error));
@@ -276,12 +352,13 @@ export function useBatchUtteranceExport(
     let outcome: "success" | "failed" | "cancelled" | null = null;
     let outcomeDetail = "";
     try {
-      const refreshed = await prepare([...items], draft, naming, conflictChoice, labStatuses);
-      if (planKey(draft, refreshed) !== planKey(draft, displayed)) {
+      const refreshed = await prepare([...items], draft, naming, conflictChoice, labStatuses, psdIdentity);
+      if (planKey(draft, refreshed, psdIdentity) !==
+          planKey(draft, displayed, psdIdentity)) {
         setSummary("出力予定が変更されました。新しい予定を確認してから再実行してください。");
         return;
       }
-      const { plans, timeline, overwrites } = displayed;
+      const { plans, sequence, timeline, overwrites } = displayed;
       if (overwrites && !window.confirm(
         "既存のMOV・全体OTIOを合計" + overwrites + "件上書きします。続行しますか？"
       )) {
@@ -291,62 +368,90 @@ export function useBatchUtteranceExport(
       // Client-side UUID survives a lost batch-start response.
       const preferredToken = crypto.randomUUID();
       await post<{ registered: boolean }>("export-progress-reserve", {
-        token: preferredToken, kind: "batch", total: plans.length,
+        token: preferredToken, kind: "batch", total: sequence.length,
       });
       sessionId = preferredToken;
-      overlay.begin(sessionId, plans.map((plan) => wavFilename(plan.item.wavPath)));
+      overlay.begin(sessionId, sequence.map((segment) => segment.kind === "speech"
+         ? wavFilename(segment.plan.item.wavPath) : "待機 " + segment.plan.basename));
       const session = await post<{ batch_id: string }>("preset-batch-start", {
         progress_id: sessionId,
         output_dir: timeline.canonicalOutputDir,
         timeline_basename: timeline.basename,
         timeline_policy: timeline.conflict_policy,
-        entries: plans.map((plan) => ({
-          item_id: plan.item.id, reuse: plan.reuse,
-          basename: plan.basename, wav: plan.item.wavPath,
-          source_identity: plan.item.wav.source_identity,
-          lab_source_identity: plan.labSourceIdentity, fps: plan.item.fps,
-          samples: plan.item.wav.samples, sample_rate: plan.item.wav.sample_rate,
-          conflict_policy: plan.conflict_policy,
+        entries: sequence.map((segment) => segment.kind === "speech" ? ({
+          item_id: segment.plan.item.id, reuse: segment.plan.reuse,
+          basename: segment.plan.basename, wav: segment.plan.item.wavPath,
+          source_identity: segment.plan.item.wav.source_identity,
+          lab_source_identity: segment.plan.labSourceIdentity,
+          fps: segment.plan.item.fps, samples: segment.plan.item.wav.samples,
+          sample_rate: segment.plan.item.wav.sample_rate,
+          conflict_policy: segment.plan.conflict_policy,
+        }) : ({
+          ...idlePayload(draft, psdIdentity!, segment.plan),
+          kind: "idle", item_id: segment.plan.idle.id, reuse: false,
+          frames: segment.plan.idle.frames,
         })),
       });
       if (!session.batch_id) throw new Error("一括書き出しのセッションを開始できません");
       if (sessionId !== session.batch_id) {
         // Older mocked sessions return a server-generated ID.
         sessionId = session.batch_id;
-        overlay.begin(sessionId, plans.map((plan) => wavFilename(plan.item.wavPath)));
+        overlay.begin(sessionId, sequence.map((segment) => segment.kind === "speech"
+           ? wavFilename(segment.plan.item.wavPath) : "待機 " + segment.plan.basename));
       }
       let successes = 0;
       let reusedCount = 0;
       let failures = 0;
-      const complete: { basename: string; frames: number; fps: number;
-        samples: number; sample_rate: number }[] = [];
+      const complete: Array<
+        { basename: string; frames: number; fps: number; samples: number; sample_rate: number }
+        | { kind: "idle"; basename: string; frames: number; fps: number }> = [];
       const notes: string[] = [];
       const stagedResults: { id: string; result: MovieResult }[] = [];
-      for (const [index, plan] of plans.entries()) {
-        const item = plan.item;
-        setProgress("MOVを書き出し中 " + (index + 1) + " / " + plans.length +
-          "：" + plan.basename + ".mov");
+      for (const [index, segment] of sequence.entries()) {
+        const item = segment.plan.item;
+        setProgress("MOVを書き出し中 " + (index + 1) + " / " + sequence.length +
+          "：" + segment.plan.basename + ".mov");
         try {
-          const payload = exportPayload(draft, {
-            ...item, outputDir: plan.canonicalOutputDir,
-          }, plan.preset, plan.basename, plan.conflict_policy,
-            plan.labSourceIdentity);
-          const result = await post<MovieResult>("preset-batch-mov-export", {
-            ...payload, batch_id: sessionId, batch_index: index,
-          });
-          const expected = plan.canonicalOutputDir + "/" + plan.basename + ".mov";
-          if (result.mov !== expected ||
-              result.sample_count !== item.wav.samples ||
-              result.sample_rate !== item.wav.sample_rate ||
-              !Number.isSafeInteger(result.frames) || result.frames <= 0) {
-            throw new Error("書き出したMOVの確認結果が予定と一致しません");
+          if (segment.kind === "idle") {
+            const plan = segment.plan;
+            const result = await post<{
+              mov: string; frames: number; fps: number; audio: boolean; warning?: string;
+            }>("preset-batch-idle-export", {
+              ...idlePayload(draft, psdIdentity!, plan),
+              batch_id: sessionId, batch_index: index,
+            });
+            if (result.mov !== plan.canonicalOutputDir + "/" + plan.basename + ".mov" ||
+                result.frames !== plan.idle.frames ||
+                result.fps !== plan.idle.fps || result.audio !== false) {
+              throw new Error("無音待機MOVの検証結果が予定と一致しません");
+            }
+            complete.push({ kind: "idle", basename: plan.basename,
+              frames: result.frames, fps: result.fps });
+            if (result.warning) notes.push(result.warning);
+            successes++;
+          } else {
+            const plan = segment.plan;
+            const payload = exportPayload(draft, {
+              ...item, outputDir: plan.canonicalOutputDir,
+            }, plan.preset, plan.basename, plan.conflict_policy,
+              plan.labSourceIdentity);
+            const result = await post<MovieResult>("preset-batch-mov-export", {
+              ...payload, batch_id: sessionId, batch_index: index,
+            });
+            const expected = plan.canonicalOutputDir + "/" + plan.basename + ".mov";
+            if (result.mov !== expected ||
+                result.sample_count !== item.wav.samples ||
+                result.sample_rate !== item.wav.sample_rate ||
+                !Number.isSafeInteger(result.frames) || result.frames <= 0) {
+              throw new Error("書き出したMOVの確認結果が予定と一致しません");
+            }
+            complete.push({ basename: plan.basename, frames: result.frames,
+              fps: item.fps, samples: result.sample_count, sample_rate: result.sample_rate });
+            if (result.warning) notes.push(result.warning);
+            if (result.reused) reusedCount++;
+            successes++;
+            stagedResults.push({ id: item.id, result });
           }
-          complete.push({ basename: plan.basename, frames: result.frames,
-            fps: item.fps, samples: result.sample_count, sample_rate: result.sample_rate });
-          if (result.warning) notes.push(result.warning);
-          if (result.reused) reusedCount++;
-          successes++;
-          stagedResults.push({ id: item.id, result });
         } catch (error) {
           // A broken connection does not establish that the media worker
           // stopped. Abort the entire client loop; never render the next WAV.
@@ -394,7 +499,8 @@ export function useBatchUtteranceExport(
       }));
       outcome = "success";
       setSummary("一括書き出し完了：MOV " + successes + "件（再利用 " +
-        reusedCount + "件／再生成 " + (successes - reusedCount) +
+        reusedCount + (sequence.length === plans.length ? "件／再生成 " : "件／新規・再生成 ") +
+        (successes - reusedCount) +
         "件）／全体OTIO " + done.otio +
         (notes.length ? " ／ 注意：" + notes.join(" ") : ""));
       onFinished();

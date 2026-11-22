@@ -5,7 +5,7 @@ import {
 } from "./characterProfile";
 import type { PresetDraft } from "./presetDraftStorage";
 import { withDefaultBlinkTiming } from "./presetModel";
-import type { UtteranceItem, WavData } from "./utteranceItems";
+import type { UtteranceItem, WavData, IdleAfter } from "./utteranceItems";
 import { assertPresetChangePoints } from "./presetChangePoints";
 import type { PresetChangePoint } from "./presetChangePoints";
 
@@ -20,6 +20,7 @@ export type ProjectUtterance = Pick<UtteranceItem,
   "fps" | "outputDir" | "basename" | "basenameEdited" | "conflictChoice" | "saveAsName"> & {
   wav: WavData;
   presetChanges: PresetChangePoint[];
+  idleAfter?: IdleAfter | null;
 };
 export type ProjectFile = {
   format: typeof PROJECT_FORMAT;
@@ -54,8 +55,8 @@ function safeStoredName(value: string): boolean {
 
 function item(value: unknown, ids: Set<string>, presetIds: ReadonlySet<string>): ProjectUtterance {
   fields(value, ["id", "registrationOrder", "wavPath", "wav", "presetId",
-    "mode", "fps", "outputDir", "basename", "basenameEdited", "conflictChoice", "saveAsName", "presetChanges"],
-    ["basenameEdited"]);
+    "mode", "fps", "outputDir", "basename", "basenameEdited", "conflictChoice", "saveAsName", "presetChanges", "idleAfter"],
+    ["basenameEdited", "idleAfter"]);
   if (typeof value.id !== "string" || !value.id.trim() || value.id.length > 256 ||
       Object.hasOwn(Object.prototype, value.id) || ids.has(value.id) ||
       typeof value.registrationOrder !== "number" || !Number.isSafeInteger(value.registrationOrder) ||
@@ -85,10 +86,22 @@ function item(value: unknown, ids: Set<string>, presetIds: ReadonlySet<string>):
     throw new Error("制作プロジェクトJSONのWAV参照情報が不正です");
   }
   assertPresetChangePoints(value.presetChanges, w.samples as number, presetIds);
+  if (value.idleAfter != null) {
+    fields(value.idleAfter, ["id", "presetId", "frames", "fps"]);
+    const gap = value.idleAfter;
+    if (typeof gap.id !== "string" || !gap.id.trim() || gap.id.length > 256 ||
+        Object.hasOwn(Object.prototype, gap.id) ||
+        typeof gap.presetId !== "string" || !presetIds.has(gap.presetId) ||
+        typeof gap.frames !== "number" || !Number.isSafeInteger(gap.frames) ||
+        gap.frames < 1 || gap.frames > 216000 || ![24, 30, 60].includes(gap.fps as number)) {
+      throw new Error("制作プロジェクトJSONの待機区間が不正です");
+    }
+  }
   ids.add(value.id);
   // Preserve the v3 basenameEdited default independently of the v4 timeline contract.
   return { ...(value as unknown as ProjectUtterance),
     presetChanges: value.presetChanges as PresetChangePoint[],
+    idleAfter: (value.idleAfter ?? null) as IdleAfter | null,
     basenameEdited: value.basenameEdited === undefined ? true : Boolean(value.basenameEdited) };
 }
 
@@ -123,6 +136,16 @@ export function parseProjectFile(text: string): ProjectFile {
     (typeof value.selectedId !== "string" || !ids.has(value.selectedId))) {
     throw new Error("制作プロジェクトJSONの選択項目が不正です");
   }
+  const allIds = new Set(items.map((entry) => entry.id));
+  if (items.filter((entry) => !!entry.idleAfter).length + items.length > MAX_UTTERANCES)
+    throw new Error("制作プロジェクトJSONの全体セグメント数が多すぎます");
+  for (const entry of items) {
+    if (entry.idleAfter) {
+      if (allIds.has(entry.idleAfter.id))
+        throw new Error("制作プロジェクトJSONの待機IDが重複しています");
+      allIds.add(entry.idleAfter.id);
+    }
+  }
   const naming = validateBatchNaming(value.naming);
   return { format: PROJECT_FORMAT, version: PROJECT_VERSION, character, items,
     selectedId: value.selectedId as string | null, naming };
@@ -145,6 +168,7 @@ export function serializeProjectFile(
         source_identity: value.wav.source_identity,
       },
       presetId: value.presetId, presetChanges: value.presetChanges ?? [],
+      ...(value.idleAfter ? { idleAfter: value.idleAfter } : {}),
       mode: value.mode, fps: value.fps,
       outputDir: value.outputDir,
       basename: soloMovName(value, index + 1, naming),

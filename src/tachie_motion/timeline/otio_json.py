@@ -157,41 +157,61 @@ def write_otio(document: dict, destination: Path) -> None:
         out.write("\n")
 
 
-def build_combined_utterances(
-    entries: list[tuple[Path, MovieTiming, WaveTiming]],
-) -> dict:
-    """Sequential one-character V1/A1 tracks with exact WAV-sample boundaries.
+def _silent_gap(frames: int, fps: int) -> dict:
+    """Reserve video-matched time on A1 without creating an audio source."""
+    return {
+        "OTIO_SCHEMA": "Gap.1",
+        "name": "Silent idle",
+        "metadata": {},
+        "enabled": True,
+        "effects": [],
+        "markers": [],
+        "source_range": _range(frames, fps),
+    }
 
-    Truncate only the OTIO clip's final fractional video frame, not PCM or MOV
-    source bytes. Both tracks then start each next utterance at identical time.
+
+def build_combined_segments(
+    entries: list[tuple[Path, MovieTiming, WaveTiming | None]],
+) -> dict:
+    """Build aligned V1/A1 tracks from utterance MOVs and silent idle MOVs.
+
+    An utterance has sample-accurate embedded PCM. Its final partial video
+    frame is trimmed in OTIO only. An idle has no audio media at all: its
+    video clip and corresponding audio Gap have the exact same frame duration.
+    The source MOV bytes are never edited by this builder.
     """
     if not entries:
         raise ValueError("Combined OTIO needs at least one MOV")
     video_clips = []
-    audio_clips = []
+    audio_items = []
     for mov, movie, audio in entries:
-        if audio.samples <= 0 or audio.sample_rate <= 0:
-            raise ValueError("Invalid PCM sample timing")
-        if movie.fps not in (24, 30, 60):
-            raise ValueError("Unsupported video fps")
-        if movie.frames != ((audio.samples * movie.fps + audio.sample_rate - 1)
-                             // audio.sample_rate):
-            raise ValueError("MOV frame count does not match PCM duration")
-        video = _clip("Character MOV", mov, movie.frames, movie.fps)
-        # Resolve requires ordinary filesystem paths here; retain the
-        # existing file:// URL convention for individual OTIO exports.
+        if movie.fps not in (24, 30, 60) or movie.frames <= 0:
+            raise ValueError("Unsupported or empty MOV frame timing")
+        if audio is None:
+            video = _clip("Idle MOV", mov, movie.frames, movie.fps)
+            video["metadata"]["tachie_motion_segment"] = "idle"
+            audio_items.append(_silent_gap(movie.frames, movie.fps))
+        else:
+            if audio.samples <= 0 or audio.sample_rate <= 0:
+                raise ValueError("Invalid PCM sample timing")
+            if movie.frames != ((audio.samples * movie.fps + audio.sample_rate - 1)
+                                 // audio.sample_rate):
+                raise ValueError("MOV frame count does not match PCM duration")
+            video = _clip("Character MOV", mov, movie.frames, movie.fps)
+            # Keep the encoded final frame in the media, but trim the OTIO
+            # video timeline to exact PCM samples so the next item aligns.
+            video["source_range"]["duration"] = _time(
+                audio.samples, audio.sample_rate)
+            audio_clip = _clip("Embedded PCM", mov, audio.samples, audio.sample_rate)
+            audio_clip["media_references"]["DEFAULT_MEDIA"]["target_url"] = str(
+                mov.resolve(strict=True))
+            audio_items.append(audio_clip)
+
+        # Resolve-on-Mac requires ordinary paths for combined OTIO entries.
         video["media_references"]["DEFAULT_MEDIA"]["target_url"] = str(
-            mov.resolve(strict=True)
-        )
-        # The source contains a rounded final frame; the timeline duration
-        # must instead be the exact unrounded PCM duration.
-        video["source_range"]["duration"] = _time(audio.samples, audio.sample_rate)
-        audio_clip = _clip("Embedded PCM", mov, audio.samples, audio.sample_rate)
-        audio_clip["media_references"]["DEFAULT_MEDIA"]["target_url"] = str(
-            mov.resolve(strict=True)
-        )
+            mov.resolve(strict=True))
         video_clips.append(video)
-        audio_clips.append(audio_clip)
+
     result = {
         "OTIO_SCHEMA": "Timeline.1",
         "name": "tachie-motion combined timeline",
@@ -207,10 +227,17 @@ def build_combined_utterances(
             "source_range": None,
             "children": [
                 _track("V1: character", "Video", video_clips[0]),
-                _track("A1: speech", "Audio", audio_clips[0]),
+                _track("A1: speech", "Audio", audio_items[0]),
             ],
         },
     }
     result["tracks"]["children"][0]["children"] = video_clips
-    result["tracks"]["children"][1]["children"] = audio_clips
+    result["tracks"]["children"][1]["children"] = audio_items
     return result
+
+
+def build_combined_utterances(
+    entries: list[tuple[Path, MovieTiming, WaveTiming]],
+) -> dict:
+    """Existing utterance-only contract; retained without behavior changes."""
+    return build_combined_segments(entries)

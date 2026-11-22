@@ -196,7 +196,17 @@ export default function UtteranceExportPanel({
         実行直前にも同じ保存先を再確認します。
       </p>}
       <ol className="export-plan-items">
-        {batch.displayed?.plans.map((plan) => <li key={plan.item.id}>
+        {batch.displayed?.sequence.map((segment) => {
+          if (segment.kind === "idle") return <li key={"idle-" + segment.plan.idle.id}>
+            <strong>待機区間（無音・口パクなし）</strong>
+            <span>固定プリセット：{segment.plan.preset.name}</span>
+            <span>{segment.plan.idle.frames}フレーム ／ {segment.plan.idle.fps}fps
+              （{(segment.plan.idle.frames / segment.plan.idle.fps).toFixed(3)}秒）</span>
+            <span>{segment.plan.basename}.mov</span>
+            <span>{segment.plan.conflict_policy === "overwrite" ? "上書き" : "新規生成"}</span>
+          </li>;
+          const plan = segment.plan;
+          return <li key={plan.item.id}>
           <span className="export-plan-name" title={plan.item.wavPath}>
             {wavFilename(plan.item.wavPath)}
           </span>
@@ -214,7 +224,7 @@ export default function UtteranceExportPanel({
           <span className="hint">理由: {plan.reuseReason}</span>
           {plan.reuse && plan.suggestedBasename !== plan.basename &&
             <span className="hint">現在の自動名: {plan.suggestedBasename}.mov（既存ファイル名を優先）</span>}
-        </li>)}
+        </li>; })}
       </ol>
       {batch.displayed && <p className="hint batch-timeline-plan">
         全体OTIO：{batch.displayed.timeline.basename}.otio

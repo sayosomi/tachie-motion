@@ -12,6 +12,9 @@ import time
 import unicodedata
 
 from tachie_motion.web.preview_frame import file_identity
+from tachie_motion.web.preset_preview import psd_snapshot_token
+from tachie_motion.timeline.media import MovieTiming, probe_movie
+from tachie_motion.web.combined_otio import probe_no_embedded_audio
 from tachie_motion.web.selective_recipe import FileDigest, digest_regular_file
 from tachie_motion.web.selective_plan import load_saved_movies
 from tachie_motion.web.selective_reuse import SavedMovie, encode_history
@@ -74,6 +77,11 @@ class Planned:
     item_id: str | None = None
     reuse: bool = False
     saved: SavedMovie | None = None
+    kind: str = "speech"
+    psd: Path | None = None
+    frames: int | None = None
+    fingerprint: str | None = None
+    render_options: dict | None = None
 
 
 @dataclass
@@ -131,10 +139,47 @@ class BatchCoordinator:
                          timeline_name + ".otio"]:
             refuse_equivalent_output_name(folder / filename)
         planned = []
+        # A mixed generation must re-render utterances until idle-inclusive
+        # authenticated history/reuse is implemented. No unsigned idle record
+        # may be used to authorize selective reuse.
+        has_idle = any(raw.get("kind", "speech") == "idle" for raw in entries)
+        if has_idle and any(raw.get("reuse") for raw in entries):
+            raise ValueError("Mixed idle batch reuse is not yet supported")
         # Capture prior metadata before creating any stage or public file.
         saved_history = load_saved_movies(folder, timeline_name) if any(
             item.get("reuse", False) for item in entries) else {}
         for raw in entries:
+            kind = raw.get("kind", "speech") or "speech"
+            if kind == "idle":
+                if raw.get("wav") is not None or raw.get("samples") is not None or raw.get("sample_rate") is not None or raw.get("lab_source_identity") is not None:
+                    raise ValueError("Idle entries must not declare WAV, PCM or LAB")
+                psd = local_file(raw.get("psd"), ".psd")
+                source_identity = raw["source_identity"]
+                if type(source_identity) is not str or source_token(psd) != source_identity:
+                    raise ValueError("PSD changed since idle batch registration")
+                fingerprint = raw.get("fingerprint")
+                if type(fingerprint) is not str or not fingerprint or len(fingerprint) > 4096 or psd_snapshot_token(str(psd)) != fingerprint:
+                    raise ValueError("Idle preset PSD fingerprint is invalid")
+                fps, frames = raw["fps"], raw["frames"]
+                from tachie_motion.web.idle_motion import MAX_IDLE_FRAMES
+                if type(fps) is not int or fps not in (24, 30, 60) or type(frames) is not int or not 1 <= frames <= MAX_IDLE_FRAMES:
+                    raise ValueError("Invalid idle timing")
+                stable_id = raw.get("item_id")
+                if type(stable_id) is not str or not stable_id or len(stable_id) > 256:
+                    raise ValueError("Idle batch needs a stable item ID")
+                policy = raw["conflict_policy"]
+                prior = initial_single_identity(folder / (raw["basename"] + ".mov"), policy)
+                if type(raw.get("layers")) is not list or type(raw.get("blink_enabled")) is not bool:
+                    raise ValueError("Idle render settings must be bound at batch start")
+                options = {key: raw.get(key) for key in (
+                    "layers", "blink_enabled", "eyes", "eye_groups", "blink_timing")}
+                planned.append(Planned(raw["basename"], None, source_identity, fps, 0, 0,
+                                       policy, prior, item_id=stable_id, kind="idle",
+                                       psd=psd, frames=frames, fingerprint=fingerprint,
+                                       render_options=options))
+                continue
+            if kind != "speech":
+                raise ValueError("Unsupported batch segment kind")
             wav = local_file(raw["wav"], ".wav")
             identity = raw["source_identity"]
             if not isinstance(identity, str) or not identity or identity != source_token(wav):
@@ -205,10 +250,17 @@ class BatchCoordinator:
             self.active = Session(token, folder, timeline_name, timeline_policy,
                                   timeline_prior, planned, stage,
                                   time.monotonic() + IDLE_SECONDS)
+            for index, part in enumerate(planned):
+                if part.kind == "idle":
+                    # Preserve content identity from admission through commit.
+                    self.active.source_snapshots[index] = (
+                        (part.psd, digest_regular_file(part.psd)),)
             return token
         except BaseException:
-            # Stage contents are retained, but its live file-descriptor lease
-            # must not leak when token/session initialization fails.
+            # A source digest can fail *after* self.active is assigned.
+            # Release both the coordinator lease and the filesystem stage,
+            # otherwise all subsequent batches remain incorrectly blocked.
+            self.active = None
             discard_stage(stage)
             raise
 
@@ -236,7 +288,8 @@ class BatchCoordinator:
         if index != session.next_index or index < 0 or index >= len(session.entries):
             raise ValueError("Batch MOV order has changed")
         original = session.entries[index]
-        if (folder != session.folder or original.basename != basename or
+        if (original.kind != "speech" or
+            folder != session.folder or original.basename != basename or
             original.wav != wav or original.source_identity != source_identity or
             original.fps != fps or original.conflict_policy != policy or
             original.lab_source_identity != lab_source_identity):
@@ -253,11 +306,61 @@ class BatchCoordinator:
         if (session.stage / (basename + ".mov")).exists():
             raise ValueError("Batch staging name already occupied")
 
+    def before_idle(self, token: str, index: int, folder: Path, basename: str,
+                    psd: Path, source_identity: str, fingerprint: str,
+                    fps: int, frames: int, policy: str,
+                    render_options: dict) -> None:
+        session = self._session(token)
+        if index != session.next_index or index < 0 or index >= len(session.entries):
+            raise ValueError("Batch idle MOV order has changed")
+        original = session.entries[index]
+        if (original.kind != "idle" or folder != session.folder or
+                original.basename != basename or original.psd != psd or
+                original.source_identity != source_identity or
+                original.fingerprint != fingerprint or original.fps != fps or
+                original.frames != frames or original.conflict_policy != policy or
+                original.render_options != render_options):
+            raise ValueError("Idle MOV does not match the approved manifest")
+        if (source_token(psd) != source_identity or
+                psd_snapshot_token(str(psd)) != fingerprint):
+            raise ValueError("PSD changed since idle batch start")
+        present = initial_single_identity(folder / (basename + ".mov"), policy)
+        if present != original.original:
+            raise ValueError("Idle MOV destination changed after batch approval")
+        if (session.stage / (basename + ".mov")).exists():
+            raise ValueError("Batch idle staging name already occupied")
+
+    def succeeded_idle(self, token: str, index: int, result: dict) -> None:
+        session = self._finish_render_session(token)
+        if index != session.next_index:
+            raise ValueError("Batch idle MOV completion order has changed")
+        planned = session.entries[index]
+        if (planned.kind != "idle" or result.get("audio") is not False or
+                result.get("frames") != planned.frames or result.get("fps") != planned.fps):
+            raise ValueError("Idle MOV render result differs from approved timing")
+        source = session.stage / (planned.basename + ".mov")
+        movie = probe_movie(source)
+        probe_no_embedded_audio(source)
+        if movie != MovieTiming(planned.frames, planned.fps):
+            raise ValueError("Idle MOV frames changed after render")
+        identity = published_media_identity(source)
+        if identity is None:
+            raise ValueError("Staged idle MOV disappeared")
+        if (source_token(planned.psd) != planned.source_identity or
+                psd_snapshot_token(str(planned.psd)) != planned.fingerprint):
+            raise ValueError("PSD changed while rendering idle MOV")
+        session.identities[planned.basename] = identity
+        session.results.append({
+            "kind": "idle", "basename": planned.basename,
+            "frames": planned.frames, "fps": planned.fps,
+        })
+        session.next_index += 1
+
     def succeeded(self, token: str, index: int, result: dict,
                   recipe_sha256: str | None = None) -> None:
         session = self._finish_render_session(token)
         planned = session.entries[index]
-        if planned.reuse or index != session.next_index or (
+        if planned.kind != "speech" or planned.reuse or index != session.next_index or (
             result["sample_count"], result["sample_rate"]) != (
                 planned.samples, planned.sample_rate):
             raise RuntimeError("Batch output does not match the registered WAV")
@@ -266,7 +369,7 @@ class BatchCoordinator:
         if identity is None:
             raise RuntimeError("Batch MOV disappeared after publication")
         saved = None
-        if planned.item_id is not None:
+        if planned.item_id is not None and all(item.kind == "speech" for item in session.entries):
             if not isinstance(recipe_sha256, str):
                 raise ValueError("Missing server-computed generation recipe")
             saved = SavedMovie(
@@ -291,7 +394,7 @@ class BatchCoordinator:
         """Record a verified public MOV without making any staged media link."""
         session = self._finish_render_session(token)
         planned = session.entries[index]
-        if (index != session.next_index or not planned.reuse or
+        if (planned.kind != "speech" or index != session.next_index or not planned.reuse or
                 verified != planned.saved or planned.item_id != verified.item_id):
             raise ValueError("Reused MOV is not the approved historical output")
         path = session.folder / (planned.basename + ".mov")
@@ -378,8 +481,12 @@ class BatchCoordinator:
                 raise ValueError("Reused MOV content changed: " + name)
         for planned in session.entries:
             # Recheck all WAVs after MOV staging, before publishing the timeline.
-            if source_token(planned.wav) != planned.source_identity:
-                raise ValueError("WAV changed since registration; batch not published")
+            source = planned.psd if planned.kind == "idle" else planned.wav
+            if source_token(source) != planned.source_identity:
+                raise ValueError(("PSD" if planned.kind == "idle" else "WAV") +
+                                 " changed since registration; batch not published")
+            if planned.kind == "idle" and psd_snapshot_token(str(source)) != planned.fingerprint:
+                raise ValueError("Idle PSD changed since registration")
             self._verify_lab(planned)
             dest = folder / (planned.basename + ".mov")
             if initial_single_identity(dest, planned.conflict_policy) != planned.original:
@@ -388,7 +495,14 @@ class BatchCoordinator:
 
     def needs_generation_record(self, token: str) -> bool:
         session = self._session(token)
-        return bool(session.entries and session.entries[0].item_id is not None)
+        return bool(session.entries and session.entries[0].item_id is not None and
+                    all(item.kind == "speech" for item in session.entries))
+
+    def needs_source_snapshot(self, token: str, index: int) -> bool:
+        session = self._session(token)
+        if index < 0 or index >= len(session.entries):
+            raise ValueError("Invalid source snapshot index")
+        return session.entries[index].kind == "speech" and session.entries[index].item_id is not None
 
     def generation_history(self, token: str) -> dict | None:
         session = self._session(token)
@@ -428,8 +542,12 @@ class BatchCoordinator:
         # Last source identity gate before public batch publication.
         self._verify_source_snapshots(session)
         for planned in session.entries:
-            if source_token(planned.wav) != planned.source_identity:
-                raise ValueError("WAV changed since registration; batch not published")
+            source = planned.psd if planned.kind == "idle" else planned.wav
+            if source_token(source) != planned.source_identity:
+                raise ValueError(("PSD" if planned.kind == "idle" else "WAV") +
+                                 " changed since registration; batch not published")
+            if planned.kind == "idle" and psd_snapshot_token(str(source)) != planned.fingerprint:
+                raise ValueError("Idle PSD changed during batch")
             self._verify_lab(planned)
             if planned.reuse:
                 current = session.folder / (planned.basename + ".mov")

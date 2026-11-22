@@ -2,13 +2,14 @@
 import json
 import os
 from pathlib import Path
+from fractions import Fraction
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from tachie_motion.timeline.media import MovieTiming, WaveTiming
-from tachie_motion.timeline.otio_json import build_combined_utterances
-from tachie_motion.web.combined_otio import create_combined_otio, probe_embedded_pcm
+from tachie_motion.timeline.otio_json import build_combined_segments, build_combined_utterances
+from tachie_motion.web.combined_otio import create_combined_otio, probe_embedded_pcm, probe_no_embedded_audio
 from tachie_motion.web.solo_output import (
     initial_single_identity, publish_single, single_destination, validate_media_basename,
 )
@@ -49,6 +50,158 @@ class CombinedOtioTests(unittest.TestCase):
                 )
             self.assertNotIn(".wav", json.dumps(result))
             self.assertIn("e\\u0301", json.dumps(result, ensure_ascii=True))
+
+    def test_speech_idle_speech_uses_audio_gap_with_sample_accurate_boundaries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            first, idle, last = (
+                folder / "発話_A.mov",
+                folder / "待機_無音.mov",
+                folder / "発話_B.mov",
+            )
+            for movie in (first, idle, last):
+                movie.write_bytes(b"synthetic movie identity")
+            entries = [
+                (first, MovieTiming(31, 30), WaveTiming(48001, 48000)),
+                (idle, MovieTiming(60, 30), None),
+                (last, MovieTiming(30, 30), WaveTiming(48000, 48000)),
+            ]
+            timeline = build_combined_segments(entries)
+            video, audio = timeline["tracks"]["children"]
+            self.assertEqual([item["name"] for item in video["children"]],
+                             ["Character MOV", "Idle MOV", "Character MOV"])
+            self.assertEqual([item["OTIO_SCHEMA"] for item in audio["children"]],
+                             ["Clip.2", "Gap.1", "Clip.2"])
+            self.assertEqual(video["children"][1]["metadata"]["tachie_motion_segment"], "idle")
+            self.assertNotIn("media_references", audio["children"][1])
+            self.assertEqual(
+                video["children"][1]["media_references"]["DEFAULT_MEDIA"]["target_url"],
+                str(idle.resolve()))
+            self.assertEqual(
+                audio["children"][1]["source_range"]["duration"],
+                {"OTIO_SCHEMA": "RationalTime.1", "value": 60, "rate": 30})
+            for v, a in zip(video["children"], audio["children"]):
+                self.assertEqual(v["source_range"]["duration"],
+                                 a["source_range"]["duration"])
+            duration = lambda item: Fraction(
+                item["source_range"]["duration"]["value"],
+                item["source_range"]["duration"]["rate"])
+            self.assertEqual(sum(map(duration, video["children"]), Fraction(0)),
+                             Fraction(48001, 48000) + 2 + 1)
+            self.assertEqual(sum(map(duration, audio["children"]), Fraction(0)),
+                             Fraction(48001, 48000) + 2 + 1)
+            self.assertEqual(
+                sum("media_references" in item for item in audio["children"]), 2)
+
+    def test_idle_only_and_multiple_fps_gap_durations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = Path(tmp) / "24fps.mov"
+            b = Path(tmp) / "60fps.mov"
+            a.write_bytes(b"a")
+            b.write_bytes(b"b")
+            result = build_combined_segments([
+                (a, MovieTiming(48, 24), None),
+                (b, MovieTiming(180, 60), None),
+            ])
+            video, audio = result["tracks"]["children"]
+            self.assertEqual([c["OTIO_SCHEMA"] for c in audio["children"]],
+                             ["Gap.1", "Gap.1"])
+            self.assertEqual([(c["source_range"]["duration"]["value"],
+                               c["source_range"]["duration"]["rate"])
+                              for c in video["children"]], [(48, 24), (180, 60)])
+            self.assertEqual([(c["source_range"]["duration"]["value"],
+                               c["source_range"]["duration"]["rate"])
+                              for c in audio["children"]], [(48, 24), (180, 60)])
+
+    def test_idle_bad_frame_count_rejected_without_audio_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mov = Path(tmp) / "idle.mov"
+            mov.write_bytes(b"m")
+            for frames, fps in ((0, 30), (-1, 30), (30, 25)):
+                with self.subTest(frames=frames, fps=fps), self.assertRaises(ValueError):
+                    build_combined_segments([(mov, MovieTiming(frames, fps), None)])
+
+    def test_mixed_staged_otio_uses_final_paths_and_gap_without_audio_media(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stage = root / "stage"
+            public = root / "final"
+            stage.mkdir()
+            public.mkdir()
+            speech, idle = "001_発話", "002_待機"
+            for name in (speech, idle):
+                (stage / (name + ".mov")).write_bytes(b"synthetic")
+            entries = [
+                {"basename": speech, "fps": 30, "frames": 31,
+                 "samples": 48001, "sample_rate": 48000},
+                {"kind": "idle", "basename": idle, "fps": 30, "frames": 60},
+            ]
+            with patch("tachie_motion.web.combined_otio.probe_movie",
+                       side_effect=[MovieTiming(31, 30), MovieTiming(60, 30),
+                                    MovieTiming(31, 30), MovieTiming(60, 30)]), patch(
+                    "tachie_motion.web.combined_otio.probe_embedded_pcm",
+                    return_value=WaveTiming(48001, 48000)), patch(
+                    "tachie_motion.web.combined_otio.probe_no_embedded_audio",
+                    return_value=None) as silent_probe:
+                create_combined_otio(stage, "作品", entries, "error",
+                                     reference_folder=public)
+            document = json.loads((stage / "作品.otio").read_text(encoding="utf-8"))
+            video, audio = document["tracks"]["children"]
+            self.assertEqual([x["OTIO_SCHEMA"] for x in audio["children"]],
+                             ["Clip.2", "Gap.1"])
+            self.assertNotIn("media_references", audio["children"][1])
+            self.assertEqual(
+                video["children"][1]["media_references"]["DEFAULT_MEDIA"]["target_url"],
+                str((public / (idle + ".mov")).absolute()))
+            self.assertEqual(
+                video["children"][0]["media_references"]["DEFAULT_MEDIA"]["target_url"],
+                str((public / (speech + ".mov")).absolute()))
+            self.assertEqual(silent_probe.call_count, 2)
+            self.assertEqual(audio["children"][1]["source_range"]["duration"],
+                             video["children"][1]["source_range"]["duration"])
+
+    def test_idle_audio_probe_rejects_embedded_pcm(self):
+        class Result:
+            returncode = 0
+            stderr = b""
+            stdout = b'{"streams":[]}'
+        with tempfile.TemporaryDirectory() as tmp:
+            mov = Path(tmp) / "silent.mov"
+            mov.write_bytes(b"m")
+            result = Result()
+            with patch("tachie_motion.web.combined_otio.subprocess.run", return_value=result):
+                self.assertIsNone(probe_no_embedded_audio(mov))
+                result.stdout = b'{"streams":[{"index":1}]}'
+                with self.assertRaisesRegex(ValueError, "no audio"):
+                    probe_no_embedded_audio(mov)
+                result.stdout = b"{}"
+                with self.assertRaisesRegex(ValueError, "Invalid idle MOV"):
+                    probe_no_embedded_audio(mov)
+
+    def test_mixed_timeline_rejects_unknown_kind_idle_pcm_history_and_bad_audio(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            mov = folder / "idle.mov"
+            mov.write_bytes(b"synthetic")
+            sample = {"kind": "idle", "basename": "idle", "fps": 30, "frames": 30}
+            for bad in (
+                {**sample, "kind": "unknown"},
+                {**sample, "samples": 48000},
+                {**sample, "sample_rate": 48000},
+            ):
+                with self.assertRaises(ValueError):
+                    create_combined_otio(folder, "作品", [bad], "error")
+            with self.assertRaisesRegex(ValueError, "history"):
+                create_combined_otio(folder, "作品", [sample], "error",
+                                     generation_history={"untrusted": True})
+            with patch("tachie_motion.web.combined_otio.probe_movie",
+                       return_value=MovieTiming(30, 30)), patch(
+                    "tachie_motion.web.combined_otio.probe_no_embedded_audio",
+                    side_effect=ValueError("Idle MOV must contain no audio streams")):
+                with self.assertRaisesRegex(ValueError, "no audio"):
+                    create_combined_otio(folder, "作品", [sample], "error")
+            self.assertFalse((folder / "作品.otio").exists())
+            self.assertEqual(mov.read_bytes(), b"synthetic")
 
     def test_staged_otio_references_final_plain_paths_on_both_tracks(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -187,6 +340,31 @@ class CombinedOtioTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     probe_embedded_pcm(movie)
 
+
+    def test_real_ffmpeg_silent_idle_has_no_audio_and_pcm_is_rejected(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            silent = Path(tmp) / "idle_透過.mov"
+            speech = Path(tmp) / "speech_pcm.mov"
+            base = [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "color=c=red:s=32x32:d=1:r=30",
+            ]
+            result = subprocess.run([
+                *base, "-c:v", "prores_ks", "-profile:v", "4",
+                "-frames:v", "30", "-an", str(silent),
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIsNone(probe_no_embedded_audio(silent))
+            result = subprocess.run([
+                *base, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+                "-c:v", "prores_ks", "-profile:v", "4",
+                "-c:a", "pcm_s16le", "-frames:v", "30", "-t", "1",
+                str(speech),
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with self.assertRaisesRegex(ValueError, "no audio"):
+                probe_no_embedded_audio(speech)
 
     def test_probe_real_ffmpeg_pcm_mov_sample_count(self):
         import subprocess
