@@ -1,8 +1,12 @@
 """Real synthetic PSD+WAV integration for staged whole-generation batch export."""
 import json
+import subprocess
 import tempfile
 from pathlib import Path
 import unittest
+
+from PIL import Image
+from psd_tools import PSDImage
 
 try:
     from fastapi.testclient import TestClient
@@ -10,6 +14,7 @@ except ImportError:
     TestClient = None
 
 from test_web_api import fixture
+from tachie_motion.psd.tree import walk_layers
 from tachie_motion.web.service import describe_psd, describe_wav, describe_wav_lab
 
 
@@ -459,12 +464,31 @@ class BatchGenerationApiTests(unittest.TestCase):
         self.cancel()
 
     def test_aiueo_batch_generates_all_movs_and_one_otio(self):
+        # Give rest n its own yellow leaf, distinct from both the fixed red
+        # mouth and the blue vowel a, without changing the shared fixture.
+        psd = PSDImage.open(self.psd)
+        face = next(layer for layer in psd if layer.name == "face")
+        rest = face.create_pixel_layer(
+            Image.new("RGBA", (14, 8), (250, 200, 20, 255)),
+            name="rest", left=28, top=14,
+        )
+        rest.visible = False
+        psd.save(self.psd)
+        meta = describe_psd(str(self.psd))
+        self.base["fingerprint"] = meta["fingerprint"]
+        self.base["layers"] = [{"path": layer["path"], "visible": layer["visible"]}
+                               for layer in meta["layers"]]
+        rest_path = next("/".join(map(str, layer.index_path))
+                         for layer in walk_layers(PSDImage.open(self.psd))
+                         if layer.name == "rest")
         lab = self.wav.with_suffix(".lab")
-        lab.write_text("0 200000 k\n200000 500000 a\n500000 1010000 i\n",
+        # 30-fps frame centers: rest n, vowel a, then vowel i twice.
+        lab.write_text("0 300000 sil\n300000 700000 a\n700000 1010000 i\n",
                        encoding="utf-8")
         shapes = {key: [
-            {"path": self.closed, "visible": key not in ("a", "u", "o")},
+            {"path": self.closed, "visible": key in ("i", "e")},
             {"path": self.opened, "visible": key in ("a", "u", "o")},
+            {"path": rest_path, "visible": key == "n"},
         ] for key in ("a", "i", "u", "e", "o", "n")}
         self.base.update({
             "mode": "aiueo", "aiueo_mouth": shapes,
@@ -480,7 +504,34 @@ class BatchGenerationApiTests(unittest.TestCase):
         done = self.finish(policy, outputs)
         self.assertEqual(done["entries"], len(self.names))
         for name in self.names:
-            self.assertTrue((self.root / (name + ".mov")).is_file())
+            mov = self.root / (name + ".mov")
+            self.assertTrue(mov.is_file())
+            probe = subprocess.run([
+                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=width,height", "-of", "csv=p=0", str(mov),
+            ], check=True, stdout=subprocess.PIPE, text=True)
+            width, height = (int(n) for n in probe.stdout.strip().split(","))
+            decoded = subprocess.run([
+                "ffmpeg", "-v", "error", "-i", str(mov), "-map", "0:v:0",
+                "-pix_fmt", "rgba", "-f", "rawvideo", "-",
+            ], check=True, stdout=subprocess.PIPE).stdout
+            stride = width * height * 4
+            self.assertEqual(len(decoded), stride * 4)
+            rgba = [decoded[i * stride:(i + 1) * stride] for i in range(4)]
+            self.assertNotEqual(rgba[0], rgba[1], "rest n must not alias vowel a")
+            self.assertNotEqual(rgba[0], rgba[2], "rest n must not silently inherit the closed base")
+            self.assertNotEqual(rgba[1], rgba[2], "a and i must render different poses")
+            self.assertEqual(rgba[2], rgba[3], "later vowel holds its own pose")
+            # A color oracle independent of the mouth scheduler proves that
+            # n selected the synthetic yellow rest leaf, not just a third pose.
+            def has_rest_color(frame):
+                return any(frame[i] > 200 and frame[i + 1] > 150 and
+                           frame[i + 2] < 70 and frame[i + 3] > 200
+                           for i in range(0, len(frame), 4))
+
+            self.assertTrue(has_rest_color(rgba[0]), "n must show the yellow rest leaf")
+            self.assertFalse(has_rest_color(rgba[1]), "a must hide the rest leaf")
+            self.assertFalse(has_rest_color(rgba[2]), "i must hide the rest leaf")
         combined = self.root / (self.timeline + ".otio")
         self.assertTrue(combined.is_file())
         document = json.loads(combined.read_text("utf-8"))
@@ -488,6 +539,31 @@ class BatchGenerationApiTests(unittest.TestCase):
                          len(self.names))
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes(),
                           lab.read_bytes()), (original_psd, original_wav, original_lab))
+
+    def test_aiueo_batch_rejects_unselected_rest_without_publication(self):
+        lab = self.wav.with_suffix(".lab")
+        lab.write_text("0 500000 sil\n500000 1010000 a\n", encoding="utf-8")
+        shapes = {key: [{"path": self.opened, "visible": True}]
+                  for key in ("a", "i", "u", "e", "o", "n")}
+        shapes["n"] = []  # No implicit fixed-layer inheritance.
+        self.base.update({
+            "mode": "aiueo", "aiueo_mouth": shapes,
+            "mouth_groups": [self.closed.rsplit("/", 1)[0]],
+            "lab_source_identity": describe_wav_lab(
+                str(self.wav), self.base["source_identity"])["source_identity"],
+        })
+        original = (self.psd.read_bytes(), self.wav.read_bytes(), lab.read_bytes())
+        policy = self.start(overwrite=False)
+        response = self.client.post("/api/preset-batch-mov-export", json={
+            **self.base, "basename": self.names[0],
+            "conflict_policy": policy, "batch_id": self.token,
+            "batch_index": 0,
+        })
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertFalse(any(self.root.glob("*.mov")))
+        self.assertFalse(any(self.root.glob("*.otio")))
+        self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes(),
+                          lab.read_bytes()), original)
 
     def test_lab_changed_after_aiueo_staging_blocks_combined_publication(self):
         from unittest.mock import patch

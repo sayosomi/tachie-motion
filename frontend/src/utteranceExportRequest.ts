@@ -8,11 +8,56 @@ import { assertPresetChangePoints } from "./presetChangePoints";
 
 export type ConflictPolicy = "error" | "overwrite";
 
-/** Both single and all-item exports must share the exact same render inputs. */
-/** All six phonemes require an explicitly selected visible mouth leaf. */
+/** Mirror the saved-layer shape contract without requiring another PSD HTTP read. */
+function validAiueoShape(value: unknown, sourcePaths: ReadonlySet<string>): boolean {
+  if (!Array.isArray(value) || !value.length || value.length > sourcePaths.size) return false;
+  const seen = new Set<string>();
+  let selected = false;
+  for (const layer of value) {
+    if (!layer || typeof layer !== "object" || Array.isArray(layer) ||
+        Object.keys(layer).length !== 2 ||
+        !Object.hasOwn(layer, "path") || !Object.hasOwn(layer, "visible")) return false;
+    const { path, visible } = layer as Record<string, unknown>;
+    if (typeof path !== "string" || path.length > 256 ||
+        !/^(0|[1-9][0-9]*)(\/(0|[1-9][0-9]*))*$/.test(path) ||
+        !sourcePaths.has(path) || seen.has(path) || typeof visible !== "boolean") return false;
+    seen.add(path);
+    selected ||= visible;
+  }
+  return selected;
+}
+
+function aiueoShapeProblems(preset?: UnifiedPreset): {
+  missing: Array<(typeof AIUEO_KEYS)[number]>; unknownKeys: string[];
+} {
+  const value: unknown = preset?.aiueoMouth;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { missing: [...AIUEO_KEYS], unknownKeys: [] };
+  }
+  // All saved shape paths must belong to the same source snapshot as base.
+  const base: unknown = preset?.base;
+  const sourcePaths = new Set<string>();
+  if (Array.isArray(base)) {
+    for (const layer of base) {
+      if (!layer || typeof layer !== "object" || typeof layer.path !== "string") {
+        sourcePaths.clear();
+        break;
+      }
+      sourcePaths.add(layer.path);
+    }
+  }
+  const shapes = value as Record<string, unknown>;
+  return {
+    missing: AIUEO_KEYS.filter((key) => !validAiueoShape(shapes[key], sourcePaths)),
+    unknownKeys: Object.keys(shapes).filter((key) =>
+      !AIUEO_KEYS.includes(key as typeof AIUEO_KEYS[number])),
+  };
+}
+
+/** Both single and batch exports require six explicit, valid visible leaves. */
 export function aiueoMouthReady(preset?: UnifiedPreset): boolean {
-  return Boolean(preset?.aiueoMouth &&
-    AIUEO_KEYS.every((key) => preset.aiueoMouth![key].some((layer) => layer.visible)));
+  const { missing, unknownKeys } = aiueoShapeProblems(preset);
+  return missing.length === 0 && unknownKeys.length === 0;
 }
 
 /** Explain the exact preflight guard shared by individual and batch export.
@@ -44,9 +89,14 @@ function singlePresetReadinessError(
     }
     if (!aiueoMouthReady(preset)) {
       const labels = { a: "あ", i: "い", u: "う", e: "え", o: "お", n: "ん" };
-      const missing = AIUEO_KEYS.filter((key) =>
-        !preset.aiueoMouth?.[key].some((layer) => layer.visible));
-      return `aiueo：プリセット「${preset.name}」の口形（${missing.map((key) => labels[key]).join("・")}）が未選択です。`;
+      const { missing, unknownKeys } = aiueoShapeProblems(preset);
+      if (missing.length) {
+        return `aiueo：プリセット「${preset.name}」の口形（${missing.map((key) => labels[key]).join("・")}）が未選択または不正です。`;
+      }
+      if (unknownKeys.length) {
+        const shown = unknownKeys.slice(0, 3).map((key) => JSON.stringify(key.slice(0, 64))).join("・");
+        return `aiueo：プリセット「${preset.name}」の口形に不明なキー（${shown}）があります。`;
+      }
     }
     return null;
   }
