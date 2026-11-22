@@ -341,6 +341,31 @@ class CombinedOtioTests(unittest.TestCase):
                     probe_embedded_pcm(movie)
 
 
+    def test_real_ffmpeg_silent_idle_has_no_audio_and_pcm_is_rejected(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            silent = Path(tmp) / "idle_透過.mov"
+            speech = Path(tmp) / "speech_pcm.mov"
+            base = [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "color=c=red:s=32x32:d=1:r=30",
+            ]
+            result = subprocess.run([
+                *base, "-c:v", "prores_ks", "-profile:v", "4",
+                "-frames:v", "30", "-an", str(silent),
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIsNone(probe_no_embedded_audio(silent))
+            result = subprocess.run([
+                *base, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+                "-c:v", "prores_ks", "-profile:v", "4",
+                "-c:a", "pcm_s16le", "-frames:v", "30", "-t", "1",
+                str(speech),
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with self.assertRaisesRegex(ValueError, "no audio"):
+                probe_no_embedded_audio(speech)
+
     def test_probe_real_ffmpeg_pcm_mov_sample_count(self):
         import subprocess
         with tempfile.TemporaryDirectory() as tmp:
