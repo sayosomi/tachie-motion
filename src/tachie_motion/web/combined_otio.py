@@ -1,4 +1,4 @@
-"""Combined timeline generation from already-produced PCM-containing MOVs."""
+"""Combined timeline generation from verified speech and silent idle MOVs."""
 import json
 from fractions import Fraction
 from pathlib import Path
@@ -7,7 +7,7 @@ import tempfile
 import unicodedata
 
 from tachie_motion.timeline.media import MovieTiming, WaveTiming, probe_movie
-from tachie_motion.timeline.otio_json import build_combined_utterances, write_otio
+from tachie_motion.timeline.otio_json import build_combined_segments, write_otio
 from tachie_motion.web.solo_output import (
     _identity, initial_single_identity, published_media_identity, publish_single, validate_media_basename,
 )
@@ -37,6 +37,23 @@ def probe_embedded_pcm(movie: Path) -> WaveTiming:
         raise ValueError("Invalid embedded PCM timing") from error
 
 
+def probe_no_embedded_audio(movie: Path) -> None:
+    """Require a silent idle MOV to have *no* audio streams (not muted PCM)."""
+    process = subprocess.run([
+        "ffprobe", "-v", "error", "-select_streams", "a",
+        "-show_entries", "stream=index", "-of", "json", str(movie),
+    ], capture_output=True, check=False)
+    if process.returncode:
+        raise RuntimeError("Unable to verify silent idle MOV: " +
+                           process.stderr.decode("utf-8", "replace")[-1000:])
+    try:
+        streams = json.loads(process.stdout)["streams"]
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("Invalid idle MOV audio probe") from error
+    if not isinstance(streams, list) or streams:
+        raise ValueError("Idle MOV must contain no audio streams")
+
+
 def create_combined_otio(folder: Path, basename: str, entries: list[dict],
                          conflict_policy: str,
                          expected_identities: dict[str, tuple] | None = None,
@@ -51,6 +68,18 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
     names: set[str] = set()
     verified = []
     for entry in entries:
+        kind = entry.get("kind", "speech")
+        if kind not in ("speech", "idle"):
+            raise ValueError("Unsupported combined timeline segment type")
+        if kind == "idle":
+            if "samples" in entry or "sample_rate" in entry:
+                raise ValueError("Idle entry cannot declare audio timing")
+            # Existing attestation binds only PCM-bearing utterances; do not
+            # advertise an idle-inclusive timeline as authenticated yet.
+            if generation_history is not None:
+                raise ValueError("Idle generation history not yet supported")
+            if entry["basename"] in (reused_basenames or set()):
+                raise ValueError("Idle MOV reuse not yet supported")
         name = validate_media_basename(entry["basename"])
         key = unicodedata.normalize("NFC", name).casefold()
         if key in names:
@@ -65,16 +94,21 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
         if expected_identities is not None and published_media_identity(mov) != expected_identities.get(name):
             raise ValueError("MOV does not belong to this batch: " + name)
         movie = probe_movie(mov)
-        audio = probe_embedded_pcm(mov)
+        if kind == "idle":
+            probe_no_embedded_audio(mov)
+            audio = None
+        else:
+            audio = probe_embedded_pcm(mov)
         if (movie.frames != entry["frames"] or movie.fps != entry["fps"] or
-            audio.samples != entry["samples"] or audio.sample_rate != entry["sample_rate"]):
+            (audio is not None and (audio.samples != entry["samples"] or
+                                    audio.sample_rate != entry["sample_rate"]))):
             raise ValueError("MOV has changed since export: " + name)
         info = mov.stat()
         identity = (info.st_dev, info.st_ino, info.st_ctime_ns,
                     info.st_size, info.st_mtime_ns)
         verified.append((mov, movie, audio, identity))
 
-    document = build_combined_utterances([(mov, movie, audio)
+    document = build_combined_segments([(mov, movie, audio)
                                          for mov, movie, audio, _ in verified])
     if generation_history is not None:
         from tachie_motion.web.selective_reuse import decode_history
@@ -87,6 +121,9 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
         for track in document["tracks"]["children"]:
             for clip, entry in zip(track["children"], entries):
                 final = reference_folder / (entry["basename"] + ".mov")
+                # An OTIO audio Gap must not acquire a fake media reference.
+                if clip["OTIO_SCHEMA"] == "Gap.1":
+                    continue
                 media = clip["media_references"]["DEFAULT_MEDIA"]
                 media["target_url"] = str(final.absolute())
                 media["name"] = final.name
@@ -107,7 +144,7 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
                 raise ValueError("MOV changed during timeline preparation")
             if expected_identities is not None and published_media_identity(mov) != expected_identities.get(mov.stem):
                 raise ValueError("MOV was replaced after rendering by this batch")
-            if probe_movie(mov) != timing or probe_embedded_pcm(mov) != audio:
+            if probe_movie(mov) != timing or (probe_no_embedded_audio(mov) if audio is None else probe_embedded_pcm(mov)) != audio:
                 raise ValueError("MOV changed while preparing combined OTIO")
         warning = publish_single(staged, target, policy=conflict_policy, prior=prior)
     result = {"otio": str(target), "entries": len(entries)}
