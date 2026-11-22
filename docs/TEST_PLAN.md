@@ -9,6 +9,12 @@
 - Browser E2E: Playwright import/preview/toggle/change-point/save/export with deterministic fixtures.
 - CI: Linux unit jobs plus macOS/Windows where dependencies allow; manual Resolve import is a separate human gate.
 
+## Public Issue #62 — 変更済みMOVのみ再生成（開発中）
+
+- キャッシュ判定の基礎として、PSD/WAV/必要時LABおよび既存公開MOVの実バイトSHA256を安全に読み、ファイル差し替え・シンボリックリンク・欠損を拒否する。WAV順、名前、出力先、進捗トークンは画音レシピから除き、fps・口形・レイヤー・瞬き・変更点・実素材変更は個別に失効させる。未知の新しいレンダー入力は安全側で拒否する。
+- この単体確認だけでは再利用許可を意味しない。保存した生成履歴、エンコーダー改訂、出力MOVの内容・音声・透過、出力先所有権、公開前TOCTOUを別途実装・結合テストし、未変更MOVがエンコーダー経路へ入らない事実を確認する。
+- 並び替え時の連番名は決定待ち。いずれの方式でも全体OTIOの正しい順序・参照、MOVを再エンコードしないこと、既存OTIO参照保護、失敗・取消・公開競合時の旧世代保全を検証する。Mac実素材とResolveは別のHumanゲート。
+
 ## Public Issue #49 — 変更点タイムライン（Draft PR #50）
 
 - TypeScript: PCMサンプル整数の追加・移動・削除・差し替え、境界、重複、逆順、不明な安定プリセットID、元データ不変、2つのWAV登録の独立性を検証。フレーム中央式は24/30/60fpsと最終端数フレームで検査する。
