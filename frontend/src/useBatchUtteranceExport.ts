@@ -133,6 +133,9 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
       canonicalOutputDir: destination.canonical_output_dir,
       labSourceIdentity: effectiveLabSourceIdentity(
         item, preset, labStatuses[item.id]?.source_identity,
+        (item.presetChanges ?? []).map((point) => draft.collection.items.find(
+          (value) => value.id === point.presetId)).filter(
+            (value): value is UnifiedPreset => !!value),
       ) });
   }
   const basename = timelineName;
@@ -165,6 +168,7 @@ function snapshotKey(draft: PresetDraft | null, items: UtteranceItem[],
     blinkTiming: draft.collection.blinkTiming, motionGroups: draft.collection.motionGroups,
     naming, items: items.map((item) => ({
       id: item.id, wavPath: item.wavPath, wav: item.wav, presetId: item.presetId,
+      presetChanges: item.presetChanges ?? [],
       mode: item.mode, fps: item.fps,
     })),
   });

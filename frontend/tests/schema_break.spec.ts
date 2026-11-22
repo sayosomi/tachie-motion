@@ -4,7 +4,7 @@ import { CHARACTER_PROFILE_FORMAT, CHARACTER_PROFILE_VERSION,
 import { PROJECT_FORMAT, PROJECT_VERSION, parseProjectFile } from "../src/projectFile";
 import { aiueoMouthReady, exportReady } from "../src/utteranceExportRequest";
 import type { UnifiedPreset } from "../src/presetModel";
-import type { UtteranceItem } from "../src/utteranceItems";
+import { createUtterance } from "../src/utteranceItems";
 
 test("obsolete character/project JSON formats are rejected instead of migrated", () => {
   const profile = {
@@ -40,7 +40,16 @@ test("fixed-matching Open selection is valid; aiueo requires all six explicit se
       n: [],
     },
   };
-  expect(exportReady(preset, { mode: "open" } as UtteranceItem)).toBe(true);
+  // Export readiness now also validates the WAV sample domain and preset IDs.
+  // Use a valid utterance instead of a mode-only cast that omits its WAV.
+  const item = createUtterance("wav-1", "/tmp/speech.wav", {
+    samples: 48_000, sample_rate: 48_000, duration_seconds: 1,
+    source_identity: "synthetic",
+  }, preset.id, "/tmp", 1);
+  item.mode = "open";
+  expect(exportReady(preset, item, undefined, {
+    items: [preset], defaultId: preset.id,
+  })).toBe(true);
   expect(aiueoMouthReady(preset)).toBe(false);
   preset.aiueoMouth!.n = [{ path: "0/0", visible: true }];
   expect(aiueoMouthReady(preset)).toBe(true);

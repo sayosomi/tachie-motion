@@ -16,7 +16,7 @@ Status: architecture boundaries include both implemented and proposed features. 
 
 1. PSD source: enumerate original tree, order and visibility; create stable in-project identities even when duplicate names exist. No automatic semantic classification.
 2. Character profile: PSD reference, manual lip/eye bindings, presets, blink configuration, fixed canvas bounds, stable origin.
-3. Animation item: WAV or idle, independent initial presets, timestamped change points and lip mode. Blink timings are character-wide; the legacy seed field may remain in stored profiles but does not control exported MOVs. No inheritance across items.
+3. Animation item: WAV or idle, each with an independent initial preset. PCM-position change points and lip mode belong to WAV utterances; an idle MOV uses one fixed preset and optional blinking, with no change points. Listener reactions during another character's speech will belong to that WAV timeline in a later multi-character feature. Blink timings are character-wide; the legacy seed field may remain in stored profiles but does not control exported MOVs. No inheritance across items.
 4. Pure evaluator: (item, time) -> effective layer visibility and transforms. Preset first; only explicitly bound eyes/mouth are overridden.
 5. Renderer: cache repeated combinations; composite transparent RGBA frames with consistent pixel/alpha/color treatment.
 6. Encoder: stream frames to FFmpeg; export alpha ProRes 4444 MOV. Decode/reinspect rendered output for verification.
@@ -72,3 +72,15 @@ Enforce the small-file review guidelines in [AGENTS.md](../AGENTS.md). Directory
 - Track application build, media hash/metadata (not private bytes), FFmpeg version, render options and failures.
 - Solo MOV overwrite uses Linux `renameat2(RENAME_NOREPLACE)` or macOS `renamex_np(RENAME_EXCL)` for non-replacing, atomic isolation; unsupported filesystems fail closed. Never use check-then-unlink to remove a shared pathname. Retain older MOV generations in hidden manual-cleanup archives (not automatic recovery blockers), so repeated overwrites consume storage until the user reviews and deletes them. Interrupted recovery remains blocking. This guarantee does not cover concurrent mutation of the contents of an already-open inode.
 - No background upload of private media. No source audio/PSD or generated MOV committed by default.
+
+## Issue #49: per-WAV preset change points (Draft PR #50)
+
+The utterance owns its sample-position change points and initial stable preset ID. The
+front-end uses `presetChangePoints.ts` for immutable edits and exact frame-center
+conversion, and `projectFile.ts` validates the JSON v4 list against WAV sample count
+and the character snapshot's preset IDs. The existing single and batch paths share
+`exportPayload`. The Python domain module `preset_timeline.py` validates sample
+boundaries; `preset_timeline_render.py` composes complete preset states on the
+PSD-wide fixed crop. Rendering/PCM mux/ProRes verification and publication remain
+owned by the existing writer. v3 project files are not silently migrated.
+These are Draft changes until independently validated and merged.

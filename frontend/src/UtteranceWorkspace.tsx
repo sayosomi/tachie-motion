@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { flushSync } from "react-dom";
 import type { Layer } from "./LayerTree";
 import UtteranceExportPanel, { type ExportScope } from "./UtteranceExportPanel";
 import ExportProgressDialog from "./ExportProgressDialog";
@@ -17,6 +18,7 @@ import { blinkFrames } from "./blinkTiming";
 import type { UnifiedPreset } from "./presetModel";
 import { PreviewSourceChangedError, useBrowserPreview } from "./useBrowserPreview";
 import { matchesSource, persistMissingBlinkTiming, PresetDraftChangedError, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
+import { guardWavRegistrationPreset } from "./wavRegistrationGuard";
 import {
   createUtterance, moveUtterance, reorderUtterances, updateUtterance,
   type ExportData, type UtteranceItem, type WavData,
@@ -52,9 +54,13 @@ function openMouthReady(preset?: UnifiedPreset): boolean {
     mouth.opened.some((layer) => layer.visible));
 }
 
-export default function UtteranceWorkspace({ active = true, onProjectBusyChange }: {
+export default function UtteranceWorkspace({ active = true, items, setItems,
+  onProjectBusyChange, onWavRegistrationPendingChange }: {
   active?: boolean;
+  items: UtteranceItem[];
+  setItems: Dispatch<SetStateAction<UtteranceItem[]>>;
   onProjectBusyChange?: (busy: boolean) => void;
+  onWavRegistrationPendingChange?: (delta: number) => void;
 }) {
   const [draft, setDraft] = useState<PresetDraft | null>(null);
   const [psdLayers, setPsdLayers] = useState<Layer[]>([]);
@@ -63,7 +69,6 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
   const [naming, setNaming] = useState<BatchNaming>(initialNaming());
   const [projectBusy, setProjectBusy] = useState(false);
   const projectBusyRef = useRef(false);
-  const [items, setItems] = useState<UtteranceItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [pendingPath, setPendingPath] = useState("");
   const [defaultOutputDir, setDefaultOutputDir] = useState("");
@@ -333,18 +338,25 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     const atEpoch = selectionEpoch.current;
     const atCatalog = catalogEpoch.current;
     const ordinal = ++sequence.current;
+    onWavRegistrationPendingChange?.(1);
     setAddingCount((count) => count + 1);
     try {
+      const presetId = draft.collection.defaultId ?? draft.collection.items[0].id;
+      const verifyRegistrationPreset = guardWavRegistrationPreset(draft, presetId, psdLayers);
       const wav = await post<WavData>("wav", { path });
       if (!mounted.current || atCatalog !== catalogEpoch.current) return false;
       const id = crypto.randomUUID();
-      const presetId = draft.collection.defaultId ?? draft.collection.items[0].id;
+      verifyRegistrationPreset();
       const item = createUtterance(id, path, wav, presetId, defaultOutputDir, ordinal);
-      // Preserve the order of registration even when two analyses complete backwards.
-      setItems((previous) => {
-        const at = previous.findIndex((entry) => entry.registrationOrder > ordinal);
-        return at < 0 ? [...previous, item] :
-          [...previous.slice(0, at), item, ...previous.slice(at)];
+      // Commit the row before releasing the synchronous deletion guard.
+      // Otherwise a queued React update could leave a brief unguarded gap.
+      flushSync(() => {
+        // Preserve registration order even when WAV analyses finish backwards.
+        setItems((previous) => {
+          const at = previous.findIndex((entry) => entry.registrationOrder > ordinal);
+          return at < 0 ? [...previous, item] :
+            [...previous.slice(0, at), item, ...previous.slice(at)];
+        });
       });
       if (request === latestAdd.current && selectionEpoch.current === atEpoch) {
         setActiveId(id);
@@ -363,6 +375,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
       }
       return false;
     } finally {
+      onWavRegistrationPendingChange?.(-1);
       if (mounted.current) setAddingCount((count) => count - 1);
     }
   }
@@ -486,7 +499,7 @@ export default function UtteranceWorkspace({ active = true, onProjectBusyChange 
     <header className="topbar"><div className="brand"><span className="brand-mark">t</span>
       <span>tachie-motion</span></div></header>
     <div className="intro"><h1>セリフ</h1></div>
-    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。選択中の1件は音声入りMOVのみ、全件は各MOVと全体OTIO 1本を生成します。aiueoには同名の有効なLABとプリセット6口形の設定が必要です。瞬きは目のレイヤーとキャラクター共通の時間を設定すると利用できます。待機・変更点は後続対応です。</p>
+    <p className="hint utterance-scope">WAVを複数登録し、選択したセリフを個別に編集・試聴できます。選択中の1件は音声入りMOVのみ、全件は各MOVと全体OTIO 1本を生成します。aiueoには同名の有効なLABとプリセット6口形の設定が必要です。瞬きは目のレイヤーとキャラクター共通の時間を設定すると利用できます。待機は後続対応です。</p>
     {startupError && <p className="notice error" role="alert">{startupError}</p>}
     <UtteranceList items={items} labStatuses={labStatuses}
       onRecheckLabs={() => setLabRefreshVersion((previous) => previous + 1)}

@@ -4,6 +4,7 @@ import { blinkFrames } from "./blinkTiming";
 import { AIUEO_KEYS } from "./presetModel";
 import type { LabInfo } from "./useLabStatus";
 import type { UtteranceItem } from "./utteranceItems";
+import { assertPresetChangePoints } from "./presetChangePoints";
 
 export type ConflictPolicy = "error" | "overwrite";
 
@@ -18,7 +19,7 @@ export function aiueoMouthReady(preset?: UnifiedPreset): boolean {
  * Keep all rejection conditions here, so diagnostics cannot diverge from the
  * boolean used by the existing enable/disable controls.
  */
-export function exportReadinessError(
+function singlePresetReadinessError(
   preset: UnifiedPreset | undefined, item: UtteranceItem, lab?: LabInfo,
   collection?: Presets,
 ): string | null {
@@ -60,6 +61,27 @@ export function exportReadinessError(
     ? null : `open：プリセット「${preset.name}」の開いた口レイヤーが未選択です。`;
 }
 
+export function exportReadinessError(
+  preset: UnifiedPreset | undefined, item: UtteranceItem, lab?: LabInfo,
+  collection?: Presets,
+): string | null {
+  const initialError = singlePresetReadinessError(preset, item, lab, collection);
+  if (initialError) return initialError;
+  const changes = item.presetChanges ?? [];
+  try {
+    assertPresetChangePoints(changes, item.wav.samples,
+      new Set(collection?.items.map((value) => value.id) ?? []));
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  for (const point of changes) {
+    const next = collection?.items.find((value) => value.id === point.presetId);
+    const error = singlePresetReadinessError(next, item, lab, collection);
+    if (error) return `変更点 ${(point.sample / item.wav.sample_rate).toFixed(3)}秒：${error}`;
+  }
+  return null;
+}
+
 export function exportReady(
   preset: UnifiedPreset | undefined, item: UtteranceItem, lab?: LabInfo,
   collection?: Presets,
@@ -72,8 +94,10 @@ export function effectiveLabSourceIdentity(
   item: Pick<UtteranceItem, "mode">,
   preset: Pick<UnifiedPreset, "mouthMotionEnabled">,
   sourceIdentity?: string | null,
+  timelinePresets: readonly Pick<UnifiedPreset, "mouthMotionEnabled">[] = [],
 ): string | null {
-  return item.mode === "aiueo" && preset.mouthMotionEnabled !== false
+  return item.mode === "aiueo" &&
+    [preset, ...timelinePresets].some((entry) => entry.mouthMotionEnabled !== false)
     ? (sourceIdentity ?? null) : null;
 }
 
@@ -81,6 +105,22 @@ export function exportPayload(
   draft: PresetDraft, item: UtteranceItem, preset: UnifiedPreset,
   basename: string, conflictPolicy: ConflictPolicy, labSourceIdentity?: string | null,
 ) {
+  const changes = item.presetChanges ?? [];
+  const ids = new Set(draft.collection.items.map((value) => value.id));
+  assertPresetChangePoints(changes, item.wav.samples, ids);
+  const timelinePresets = changes.map((point) => {
+    const next = draft.collection.items.find((value) => value.id === point.presetId);
+    if (!next) throw new Error("変更点に存在しないプリセットが含まれています");
+    const error = singlePresetReadinessError(next, item,
+      labSourceIdentity ? { status: "valid", source_identity: labSourceIdentity } as LabInfo : undefined,
+      draft.collection);
+    if (error) throw new Error("変更点のプリセットが書き出せません：" + error);
+    return { sample: point.sample, presetId: point.presetId, preset: next };
+  });
+  // PSD eye-group bindings belong to the entire WAV timeline. A later
+  // preset may enable blinking even when the initial preset disables it.
+  const usesBlink = preset.blinkEnabled ||
+    timelinePresets.some(({ preset: next }) => next.blinkEnabled);
   const timing = preset.blinkEnabled
     ? blinkFrames(draft.collection.blinkTiming, item.fps) : null;
   if (preset.blinkEnabled && (
@@ -97,15 +137,27 @@ export function exportPayload(
     mouth: preset.mouthMotionEnabled === false ? null : (preset.openMouth ?? null),
     aiueo_mouth: preset.mouthMotionEnabled === false ? null : (preset.aiueoMouth ?? null),
     mouth_groups: draft.collection.motionGroups?.mouth ?? null,
-    lab_source_identity: effectiveLabSourceIdentity(item, preset, labSourceIdentity),
+    lab_source_identity: effectiveLabSourceIdentity(item, preset, labSourceIdentity,
+      timelinePresets.map((value) => value.preset)),
     mode: preset.mouthMotionEnabled === false ? "none" : item.mode,
     blink_enabled: preset.blinkEnabled,
     eyes: preset.blinkEnabled ? preset.eyes ?? null : null,
-    eye_groups: preset.blinkEnabled ? draft.collection.motionGroups?.eyes ?? null : null,
+    eye_groups: usesBlink ? draft.collection.motionGroups?.eyes ?? null : null,
     blink_timing: timing,
     output_dir: item.outputDir,
     basename,
     conflict_policy: conflictPolicy,
     fps: item.fps,
+    ...(timelinePresets.length ? { timeline_changes: timelinePresets.map(({ sample, presetId, preset: next }) => ({
+      sample, preset_id: presetId,
+      layers: next.base,
+      mouth: next.mouthMotionEnabled === false ? null : (next.openMouth ?? null),
+      aiueo_mouth: next.mouthMotionEnabled === false ? null : (next.aiueoMouth ?? null),
+      mode: next.mouthMotionEnabled === false ? "none" : item.mode,
+      blink_enabled: next.blinkEnabled,
+      eyes: next.blinkEnabled ? (next.eyes ?? null) : null,
+      blink_timing: next.blinkEnabled
+        ? blinkFrames(draft.collection.blinkTiming, item.fps) : null,
+    })) } : {}),
   };
 }

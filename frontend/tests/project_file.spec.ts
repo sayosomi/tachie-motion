@@ -79,7 +79,7 @@ test("project JSON round-trips thumbnail view without thumbnail pixels or MOV cr
   expect(() => parseProjectFile(JSON.stringify(invalid))).toThrow("サムネイル設定");
 });
 
-test("explicit n leaf matching fixed survives project v3 without inheritance marker", () => {
+test("explicit n leaf matching fixed survives project v4 without inheritance marker", () => {
   const shapes = { a: [], i: [], u: [], e: [], o: [],
     n: [{ path: "0/0", visible: true }] } as
     Record<"a" | "i" | "u" | "e" | "o" | "n", { path: string; visible: boolean }[]>;
@@ -143,16 +143,16 @@ test("project snapshot returned for editing cannot mutate parsed source", () => 
   expect(parsed.character.collection.items[0].name).toBe("通常");
 });
 
-test("old project v1/v2 are rejected without migration", () => {
+test("old project v1/v2/v3 are rejected without migration", () => {
   const existing = valid();
-  for (const version of [1, 2]) {
+  for (const version of [1, 2, 3]) {
     const old = structuredClone(existing);
     old.version = version;
     expect(() => parseProjectFile(JSON.stringify(old))).toThrow("未対応");
   }
 });
 
-test("aiueo mode roundtrips within project v3 without copying any LAB contents", () => {
+test("aiueo mode roundtrips within project v4 without copying any LAB contents", () => {
   const value = valid();
   value.items[0].mode = "aiueo";
   value.character.collection.items[0].aiueoMouth = {
@@ -164,11 +164,45 @@ test("aiueo mode roundtrips within project v3 without copying any LAB contents",
     n: [{ path: "0/0", visible: true }],
   };
   const restored = parseProjectFile(JSON.stringify(value));
-  expect(restored.version).toBe(3);
+  expect(restored.version).toBe(4);
   expect(restored.items[0].mode).toBe("aiueo");
   expect(restored.items[1].mode).toBe("open");
   expect(restored.character.collection.items[0].aiueoMouth?.a).toEqual([
     { path: "0/1", visible: true },
   ]);
   expect(JSON.stringify(restored)).not.toContain("LAB contents");
+});
+
+test("project v4 keeps per-WAV independent change points and validates all referenced presets", () => {
+  const a = { ...makeWav("a", 1), presetChanges: [
+    { sample: 500, presetId: "p1" }, { sample: 2000, presetId: "p1" },
+  ] };
+  const b = { ...makeWav("b", 2), presetChanges: [
+    { sample: 1200, presetId: "p1" },
+  ] };
+  const restored = parseProjectFile(serializeProjectFile(draft, layers, [a, b], "a"));
+  expect(restored.version).toBe(4);
+  expect(restored.items[0].presetChanges).toEqual(a.presetChanges);
+  expect(restored.items[1].presetChanges).toEqual(b.presetChanges);
+  a.presetChanges[0].sample = 1000;
+  expect(restored.items[0].presetChanges[0].sample).toBe(500);
+
+  const base = JSON.parse(serializeProjectFile(draft, layers, [a, b], "a"));
+  const broken: ((data: Record<string, any>) => void)[] = [
+    (data) => { delete data.items[0].presetChanges; },
+    (data) => { data.items[0].presetChanges = "wrong"; },
+    (data) => { data.items[0].presetChanges = [{ sample: 0, presetId: "p1" }]; },
+    (data) => { data.items[0].presetChanges = [{ sample: 48000, presetId: "p1" }]; },
+    (data) => { data.items[0].presetChanges = [{ sample: 1.5, presetId: "p1" }]; },
+    (data) => { data.items[0].presetChanges = [{ sample: 500, presetId: "deleted" }]; },
+    (data) => { data.items[0].presetChanges = [
+      { sample: 500, presetId: "p1" }, { sample: 500, presetId: "p1" }]; },
+    (data) => { data.items[0].presetChanges = [
+      { sample: 2000, presetId: "p1" }, { sample: 500, presetId: "p1" }]; },
+  ];
+  for (const mutate of broken) {
+    const data = structuredClone(base);
+    mutate(data);
+    expect(() => parseProjectFile(JSON.stringify(data))).toThrow();
+  }
 });
