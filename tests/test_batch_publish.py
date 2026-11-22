@@ -69,6 +69,43 @@ class BatchPublicationTests(unittest.TestCase):
         self.assert_new()
         self.assertEqual(recovery_directories(self.folder), ())
 
+    def test_nfc_existing_name_blocks_nfd_publication(self):
+        import unicodedata
+        originals, staged = self.manifest(existing=False)
+        expected = self.folder / self.names[0]
+        equivalent = self.folder / unicodedata.normalize("NFC", self.names[0])
+        if expected == equivalent:
+            self.skipTest("Requires distinct Unicode spellings")
+        equivalent.write_bytes(b"FOREIGN-MOV")
+        with self.assertRaisesRegex(ValueError, "Equivalent Unicode"):
+            self.publish(originals, staged)
+        self.assertEqual(equivalent.read_bytes(), b"FOREIGN-MOV")
+        self.assertFalse(expected.exists())
+        self.assertEqual(recovery_directories(self.folder), ())
+
+    def test_external_reuse_check_after_otio_link_rolls_back(self):
+        originals, staged = self.manifest()
+        reused = self.folder / "reused.mov"
+        reused.write_bytes(b"REUSED")
+        timeline = self.folder / self.names[-1]
+        checks = []
+
+        def verify_external():
+            checks.append(timeline.read_bytes())
+            if timeline.read_bytes() == b"NEW-2-":
+                reused.write_bytes(b"EXTERNAL")
+                raise ValueError("reused MOV changed after OTIO publish")
+
+        with self.assertRaisesRegex(ValueError, "reused MOV changed"):
+            publish_batch(folder=self.folder, stage=self.stage,
+                          movie_names=self.mov_names, timeline_name=self.otio,
+                          original=originals, expected_stage=staged,
+                          validate_external=verify_external)
+        self.assertIn(b"NEW-2-", checks)
+        self.assert_old()
+        self.assertEqual(reused.read_bytes(), b"EXTERNAL")
+        self.assertEqual(recovery_directories(self.folder), ())
+
     def test_otio_only_publication_preserves_all_mov_inodes(self):
         originals, staged = self.manifest()
         before = {

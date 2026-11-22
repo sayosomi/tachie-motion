@@ -347,6 +347,59 @@ class BatchGenerationApiTests(unittest.TestCase):
                              for p in self.root.iterdir()))
 
 
+    def test_late_foreign_otio_blocks_dirty_batch(self):
+        self.start(overwrite=False)
+        self.finish("error", [self.mov(i, "error") for i in range(2)])
+        old = {name: (self.root / name).read_bytes() for name in
+               [*(n + ".mov" for n in self.names), self.timeline + ".otio"]}
+        self.start(overwrite=True)
+        updated = [self.mov(i, "overwrite") for i in range(2)]
+        other = self.root / "new-external.otio"
+        other.write_bytes(b"FOREIGN-OTIO")
+        response = self.client.post("/api/preset-combined-otio", json={
+            "output_dir": str(self.root), "basename": self.timeline,
+            "conflict_policy": "overwrite", "batch_id": self.token,
+            "entries": [{"basename": name, "frames": result["frames"], "fps": 30,
+                         "samples": result["sample_count"],
+                         "sample_rate": result["sample_rate"]}
+                        for name, result in zip(self.names, updated)],
+        })
+        self.assertNotEqual(response.status_code, 200)
+        self.assertEqual(other.read_bytes(), b"FOREIGN-OTIO")
+        for name, old_bytes in old.items():
+            self.assertEqual((self.root / name).read_bytes(), old_bytes)
+
+    def test_reused_mov_changed_at_publisher_entry_is_rejected(self):
+        from unittest.mock import patch
+        from tachie_motion.web.batch_publish import publish_batch
+        ids = ["stable-one", "stable-two"]
+        self.start_selective(ids, [False, False], "error")
+        self.finish("error", [self.mov(i, "error") for i in range(2)])
+        old_dirty = (self.root / (self.names[1] + ".mov")).read_bytes()
+        old_timeline = (self.root / (self.timeline + ".otio")).read_bytes()
+        self.start_selective(ids, [True, False], "overwrite")
+        results = [self.mov(i, "overwrite") for i in range(2)]
+        reusable = self.root / (self.names[0] + ".mov")
+
+        def intervene(**kwargs):
+            reusable.write_bytes(reusable.read_bytes() + b"EXTERNAL")
+            return publish_batch(**kwargs)
+
+        with patch("tachie_motion.web.batch_session.publish_batch",
+                   side_effect=intervene):
+            response = self.client.post("/api/preset-combined-otio", json={
+                "output_dir": str(self.root), "basename": self.timeline,
+                "conflict_policy": "overwrite", "batch_id": self.token,
+                "entries": [{"basename": name, "frames": result["frames"],
+                             "fps": 30, "samples": result["sample_count"],
+                             "sample_rate": result["sample_rate"]}
+                            for name, result in zip(self.names, results)],
+            })
+        self.assertNotEqual(response.status_code, 200)
+        self.assertEqual((self.root / (self.names[1] + ".mov")).read_bytes(), old_dirty)
+        self.assertEqual((self.root / (self.timeline + ".otio")).read_bytes(), old_timeline)
+        self.assertTrue(reusable.read_bytes().endswith(b"EXTERNAL"))
+
     def test_foreign_otio_preflight_matches_start_guard_without_changes(self):
         # Stage nothing if a second timeline may reference overwritten MOVs.
         original = b"existing media; keep unchanged"
