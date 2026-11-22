@@ -206,3 +206,34 @@ test("project v4 keeps per-WAV independent change points and validates all refer
     expect(() => parseProjectFile(JSON.stringify(data))).toThrow();
   }
 });
+
+test("explicit idle between WAVs survives optional project v4 field without source bytes", () => {
+  const first = { ...makeWav("a", 1), idleAfter: {
+    id: "silent-gap", presetId: "p1", frames: 60, fps: 30 as const,
+  } };
+  const rest = makeWav("b", 2);
+  const text = serializeProjectFile(draft, layers, [first, rest], "a");
+  const project = parseProjectFile(text);
+  expect(project.version).toBe(4);
+  expect(project.items[0].idleAfter).toEqual(first.idleAfter);
+  expect(project.items[1].idleAfter).toBeNull();
+  expect(text).not.toContain("do-not-store");
+  const invalid: ((value: any) => void)[] = [
+    (x) => { x.items[0].idleAfter.frames = 0; },
+    (x) => { x.items[0].idleAfter.frames = 2.5; },
+    (x) => { x.items[0].idleAfter.fps = 25; },
+    (x) => { x.items[0].idleAfter.presetId = "missing"; },
+    (x) => { x.items[0].idleAfter.id = x.items[1].id; },
+    (x) => { x.items[0].idleAfter.extra = true; },
+    (x) => { x.items[1].idleAfter = { ...x.items[0].idleAfter }; },
+  ];
+  for (const mutate of invalid) {
+    const copy = JSON.parse(text);
+    mutate(copy);
+    expect(() => parseProjectFile(JSON.stringify(copy))).toThrow();
+  }
+  const earlier = JSON.parse(text);
+  delete earlier.items[0].idleAfter;
+  delete earlier.items[1].idleAfter;
+  expect(parseProjectFile(JSON.stringify(earlier)).items[0].idleAfter).toBeNull();
+});

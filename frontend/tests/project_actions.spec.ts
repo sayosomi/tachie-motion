@@ -54,7 +54,7 @@ async function mock(page: Page): Promise<Mock> {
     const path = (route.request().postDataJSON() as { path: string }).path;
     if (path !== psdPath) return route.fulfill({ status: 400, json: { detail: "PSDがありません" } });
     return route.fulfill({ json: {
-      width: 64, height: 64, fingerprint: state.fingerprint, layers, preview: png,
+      width: 64, height: 64, fingerprint: state.fingerprint, source_identity: identity, layers, preview: png,
     } });
   });
   await page.route("**/api/wav", (route) => {
@@ -687,4 +687,72 @@ test("project JSON retains shared auto MOV names and individually pinned Unicode
   await page.locator("[data-utterance-id]").nth(1)
     .locator(".utterance-item-select").click();
   await expect(page.locator("#speech-basename")).toHaveValue("手動 セリフ");
+});
+
+test("inline idle gap saves in project and batch sends speech-idle-speech with no PCM idle", async ({ page }) => {
+  await mock(page);
+  const ordered: string[] = [];
+  let startEntries: any[] = [];
+  let otioEntries: any[] = [];
+  await page.route("**/api/preset-batch-start", (route) => {
+    startEntries = (route.request().postDataJSON() as { entries: any[] }).entries;
+    return route.fulfill({ json: { batch_id: "test-session" } });
+  });
+  await page.route("**/api/preset-batch-mov-export", (route) => {
+    const body = route.request().postDataJSON() as {
+      output_dir: string; basename: string; batch_index: number;
+    };
+    ordered.push("speech:" + body.batch_index);
+    return route.fulfill({ json: {
+      mov: body.output_dir + "/" + body.basename + ".mov",
+      frames: 30, sample_count: 48000, sample_rate: 48000,
+    } });
+  });
+  await page.route("**/api/preset-batch-idle-export", (route) => {
+    const body = route.request().postDataJSON() as {
+      output_dir: string; basename: string; batch_index: number;
+      frame_count: number; fps: number; blink_enabled: boolean;
+    };
+    expect(body.frame_count).toBe(60);
+    expect(body.fps).toBe(30);
+    expect(body.blink_enabled).toBe(false);
+    ordered.push("idle:" + body.batch_index);
+    return route.fulfill({ json: {
+      mov: body.output_dir + "/" + body.basename + ".mov",
+      frames: body.frame_count, fps: body.fps, audio: false, staged: true,
+    } });
+  });
+  await page.route("**/api/preset-combined-otio", (route) => {
+    const body = route.request().postDataJSON() as {
+      output_dir: string; basename: string; entries: any[];
+    };
+    otioEntries = body.entries;
+    return route.fulfill({ json: {
+      otio: body.output_dir + "/" + body.basename + ".otio",
+      entries: body.entries.length,
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, wavPath);
+  await addWav(page, otherWav);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(2);
+  await page.getByRole("button", { name: "＋ このセリフの後に待機を挿入" }).click();
+  await expect(page.locator(".idle-segment-editor")).toHaveCount(1);
+  await page.getByRole("spinbutton", { name: "待機フレーム: 音声 e\u0301.wav" }).fill("60");
+  const savedProject = await saved(page);
+  expect(savedProject.items[0].idleAfter.frames).toBe(60);
+  expect(savedProject.items[0].idleAfter.presetId).toBe(savedProject.items[0].presetId);
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await expect(page.getByRole("button", { name: "全件を書き出す" })).toBeEnabled();
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
+  await expect(page.locator(".export-execution .hint[role=\"status\"]")
+    .filter({ hasText: "一括書き出し完了" })).toContainText("一括書き出し完了");
+  expect(startEntries.map((x) => x.kind ?? "speech")).toEqual(["speech", "idle", "speech"]);
+  expect(startEntries[1]).toMatchObject({
+    frames: 60, fps: 30, fingerprint: "1000:2000", source_identity: identity,
+  });
+  expect(ordered).toEqual(["speech:0", "idle:1", "speech:2"]);
+  expect(otioEntries.map((x) => x.kind ?? "speech")).toEqual(["speech", "idle", "speech"]);
+  expect(otioEntries[1]).not.toHaveProperty("samples");
+  expect(otioEntries[1]).not.toHaveProperty("sample_rate");
 });

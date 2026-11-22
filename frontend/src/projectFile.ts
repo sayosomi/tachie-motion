@@ -135,6 +135,16 @@ export function parseProjectFile(text: string): ProjectFile {
     (typeof value.selectedId !== "string" || !ids.has(value.selectedId))) {
     throw new Error("制作プロジェクトJSONの選択項目が不正です");
   }
+  const allIds = new Set(items.map((entry) => entry.id));
+  if (items.filter((entry) => !!entry.idleAfter).length + items.length > MAX_UTTERANCES)
+    throw new Error("制作プロジェクトJSONの全体セグメント数が多すぎます");
+  for (const entry of items) {
+    if (entry.idleAfter) {
+      if (allIds.has(entry.idleAfter.id))
+        throw new Error("制作プロジェクトJSONの待機IDが重複しています");
+      allIds.add(entry.idleAfter.id);
+    }
+  }
   const naming = validateBatchNaming(value.naming);
   return { format: PROJECT_FORMAT, version: PROJECT_VERSION, character, items,
     selectedId: value.selectedId as string | null, naming };
