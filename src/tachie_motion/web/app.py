@@ -648,7 +648,7 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
                     }
                 initial_sources = (
                     await asyncio.to_thread(capture_recipe_sources, recipe_payload)
-                    if app.state.batch.needs_generation_record(payload.batch_id)
+                    if app.state.batch.needs_source_snapshot(payload.batch_id, payload.batch_index)
                     else None
                 )
                 result = await asyncio.to_thread(

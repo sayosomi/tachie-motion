@@ -359,7 +359,7 @@ class BatchCoordinator:
         if identity is None:
             raise RuntimeError("Batch MOV disappeared after publication")
         saved = None
-        if planned.item_id is not None:
+        if planned.item_id is not None and all(item.kind == "speech" for item in session.entries):
             if not isinstance(recipe_sha256, str):
                 raise ValueError("Missing server-computed generation recipe")
             saved = SavedMovie(
@@ -473,7 +473,8 @@ class BatchCoordinator:
             # Recheck all WAVs after MOV staging, before publishing the timeline.
             source = planned.psd if planned.kind == "idle" else planned.wav
             if source_token(source) != planned.source_identity:
-                raise ValueError("Media source changed since registration")
+                raise ValueError(("PSD" if planned.kind == "idle" else "WAV") +
+                                 " changed since registration; batch not published")
             if planned.kind == "idle" and psd_snapshot_token(str(source)) != planned.fingerprint:
                 raise ValueError("Idle PSD changed since registration")
             self._verify_lab(planned)
@@ -486,6 +487,12 @@ class BatchCoordinator:
         session = self._session(token)
         return bool(session.entries and session.entries[0].item_id is not None and
                     all(item.kind == "speech" for item in session.entries))
+
+    def needs_source_snapshot(self, token: str, index: int) -> bool:
+        session = self._session(token)
+        if index < 0 or index >= len(session.entries):
+            raise ValueError("Invalid source snapshot index")
+        return session.entries[index].kind == "speech" and session.entries[index].item_id is not None
 
     def generation_history(self, token: str) -> dict | None:
         session = self._session(token)
@@ -527,7 +534,8 @@ class BatchCoordinator:
         for planned in session.entries:
             source = planned.psd if planned.kind == "idle" else planned.wav
             if source_token(source) != planned.source_identity:
-                raise ValueError("Media source changed since registration; batch not published")
+                raise ValueError(("PSD" if planned.kind == "idle" else "WAV") +
+                                 " changed since registration; batch not published")
             if planned.kind == "idle" and psd_snapshot_token(str(source)) != planned.fingerprint:
                 raise ValueError("Idle PSD changed during batch")
             self._verify_lab(planned)
