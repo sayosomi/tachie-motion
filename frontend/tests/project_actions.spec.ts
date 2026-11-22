@@ -57,6 +57,19 @@ async function mock(page: Page): Promise<Mock> {
       width: 64, height: 64, fingerprint: state.fingerprint, source_identity: identity, layers, preview: png,
     } });
   });
+  // The real preview guards are activated once the mocked PSD exposes its
+  // source identity. Model both endpoints so they confirm the same source
+  // rather than falsely invalidating preset edits under test.
+  await page.route("**/api/preview-layer-assets", (route) =>
+    route.fulfill({ json: { supported: false } }));
+  await page.route("**/api/preview-source-status", (route) => {
+    const body = route.request().postDataJSON() as {
+      path: string; fingerprint: string; source_identity: string;
+    };
+    const valid = body.path === psdPath && body.fingerprint === state.fingerprint &&
+      body.source_identity === identity;
+    return route.fulfill({ json: { valid } });
+  });
   await page.route("**/api/wav", (route) => {
     const path = (route.request().postDataJSON() as { path: string }).path;
     if (state.missingWavs.has(path)) {
