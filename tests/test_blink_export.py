@@ -196,6 +196,59 @@ class BlinkExportApiTests(unittest.TestCase):
         self.assertEqual((self.source.read_bytes(), self.wav.read_bytes()),
                          self.original)
 
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg required")
+    def test_timeline_blink_off_to_on_and_on_to_off_render_correct_eye_pixels(self):
+        """Both transitions must use the same bound eye groups and preserve PCM."""
+        on_point = {
+            "sample": 34, "preset_id": "blink-on",
+            "layers": self.body["layers"], "mouth": None,
+            "aiueo_mouth": None, "mode": "none",
+            "blink_enabled": True, "eyes": self.body["eyes"],
+            "blink_timing": self.body["blink_timing"],
+        }
+        # WAV: 101 samples at 1000 Hz, 30 fps; center samples 16,50,83,100.
+        # Blink starts on video frame 1 and repeats on frame 3, so the
+        # enabled region must render CLOSED, OPEN, CLOSED, respectively.
+        off_then_on = self.post(
+            basename="blink_switch_on", blink_enabled=False,
+            eyes=None, blink_timing=None, timeline_changes=[on_point],
+        )
+        self.assertEqual(off_then_on.status_code, 200, off_then_on.text)
+        off_then_on_frames = self.decoded_video(self.root / "blink_switch_on.mov")
+        self.assertEqual(len(off_then_on_frames), 4)
+        self.assertEqual(off_then_on_frames[0], off_then_on_frames[2])
+        self.assertEqual(off_then_on_frames[1], off_then_on_frames[3])
+        self.assertNotEqual(off_then_on_frames[0], off_then_on_frames[1])
+
+        off_point = {
+            "sample": 67, "preset_id": "blink-off",
+            "layers": self.body["layers"], "mouth": None,
+            "aiueo_mouth": None, "mode": "none",
+            "blink_enabled": False, "eyes": None, "blink_timing": None,
+        }
+        on_then_off = self.post(
+            basename="blink_switch_off", timeline_changes=[off_point],
+        )
+        self.assertEqual(on_then_off.status_code, 200, on_then_off.text)
+        on_then_off_frames = self.decoded_video(self.root / "blink_switch_off.mov")
+        self.assertEqual(len(on_then_off_frames), 4)
+        self.assertEqual(on_then_off_frames[0], on_then_off_frames[2])
+        self.assertEqual(on_then_off_frames[2], on_then_off_frames[3])
+        self.assertNotEqual(on_then_off_frames[0], on_then_off_frames[1])
+
+        # An otherwise valid OFF->ON timeline without eye group bindings must
+        # fail before publishing a MOV, not silently omit the closed-eye pose.
+        missing = self.post(
+            basename="blink_missing_groups", blink_enabled=False,
+            eyes=None, blink_timing=None, eye_groups=None,
+            timeline_changes=[on_point],
+        )
+        self.assertEqual(missing.status_code, 400, missing.text)
+        self.assertFalse((self.root / "blink_missing_groups.mov").exists())
+        self.assertEqual((self.source.read_bytes(), self.wav.read_bytes()),
+                         self.original)
+
     def test_blink_errors_leave_output_unpublished(self):
         invalid = (
             {"blink_timing": None},

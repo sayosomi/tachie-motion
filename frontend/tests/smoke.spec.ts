@@ -28,6 +28,12 @@ async function mockPsd(page: import("@playwright/test").Page, fingerprint = "sna
   }}));
   await page.route("**/api/preset-utterance-destination", (route) =>
     route.fulfill({ json: { state: "available", suggested_basename: "001_character_voice" } }));
+  await page.route("**/api/preset-batch-reuse-candidate", (route) => {
+    const request = route.request().postDataJSON() as { suggested_basename: string };
+    return route.fulfill({ json: {
+      basename: request.suggested_basename, reuse: false,
+    } });
+  });
   await page.route("**/api/preset-batch-check-names", (route) =>
     route.fulfill({ json: { valid: true } }));
   await page.route("**/api/preset-batch-start", (route) =>
@@ -285,7 +291,7 @@ test("one WAV sends identical open-mouth render settings through single and all 
   await page.getByRole("radio", { name: /^全件/ }).check();
   await expect(page.getByText("口パク「なし」が", { exact: false })).toHaveCount(0);
   await page.getByRole("button", { name: "全件を書き出す" }).click();
-  await expect(page.getByText("一括書き出し完了：MOV 2件／全体OTIO", { exact: false }))
+  await expect(page.getByText("一括書き出し完了：MOV 2件（再利用 0件／再生成 2件）／全体OTIO", { exact: false }))
     .toBeVisible();
 
   expect(requests).toHaveLength(3);

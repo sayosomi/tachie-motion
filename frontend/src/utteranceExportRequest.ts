@@ -4,21 +4,67 @@ import { blinkFrames } from "./blinkTiming";
 import { AIUEO_KEYS } from "./presetModel";
 import type { LabInfo } from "./useLabStatus";
 import type { UtteranceItem } from "./utteranceItems";
+import { assertPresetChangePoints } from "./presetChangePoints";
 
 export type ConflictPolicy = "error" | "overwrite";
 
-/** Both single and all-item exports must share the exact same render inputs. */
-/** All six phonemes require an explicitly selected visible mouth leaf. */
+/** Mirror the saved-layer shape contract without requiring another PSD HTTP read. */
+function validAiueoShape(value: unknown, sourcePaths: ReadonlySet<string>): boolean {
+  if (!Array.isArray(value) || !value.length || value.length > sourcePaths.size) return false;
+  const seen = new Set<string>();
+  let selected = false;
+  for (const layer of value) {
+    if (!layer || typeof layer !== "object" || Array.isArray(layer) ||
+        Object.keys(layer).length !== 2 ||
+        !Object.hasOwn(layer, "path") || !Object.hasOwn(layer, "visible")) return false;
+    const { path, visible } = layer as Record<string, unknown>;
+    if (typeof path !== "string" || path.length > 256 ||
+        !/^(0|[1-9][0-9]*)(\/(0|[1-9][0-9]*))*$/.test(path) ||
+        !sourcePaths.has(path) || seen.has(path) || typeof visible !== "boolean") return false;
+    seen.add(path);
+    selected ||= visible;
+  }
+  return selected;
+}
+
+function aiueoShapeProblems(preset?: UnifiedPreset): {
+  missing: Array<(typeof AIUEO_KEYS)[number]>; unknownKeys: string[];
+} {
+  const value: unknown = preset?.aiueoMouth;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { missing: [...AIUEO_KEYS], unknownKeys: [] };
+  }
+  // All saved shape paths must belong to the same source snapshot as base.
+  const base: unknown = preset?.base;
+  const sourcePaths = new Set<string>();
+  if (Array.isArray(base)) {
+    for (const layer of base) {
+      if (!layer || typeof layer !== "object" || typeof layer.path !== "string") {
+        sourcePaths.clear();
+        break;
+      }
+      sourcePaths.add(layer.path);
+    }
+  }
+  const shapes = value as Record<string, unknown>;
+  return {
+    missing: AIUEO_KEYS.filter((key) => !validAiueoShape(shapes[key], sourcePaths)),
+    unknownKeys: Object.keys(shapes).filter((key) =>
+      !AIUEO_KEYS.includes(key as typeof AIUEO_KEYS[number])),
+  };
+}
+
+/** Both single and batch exports require six explicit, valid visible leaves. */
 export function aiueoMouthReady(preset?: UnifiedPreset): boolean {
-  return Boolean(preset?.aiueoMouth &&
-    AIUEO_KEYS.every((key) => preset.aiueoMouth![key].some((layer) => layer.visible)));
+  const { missing, unknownKeys } = aiueoShapeProblems(preset);
+  return missing.length === 0 && unknownKeys.length === 0;
 }
 
 /** Explain the exact preflight guard shared by individual and batch export.
  * Keep all rejection conditions here, so diagnostics cannot diverge from the
  * boolean used by the existing enable/disable controls.
  */
-export function exportReadinessError(
+function singlePresetReadinessError(
   preset: UnifiedPreset | undefined, item: UtteranceItem, lab?: LabInfo,
   collection?: Presets,
 ): string | null {
@@ -43,9 +89,14 @@ export function exportReadinessError(
     }
     if (!aiueoMouthReady(preset)) {
       const labels = { a: "あ", i: "い", u: "う", e: "え", o: "お", n: "ん" };
-      const missing = AIUEO_KEYS.filter((key) =>
-        !preset.aiueoMouth?.[key].some((layer) => layer.visible));
-      return `aiueo：プリセット「${preset.name}」の口形（${missing.map((key) => labels[key]).join("・")}）が未選択です。`;
+      const { missing, unknownKeys } = aiueoShapeProblems(preset);
+      if (missing.length) {
+        return `aiueo：プリセット「${preset.name}」の口形（${missing.map((key) => labels[key]).join("・")}）が未選択または不正です。`;
+      }
+      if (unknownKeys.length) {
+        const shown = unknownKeys.slice(0, 3).map((key) => JSON.stringify(key.slice(0, 64))).join("・");
+        return `aiueo：プリセット「${preset.name}」の口形に不明なキー（${shown}）があります。`;
+      }
     }
     return null;
   }
@@ -60,6 +111,27 @@ export function exportReadinessError(
     ? null : `open：プリセット「${preset.name}」の開いた口レイヤーが未選択です。`;
 }
 
+export function exportReadinessError(
+  preset: UnifiedPreset | undefined, item: UtteranceItem, lab?: LabInfo,
+  collection?: Presets,
+): string | null {
+  const initialError = singlePresetReadinessError(preset, item, lab, collection);
+  if (initialError) return initialError;
+  const changes = item.presetChanges ?? [];
+  try {
+    assertPresetChangePoints(changes, item.wav.samples,
+      new Set(collection?.items.map((value) => value.id) ?? []));
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  for (const point of changes) {
+    const next = collection?.items.find((value) => value.id === point.presetId);
+    const error = singlePresetReadinessError(next, item, lab, collection);
+    if (error) return `変更点 ${(point.sample / item.wav.sample_rate).toFixed(3)}秒：${error}`;
+  }
+  return null;
+}
+
 export function exportReady(
   preset: UnifiedPreset | undefined, item: UtteranceItem, lab?: LabInfo,
   collection?: Presets,
@@ -72,8 +144,10 @@ export function effectiveLabSourceIdentity(
   item: Pick<UtteranceItem, "mode">,
   preset: Pick<UnifiedPreset, "mouthMotionEnabled">,
   sourceIdentity?: string | null,
+  timelinePresets: readonly Pick<UnifiedPreset, "mouthMotionEnabled">[] = [],
 ): string | null {
-  return item.mode === "aiueo" && preset.mouthMotionEnabled !== false
+  return item.mode === "aiueo" &&
+    [preset, ...timelinePresets].some((entry) => entry.mouthMotionEnabled !== false)
     ? (sourceIdentity ?? null) : null;
 }
 
@@ -81,6 +155,22 @@ export function exportPayload(
   draft: PresetDraft, item: UtteranceItem, preset: UnifiedPreset,
   basename: string, conflictPolicy: ConflictPolicy, labSourceIdentity?: string | null,
 ) {
+  const changes = item.presetChanges ?? [];
+  const ids = new Set(draft.collection.items.map((value) => value.id));
+  assertPresetChangePoints(changes, item.wav.samples, ids);
+  const timelinePresets = changes.map((point) => {
+    const next = draft.collection.items.find((value) => value.id === point.presetId);
+    if (!next) throw new Error("変更点に存在しないプリセットが含まれています");
+    const error = singlePresetReadinessError(next, item,
+      labSourceIdentity ? { status: "valid", source_identity: labSourceIdentity } as LabInfo : undefined,
+      draft.collection);
+    if (error) throw new Error("変更点のプリセットが書き出せません：" + error);
+    return { sample: point.sample, presetId: point.presetId, preset: next };
+  });
+  // PSD eye-group bindings belong to the entire WAV timeline. A later
+  // preset may enable blinking even when the initial preset disables it.
+  const usesBlink = preset.blinkEnabled ||
+    timelinePresets.some(({ preset: next }) => next.blinkEnabled);
   const timing = preset.blinkEnabled
     ? blinkFrames(draft.collection.blinkTiming, item.fps) : null;
   if (preset.blinkEnabled && (
@@ -97,15 +187,27 @@ export function exportPayload(
     mouth: preset.mouthMotionEnabled === false ? null : (preset.openMouth ?? null),
     aiueo_mouth: preset.mouthMotionEnabled === false ? null : (preset.aiueoMouth ?? null),
     mouth_groups: draft.collection.motionGroups?.mouth ?? null,
-    lab_source_identity: effectiveLabSourceIdentity(item, preset, labSourceIdentity),
+    lab_source_identity: effectiveLabSourceIdentity(item, preset, labSourceIdentity,
+      timelinePresets.map((value) => value.preset)),
     mode: preset.mouthMotionEnabled === false ? "none" : item.mode,
     blink_enabled: preset.blinkEnabled,
     eyes: preset.blinkEnabled ? preset.eyes ?? null : null,
-    eye_groups: preset.blinkEnabled ? draft.collection.motionGroups?.eyes ?? null : null,
+    eye_groups: usesBlink ? draft.collection.motionGroups?.eyes ?? null : null,
     blink_timing: timing,
     output_dir: item.outputDir,
     basename,
     conflict_policy: conflictPolicy,
     fps: item.fps,
+    ...(timelinePresets.length ? { timeline_changes: timelinePresets.map(({ sample, presetId, preset: next }) => ({
+      sample, preset_id: presetId,
+      layers: next.base,
+      mouth: next.mouthMotionEnabled === false ? null : (next.openMouth ?? null),
+      aiueo_mouth: next.mouthMotionEnabled === false ? null : (next.aiueoMouth ?? null),
+      mode: next.mouthMotionEnabled === false ? "none" : item.mode,
+      blink_enabled: next.blinkEnabled,
+      eyes: next.blinkEnabled ? (next.eyes ?? null) : null,
+      blink_timing: next.blinkEnabled
+        ? blinkFrames(draft.collection.blinkTiming, item.fps) : null,
+    })) } : {}),
   };
 }

@@ -6,9 +6,11 @@ import {
 import type { PresetDraft } from "./presetDraftStorage";
 import { withDefaultBlinkTiming } from "./presetModel";
 import type { UtteranceItem, WavData } from "./utteranceItems";
+import { assertPresetChangePoints } from "./presetChangePoints";
+import type { PresetChangePoint } from "./presetChangePoints";
 
 export const PROJECT_FORMAT = "tachie-motion-project";
-export const PROJECT_VERSION = 3;
+export const PROJECT_VERSION = 4;
 export const MAX_PROJECT_BYTES = 4_000_000;
 const MAX_UTTERANCES = 2000;
 const MAX_PATH_LENGTH = 8192;
@@ -17,6 +19,7 @@ export type ProjectUtterance = Pick<UtteranceItem,
   "id" | "registrationOrder" | "wavPath" | "presetId" | "mode" |
   "fps" | "outputDir" | "basename" | "basenameEdited" | "conflictChoice" | "saveAsName"> & {
   wav: WavData;
+  presetChanges: PresetChangePoint[];
 };
 export type ProjectFile = {
   format: typeof PROJECT_FORMAT;
@@ -49,9 +52,9 @@ function safeStoredName(value: string): boolean {
   catch { return false; }
 }
 
-function item(value: unknown, ids: Set<string>): ProjectUtterance {
+function item(value: unknown, ids: Set<string>, presetIds: ReadonlySet<string>): ProjectUtterance {
   fields(value, ["id", "registrationOrder", "wavPath", "wav", "presetId",
-    "mode", "fps", "outputDir", "basename", "basenameEdited", "conflictChoice", "saveAsName"],
+    "mode", "fps", "outputDir", "basename", "basenameEdited", "conflictChoice", "saveAsName", "presetChanges"],
     ["basenameEdited"]);
   if (typeof value.id !== "string" || !value.id.trim() || value.id.length > 256 ||
       Object.hasOwn(Object.prototype, value.id) || ids.has(value.id) ||
@@ -81,9 +84,11 @@ function item(value: unknown, ids: Set<string>): ProjectUtterance {
       !/^[0-9]+(:[0-9]+){4}$/.test(w.source_identity)) {
     throw new Error("制作プロジェクトJSONのWAV参照情報が不正です");
   }
+  assertPresetChangePoints(value.presetChanges, w.samples as number, presetIds);
   ids.add(value.id);
-  // Existing v3 project files without this field retain their explicit names.
+  // Preserve the v3 basenameEdited default independently of the v4 timeline contract.
   return { ...(value as unknown as ProjectUtterance),
+    presetChanges: value.presetChanges as PresetChangePoint[],
     basenameEdited: value.basenameEdited === undefined ? true : Boolean(value.basenameEdited) };
 }
 
@@ -107,7 +112,7 @@ export function parseProjectFile(text: string): ProjectFile {
   const orders = new Set<number>();
   const allowedPresets = new Set(character.collection.items.map((preset) => preset.id));
   const items = value.items.map((entry: unknown) => {
-    const parsed = item(entry, ids);
+    const parsed = item(entry, ids, allowedPresets);
     if (orders.has(parsed.registrationOrder) || !allowedPresets.has(parsed.presetId)) {
       throw new Error("制作プロジェクトJSONのWAV順序またはプリセット参照が不正です");
     }
@@ -139,7 +144,8 @@ export function serializeProjectFile(
         duration_seconds: value.wav.duration_seconds,
         source_identity: value.wav.source_identity,
       },
-      presetId: value.presetId, mode: value.mode, fps: value.fps,
+      presetId: value.presetId, presetChanges: value.presetChanges ?? [],
+      mode: value.mode, fps: value.fps,
       outputDir: value.outputDir,
       basename: soloMovName(value, index + 1, naming),
       basenameEdited: value.basenameEdited,

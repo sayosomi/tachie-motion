@@ -71,6 +71,12 @@ async function mock(page: Page): Promise<Mock> {
   await page.route("**/api/preset-utterance-destination", (route) => route.fulfill({
     json: { state: "available", suggested_basename: "alt_002" },
   }));
+  await page.route("**/api/preset-batch-reuse-candidate", (route) => {
+    const request = route.request().postDataJSON() as { suggested_basename: string };
+    return route.fulfill({ json: {
+      basename: request.suggested_basename, reuse: false,
+    } });
+  });
   await page.route("**/api/preset-batch-check-names", (route) =>
     route.fulfill({ json: { valid: true } }));
   await page.route("**/api/preset-batch-start", (route) =>
@@ -151,7 +157,7 @@ test("project save, reload, restore preserves ordered WAV edits and character sn
   await page.getByRole("button", { name: "上へ: 2 別の音声.wav" }).click();
   const project = await saved(page);
   expect(project.format).toBe("tachie-motion-project");
-  expect(project.version).toBe(3);
+  expect(project.version).toBe(4);
   expect(project.items.map((item: any) => item.wavPath)).toEqual([otherWav, wavPath]);
   expect(project.items[1].mode).toBe("open");
   expect(project.items[1].basename).toBe("first");
@@ -176,7 +182,7 @@ test("project save, reload, restore preserves ordered WAV edits and character sn
     project.character.collection.items[0].id);
 });
 
-test("clearing eyes with stored opened pose roundtrips draft, character v2 and project v3", async ({ page }) => {
+test("clearing eyes with stored opened pose roundtrips draft, character v2 and project v4", async ({ page }) => {
   await mock(page);
   await openSpeech(page);
   // Valid current-v2 data may contain a historical opened array. The UI
@@ -229,7 +235,7 @@ test("clearing eyes with stored opened pose roundtrips draft, character v2 and p
   await page.getByRole("button", { name: "セリフ", exact: true }).click();
   await addWav(page, wavPath);
   const project = await saved(page);
-  expect(project.version).toBe(3);
+  expect(project.version).toBe(4);
   expect(project.character.collection.items[0].eyes).toBeUndefined();
   await page.reload();
   await page.getByRole("button", { name: "セリフ", exact: true }).click();
@@ -391,7 +397,7 @@ test("project JSON v3 saves and restores simple batch naming settings", async ({
   await expect(page.locator(".export-plan-items li").first())
     .toContainText("001_あんこもん_音声 e\u0301.mov");
   const project = await saved(page);
-  expect(project.version).toBe(3);
+  expect(project.version).toBe(4);
   expect(project.naming.projectName).toBe("ずんだもん動画");
   expect(project.naming.characterName).toBe("あんこもん");
   expect(project.naming.otioTemplate).toBe("{プロジェクト名}");

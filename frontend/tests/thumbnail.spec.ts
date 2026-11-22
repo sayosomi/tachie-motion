@@ -282,8 +282,8 @@ test("asymmetric crop matches detail preview, preset list and WAV choices", asyn
   await page.getByRole("button", { name: "WAVを確認" }).click();
   const row = page.locator("[data-utterance-id]").first();
   await expect(row).toBeVisible();
-  await row.locator(".preset-picker-trigger").click();
-  const wavFrame = row.locator(".preset-picker-option .preset-picker-thumb").first();
+  await row.locator(".utterance-row-preset .preset-picker-trigger").click();
+  const wavFrame = row.locator(".utterance-row-preset .preset-picker-option .preset-picker-thumb").first();
   await expect(wavFrame.locator("img")).toBeVisible();
   const wavCrop = await visibleCrop(wavFrame);
 
@@ -347,8 +347,8 @@ test("non-step wheel crop survives reload and matches preset list and WAV picker
   await page.getByRole("button", { name: "WAVを確認" }).click();
   const row = page.locator("[data-utterance-id]").first();
   await expect(row).toBeVisible();
-  await row.locator(".preset-picker-trigger").click();
-  const wavFrame = row.locator(".preset-picker-option .preset-picker-thumb").first();
+  await row.locator(".utterance-row-preset .preset-picker-trigger").click();
+  const wavFrame = row.locator(".utterance-row-preset .preset-picker-option .preset-picker-thumb").first();
   await assertCrop(wavFrame, 0.025);
 });
 
@@ -406,10 +406,10 @@ test("WAV choices display per-preset thumbnails and assign by stable ID", async 
   await page.getByRole("button", { name: "WAVを確認" }).click();
   const row = page.locator("[data-utterance-id]").first();
   await expect(row).toBeVisible();
-  const trigger = row.locator(".preset-picker-trigger");
+  const trigger = row.locator(".utterance-row-preset .preset-picker-trigger");
   await expect(trigger).toHaveAttribute("data-selected-preset-id", items[0].id);
   await trigger.click();
-  const choices = row.locator(".preset-picker-option");
+  const choices = row.locator(".utterance-row-preset .preset-picker-option");
   await expect(choices).toHaveCount(2);
   await expect(choices.locator("img")).toHaveCount(2);
   const thumb = await choices.first().locator(".preset-picker-thumb").boundingBox();
@@ -422,7 +422,7 @@ test("WAV choices display per-preset thumbnails and assign by stable ID", async 
   await expect(trigger.locator("img")).toBeVisible();
   await page.getByRole("button", { name: "プリセット", exact: true }).click();
   await page.getByRole("button", { name: "セリフ", exact: true }).click();
-  await expect(row.locator(".preset-picker-trigger"))
+  await expect(row.locator(".utterance-row-preset .preset-picker-trigger"))
     .toHaveAttribute("data-selected-preset-id", selectedId);
 });
 

@@ -4,6 +4,7 @@ import {
 } from "./characterProfile";
 import type { ProjectFile } from "./projectFile";
 import type { WavData } from "./utteranceItems";
+import { assertPresetChangePoints } from "./presetChangePoints";
 
 export type PsdInspection = {
   fingerprint: string;
@@ -80,6 +81,20 @@ export async function inspectProjectSources(
         !confirmedChanges.has(item.id)) {
       problems.push({ kind: "wav", key: item.id, path,
         message: "保存時からWAVが変更されています。差し替えを明示的に承認してください" });
+      continue;
+    }
+    if ((item.presetChanges?.length ?? 0) > 0 &&
+        (item.wav.samples !== result.samples || item.wav.sample_rate !== result.sample_rate)) {
+      problems.push({ kind: "wav", key: item.id, path,
+        message: "変更点のあるWAVのサンプル数またはサンプルレートが保存時と異なります。再編集してください" });
+      continue;
+    }
+    try {
+      assertPresetChangePoints(item.presetChanges, result.samples,
+        new Set(project.character.collection.items.map((preset) => preset.id)));
+    } catch (error) {
+      problems.push({ kind: "wav", key: item.id, path,
+        message: error instanceof Error ? error.message : String(error) });
       continue;
     }
     wavs[item.id] = result;
