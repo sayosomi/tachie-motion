@@ -46,6 +46,12 @@ async function openSpeech(page: Page) {
     return route.fulfill({ json: { mov: "/tmp/output/" + body.basename + ".mov",
       frames: 30, sample_count: 800, sample_rate: 8000 } });
   });
+  await page.route("**/api/preset-batch-reuse-candidate", (route) => {
+    const request = route.request().postDataJSON() as { suggested_basename: string };
+    return route.fulfill({ json: {
+      basename: request.suggested_basename, reuse: false,
+    } });
+  });
   await page.route("**/api/preset-batch-check-names", (route) =>
     route.fulfill({ json: { valid: true } }));
   await page.route("**/api/preset-batch-start", (route) =>
