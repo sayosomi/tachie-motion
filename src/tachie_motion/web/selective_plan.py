@@ -9,7 +9,7 @@ from pathlib import Path
 import stat
 from typing import Any
 
-from tachie_motion.timeline.media import probe_movie
+from tachie_motion.timeline.media import probe_movie, probe_wav
 from tachie_motion.web.combined_otio import probe_embedded_pcm
 from tachie_motion.web.preview_frame import file_identity
 from tachie_motion.web.selective_history import capture_recipe_sources, render_recipe
@@ -79,6 +79,9 @@ def verified_reuse(
             return None
         wav = Path(render["wav"])
         if ":".join(map(str, file_identity(wav))) != render["source_identity"]:
+            return None
+        timing = probe_wav(wav)
+        if (timing.samples, timing.sample_rate) != (saved.samples, saved.sample_rate):
             return None
         sources = capture_recipe_sources(render)
         recipe = render_recipe(render, sources)
