@@ -23,7 +23,10 @@ from tachie_motion.web.batch_session import BatchCoordinator, validate_names, ha
 from tachie_motion.web.selective_history import capture_recipe_sources, render_recipe
 from tachie_motion.web.selective_plan import load_saved_movies, verified_reuse
 from tachie_motion.web.export_progress import ExportProgress, ExportCancelled
-from tachie_motion.web.idle_api import router as idle_api_router
+from tachie_motion.web.idle_api import (
+    router as idle_api_router, IdleMotionExportRequest, validate_idle_preflight,
+)
+from tachie_motion.web.idle_motion import export_idle_motion
 from tachie_motion.web.batch_publish import require_batch_recovery_clear
 from tachie_motion.web.service import (
     describe_psd, describe_wav, describe_wav_lab, load_psd, local_file, preview_mouth,
@@ -118,13 +121,17 @@ class BatchNameRequest(BaseModel):
 class BatchPlannedMedia(BaseModel):
     item_id: str | None = None
     reuse: bool = False
+    kind: str | None = None
     basename: str
-    wav: str
+    wav: str | None = None
+    psd: str | None = None
+    fingerprint: str | None = None
     source_identity: str
     lab_source_identity: str | None = None
     fps: int
-    samples: int
-    sample_rate: int
+    frames: int | None = None
+    samples: int | None = None
+    sample_rate: int | None = None
     conflict_policy: str
 
 
@@ -152,12 +159,18 @@ class BatchMovRequest(PresetUtteranceRequest):
     batch_index: int
 
 
+class BatchIdleRequest(IdleMotionExportRequest):
+    batch_id: str
+    batch_index: int
+
+
 class CombinedMedia(BaseModel):
+    kind: str | None = None
     basename: str
     frames: int
     fps: int
-    samples: int
-    sample_rate: int
+    samples: int | None = None
+    sample_rate: int | None = None
 
 
 class CombinedOtioRequest(DestinationRequest):
@@ -509,7 +522,8 @@ async def preset_batch_start(payload: BatchStartRequest):
             app.state.export_progress.require_available(payload.progress_id)
             token = await asyncio.to_thread(
                 app.state.batch.start, folder, payload.timeline_basename,
-                payload.timeline_policy, [entry.model_dump() for entry in payload.entries],
+                payload.timeline_policy,
+                [entry.model_dump(exclude_none=True) for entry in payload.entries],
                 payload.progress_id)
             progress_started = False
             try:
@@ -676,6 +690,56 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
         raise bad_request(exc) from exc
 
 
+
+@app.post("/api/preset-batch-idle-export")
+async def preset_batch_idle_export(payload: BatchIdleRequest):
+    """Render only into the existing approved batch stage, never public media."""
+    try:
+        validate_media_basename(payload.basename)
+        folder = Path(payload.output_dir).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise ValueError("Output folder must already exist")
+        psd = local_file(payload.psd, ".psd")
+        canonical = folder.resolve(strict=True)
+        async with app.state.export_lock:
+            app.state.export_progress.check(payload.batch_id)
+            app.state.batch.before_idle(
+                payload.batch_id, payload.batch_index, canonical, payload.basename,
+                psd, payload.source_identity, payload.fingerprint,
+                payload.fps, payload.frame_count, payload.conflict_policy)
+            try:
+                app.state.export_progress.item(payload.batch_id, payload.batch_index)
+                stage = app.state.batch.staged_folder(payload.batch_id)
+
+                def render():
+                    validate_idle_preflight(payload, psd)
+                    return export_idle_motion(
+                        psd_path=psd, fingerprint=payload.fingerprint,
+                        source_identity=payload.source_identity,
+                        layers=payload.layers, mov=stage / (payload.basename + ".mov"),
+                        frame_count=payload.frame_count, fps=payload.fps,
+                        blink_enabled=payload.blink_enabled, eyes=payload.eyes,
+                        eye_groups=payload.eye_groups, blink_timing=payload.blink_timing,
+                        conflict_policy="error",
+                        check_cancel=lambda: app.state.export_progress.check(payload.batch_id),
+                        on_progress=lambda label, percent: (
+                            app.state.export_progress.update(payload.batch_id, label, percent)
+                            if percent < 90 else None),
+                    )
+                result = await asyncio.to_thread(render)
+                app.state.batch.succeeded_idle(payload.batch_id, payload.batch_index, result)
+                return {**result,
+                        "mov": str(canonical / (payload.basename + ".mov")),
+                        "staged": True}
+            except (ExportCancelled, ValueError, FileExistsError, OSError, RuntimeError, TypeError):
+                app.state.batch.failed(payload.batch_id, payload.batch_index)
+                raise
+    except ExportCancelled as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
 @app.post("/api/preset-combined-otio")
 async def preset_combined_otio(payload: CombinedOtioRequest):
     try:
@@ -684,7 +748,7 @@ async def preset_combined_otio(payload: CombinedOtioRequest):
         if not folder.is_absolute() or not folder.is_dir():
             raise ValueError("Output folder must already exist")
         canonical = folder.resolve(strict=True)
-        entries = [entry.model_dump() for entry in payload.entries]
+        entries = [entry.model_dump(exclude_none=True) for entry in payload.entries]
         async with app.state.export_lock:
             app.state.export_progress.timeline(payload.batch_id)
             expected = app.state.batch.before_timeline(
