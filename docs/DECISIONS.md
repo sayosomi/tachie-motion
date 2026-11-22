@@ -36,6 +36,8 @@ These decisions are carried from product planning. Changes require an explicit p
 | D29 | **2026-11-21 approved, Issue #49 / Draft PR #50:** Adopt project JSON **v4** with required per-WAV `presetChanges` (PCM integer sample position + stable preset ID), and explicitly reject v1–v3 on import rather than silently migrate. Change points have no separate persistent ID; the sample position is their key. Preserve source-identity validation and original media. The current renderer retains a conservative **64 distinct configurations / 512 MiB RGBA pose image** safety limit; an over-budget export fails without publication. The cap may be reconsidered using actual PSD measurements, not silently bypassed. |
 | D30 | **2026-11-21 approved:** A silent idle MOV needs a single fixed preset with optional eye blinking, not timed expression/pose changes. When character A speaks and character B reacts, B's expression changes belong to the *WAV utterance's listener-character* timeline, not the idle MOV. Multi-character listener reactions remain a future feature. |
 
+| D31 | **2026-11-22利用者承認、Issue #62 / A案**：内容・描画レシピと生成履歴の整合が確認できる未変更の公開MOVは、最初に公開されたファイル名・パスを変えずに再利用する。一覧並べ替えのみの場合は全体OTIOだけをWAVの新しい順序に更新し、MOVの再エンコード・改名・再公開は行わない。結果として既存MOVの名前の連番と現在の順序は一致しなくてもよい。初回生成・新規生成・再生成はD24の安全な命名／衝突規則に従い、既存の単一MOV名変更と手動名の契約は維持する。UIは自動名と再利用する実パスを区別する。 |
+
 ## Unresolved decisions / validation
 
 - Public OSS license, attribution, trademark/project identity.
