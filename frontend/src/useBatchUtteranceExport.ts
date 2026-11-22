@@ -277,6 +277,7 @@ export function useBatchUtteranceExport(
         timeline_basename: timeline.basename,
         timeline_policy: timeline.conflict_policy,
         entries: plans.map((plan) => ({
+          item_id: plan.item.id,
           basename: plan.basename, wav: plan.item.wavPath,
           source_identity: plan.item.wav.source_identity,
           lab_source_identity: plan.labSourceIdentity, fps: plan.item.fps,

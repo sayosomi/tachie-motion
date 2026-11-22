@@ -12,6 +12,8 @@ import time
 import unicodedata
 
 from tachie_motion.web.preview_frame import file_identity
+from tachie_motion.web.selective_recipe import digest_regular_file
+from tachie_motion.web.selective_reuse import SavedMovie, encode_history
 from tachie_motion.web.aiueo_renderer import inspect_export_lab
 from tachie_motion.web.batch_publish import (
     create_stage, discard_stage, publish_batch, require_batch_recovery_clear,
@@ -67,6 +69,7 @@ class Planned:
     conflict_policy: str
     original: tuple | None
     lab_source_identity: str | None = None
+    item_id: str | None = None
 
 
 @dataclass
@@ -82,6 +85,7 @@ class Session:
     next_index: int = 0
     results: list[dict | None] = field(default_factory=list)
     identities: dict[str, tuple] = field(default_factory=dict)
+    generation_records: list[SavedMovie] = field(default_factory=list)
 
 
 class BatchCoordinator:
@@ -148,9 +152,19 @@ class BatchCoordinator:
                 _, lab_identity = inspect_export_lab(wav, identity)
                 if lab_token != ":".join(map(str, lab_identity)):
                     raise ValueError("LAB changed since selection; batch not started")
+            item_id = raw.get("item_id")
+            if item_id is not None and (
+                type(item_id) is not str or not item_id or len(item_id) > 256
+            ):
+                raise ValueError("Invalid stable utterance ID")
             planned.append(Planned(raw["basename"], wav, identity, fps, samples,
                                    sample_rate, raw["conflict_policy"], prior,
-                                   lab_source_identity=lab_token))
+                                   lab_source_identity=lab_token, item_id=item_id))
+        ids = [entry.item_id for entry in planned]
+        if any(value is not None for value in ids) and (
+            any(value is None for value in ids) or len(set(ids)) != len(ids)
+        ):
+            raise ValueError("Generation history requires distinct IDs for all utterances")
         timeline_prior = initial_single_identity(
             folder / (timeline_name + ".otio"), timeline_policy)
         # The same conservative rule is exposed to the browser as a preflight
@@ -212,7 +226,8 @@ class BatchCoordinator:
         if (session.stage / (basename + ".mov")).exists():
             raise ValueError("Batch staging name already occupied")
 
-    def succeeded(self, token: str, index: int, result: dict) -> None:
+    def succeeded(self, token: str, index: int, result: dict,
+                  recipe_sha256: str | None = None) -> None:
         session = self._finish_render_session(token)
         planned = session.entries[index]
         if index != session.next_index or (
@@ -223,7 +238,21 @@ class BatchCoordinator:
         identity = published_media_identity(path)
         if identity is None:
             raise RuntimeError("Batch MOV disappeared after publication")
+        saved = None
+        if planned.item_id is not None:
+            if not isinstance(recipe_sha256, str):
+                raise ValueError("Missing server-computed generation recipe")
+            saved = SavedMovie(
+                item_id=planned.item_id, basename=planned.basename,
+                recipe_sha256=recipe_sha256,
+                mov_sha256=digest_regular_file(path).sha256,
+                frames=result["frames"], fps=planned.fps,
+                samples=result["sample_count"], sample_rate=result["sample_rate"],
+            )
+            encode_history([saved])  # Validate before advancing the session.
         session.identities[planned.basename] = identity
+        if saved is not None:
+            session.generation_records.append(saved)
         session.results.append({
             "basename": planned.basename,
             "frames": result["frames"], "fps": planned.fps,
@@ -269,6 +298,19 @@ class BatchCoordinator:
             if initial_single_identity(dest, planned.conflict_policy) != planned.original:
                 raise ValueError("Public destination changed during batch: " + dest.name)
         return dict(session.identities)
+
+    def needs_generation_record(self, token: str) -> bool:
+        session = self._session(token)
+        return bool(session.entries and session.entries[0].item_id is not None)
+
+    def generation_history(self, token: str) -> dict | None:
+        session = self._session(token)
+        if not self.needs_generation_record(token):
+            return None
+        if (len(session.generation_records) != len(session.entries) or
+                len(session.results) != len(session.entries)):
+            raise ValueError("Batch generation history is incomplete")
+        return encode_history(session.generation_records)
 
     def staged_folder(self, token: str) -> Path:
         return self._session(token).stage

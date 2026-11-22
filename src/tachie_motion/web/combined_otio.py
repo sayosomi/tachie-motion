@@ -40,7 +40,8 @@ def probe_embedded_pcm(movie: Path) -> WaveTiming:
 def create_combined_otio(folder: Path, basename: str, entries: list[dict],
                          conflict_policy: str,
                          expected_identities: dict[str, tuple] | None = None,
-                         reference_folder: Path | None = None) -> dict:
+                         reference_folder: Path | None = None,
+                         generation_history: dict | None = None) -> dict:
     validate_media_basename(basename)
     if not entries or len(entries) > 2000:
         raise ValueError("Combined timeline requires 1–2000 MOV entries")
@@ -71,6 +72,11 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
 
     document = build_combined_utterances([(mov, movie, audio)
                                          for mov, movie, audio, _ in verified])
+    if generation_history is not None:
+        from tachie_motion.web.selective_reuse import decode_history
+        if len(decode_history(generation_history)) != len(entries):
+            raise ValueError("Incomplete generation history for combined OTIO")
+        document["metadata"]["tachie_motion_selective"] = generation_history
     if reference_folder is not None:
         # Render/verify staged MOVs but refer to final published MOV paths.
         # Both tracks use plain filesystem paths for Resolve compatibility.

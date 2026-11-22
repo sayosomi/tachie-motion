@@ -20,6 +20,7 @@ from tachie_motion.web.output_destinations import validate_basename
 from tachie_motion.web.solo_output import validate_media_basename, single_destination, solo_destination_info
 from tachie_motion.web.combined_otio import create_combined_otio
 from tachie_motion.web.batch_session import BatchCoordinator, validate_names, has_foreign_otio
+from tachie_motion.web.selective_history import capture_recipe_sources, render_recipe
 from tachie_motion.web.export_progress import ExportProgress, ExportCancelled
 from tachie_motion.web.batch_publish import require_batch_recovery_clear
 from tachie_motion.web.service import (
@@ -113,6 +114,7 @@ class BatchNameRequest(BaseModel):
 
 
 class BatchPlannedMedia(BaseModel):
+    item_id: str | None = None
     basename: str
     wav: str
     source_identity: str
@@ -560,6 +562,12 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
             try:
                 app.state.export_progress.item(payload.batch_id, payload.batch_index)
                 stage = app.state.batch.staged_folder(payload.batch_id)
+                recipe_payload = payload.model_dump()
+                initial_sources = (
+                    await asyncio.to_thread(capture_recipe_sources, recipe_payload)
+                    if app.state.batch.needs_generation_record(payload.batch_id)
+                    else None
+                )
                 result = await asyncio.to_thread(
                     export_preset_utterance,
                     psd_path=psd, wav=wav, fingerprint=payload.fingerprint,
@@ -574,7 +582,16 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
                     fps=payload.fps, source_identity=payload.source_identity,
                     progress=(app.state.export_progress, payload.batch_id),
                 )
-                app.state.batch.succeeded(payload.batch_id, payload.batch_index, result)
+                if initial_sources is not None:
+                    final_sources = await asyncio.to_thread(
+                        capture_recipe_sources, recipe_payload)
+                    if final_sources != initial_sources:
+                        raise ValueError("Source files changed while rendering; refusing history")
+                    recipe = render_recipe(recipe_payload, initial_sources)
+                    app.state.batch.succeeded(
+                        payload.batch_id, payload.batch_index, result, recipe)
+                else:
+                    app.state.batch.succeeded(payload.batch_id, payload.batch_index, result)
                 # Staged output is not yet publicly committed. Do not claim success.
                 return {**result, "mov": str(canonical / (payload.basename + ".mov")),
                         "staged": True}
@@ -602,10 +619,12 @@ async def preset_combined_otio(payload: CombinedOtioRequest):
                 payload.batch_id, canonical, payload.basename,
                 payload.conflict_policy, entries)
             stage = app.state.batch.staged_folder(payload.batch_id)
+            history = app.state.batch.generation_history(payload.batch_id)
+            history_kwargs = {"generation_history": history} if history is not None else {}
             result = await asyncio.to_thread(
                 create_combined_otio, stage, payload.basename,
                 entries, "error", expected_identities=expected,
-                reference_folder=canonical,
+                reference_folder=canonical, **history_kwargs,
             )
             # The final atomic cancellation gate: after this, the existing
             # rollback transaction must run to completion without interruption.
