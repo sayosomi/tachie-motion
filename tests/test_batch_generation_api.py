@@ -214,6 +214,26 @@ class BatchGenerationApiTests(unittest.TestCase):
         self.assertNotEqual(failed.status_code, 200)
         self.assertEqual((self.root / (self.timeline + ".otio")).read_bytes(), old_otio)
 
+    def test_selective_staged_render_cannot_publish_after_psd_changes(self):
+        """Changing original PSD after render must not publish stale MOVs or OTIO."""
+        ids = ["stable-one", "stable-two"]
+        self.start_selective(ids, [False, False], "error")
+        results = [self.mov(i, "error") for i in range(2)]
+        self.psd.write_bytes(self.psd.read_bytes() + b"external PSD edit")
+        failed = self.client.post("/api/preset-combined-otio", json={
+            "output_dir": str(self.root), "basename": self.timeline,
+            "conflict_policy": "error", "batch_id": self.token,
+            "entries": [{
+                "basename": name, "frames": result["frames"], "fps": 30,
+                "samples": result["sample_count"],
+                "sample_rate": result["sample_rate"],
+            } for name, result in zip(self.names, results)],
+        })
+        self.assertNotEqual(failed.status_code, 200)
+        for name in self.names:
+            self.assertFalse((self.root / (name + ".mov")).exists())
+        self.assertFalse((self.root / (self.timeline + ".otio")).exists())
+
     def test_selective_corrupt_history_refuses_reuse_without_encoding(self):
         from unittest.mock import patch
         ids = ["stable-one", "stable-two"]
