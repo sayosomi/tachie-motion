@@ -211,6 +211,7 @@ export default function UtteranceExportPanel({
           </span>
           <span>{plan.reuse ? "再利用（MOVは変更しない）" :
             plan.conflict_policy === "overwrite" ? "再生成して上書き" : "新規生成"}</span>
+          <span className="hint">理由: {plan.reuseReason}</span>
           {plan.reuse && plan.suggestedBasename !== plan.basename &&
             <span className="hint">現在の自動名: {plan.suggestedBasename}.mov（既存ファイル名を優先）</span>}
         </li>)}

@@ -200,9 +200,21 @@ class BatchGenerationApiTests(unittest.TestCase):
         ids = ["stable-one", "stable-two"]
         self.start_selective(ids, [False, False], "error")
         self.finish("error", [self.mov(i, "error") for i in range(2)])
+        hint = {
+            "timeline_basename": self.timeline, "item_id": ids[0],
+            "suggested_basename": self.names[0],
+            "render": {**self.base, "basename": self.names[0],
+                       "conflict_policy": "overwrite"},
+        }
+        verified_hint = self.send("preset-batch-reuse-candidate", hint)
+        self.assertTrue(verified_hint["reuse"])
+        self.assertIn("検証済み", verified_hint["reason"])
         old_otio = (self.root / (self.timeline + ".otio")).read_bytes()
         changed_movie = self.root / (self.names[0] + ".mov")
         changed_movie.write_bytes(changed_movie.read_bytes() + b"foreign modification")
+        failed_hint = self.send("preset-batch-reuse-candidate", hint)
+        self.assertFalse(failed_hint["reuse"])
+        self.assertIn("再生成", failed_hint["reason"])
         self.start_selective(ids, [True, True], "overwrite")
         with patch("tachie_motion.web.app.export_preset_utterance",
                    side_effect=RuntimeError("encoder was invoked")) as encoder:
@@ -213,6 +225,16 @@ class BatchGenerationApiTests(unittest.TestCase):
             encoder.assert_not_called()
         self.assertNotEqual(failed.status_code, 200)
         self.assertEqual((self.root / (self.timeline + ".otio")).read_bytes(), old_otio)
+
+    def test_selective_candidate_explains_missing_history(self):
+        response = self.send("preset-batch-reuse-candidate", {
+            "timeline_basename": self.timeline, "item_id": "first-run",
+            "suggested_basename": self.names[0],
+            "render": {**self.base, "basename": self.names[0],
+                       "conflict_policy": "overwrite"},
+        })
+        self.assertFalse(response["reuse"])
+        self.assertIn("生成履歴", response["reason"])
 
     def test_selective_staged_render_cannot_publish_after_psd_changes(self):
         """Changing original PSD after render must not publish stale MOVs or OTIO."""

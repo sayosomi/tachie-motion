@@ -19,6 +19,7 @@ export type Plan = {
   basename: string;
   suggestedBasename: string;
   reuse: boolean;
+  reuseReason: string;
   conflict_policy: Conflict;
   canonicalOutputDir: string;
   labSourceIdentity: string | null;
@@ -103,13 +104,14 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   // Reused MOVs keep their original public basenames. This browser preflight
   // is advisory; server start and media checks repeat all safety decisions.
   const hints = choice === "overwrite" ? await Promise.all(inputs.map(async (input, index) =>
-    post<{ basename: string; reuse: boolean }>("preset-batch-reuse-candidate", {
+    post<{ basename: string; reuse: boolean; reason?: string }>("preset-batch-reuse-candidate", {
       timeline_basename: rawTimelineName, item_id: input.item.id,
       suggested_basename: rawMovieNames[index],
       render: exportPayload(draft, { ...input.item, outputDir: naming.outputDir },
         input.preset, rawMovieNames[index], "overwrite", input.labSourceIdentity),
     })
-  )) : rawMovieNames.map((basename) => ({ basename, reuse: false }));
+  )) : rawMovieNames.map((basename) => ({ basename, reuse: false,
+    reason: "別名保存のため全件新規生成" }));
   const preferredMovieNames = hints.map((hint) => hint.basename);
   // A rename affects the entire generation together. Do not silently mix
   // new and overwritten names, or suffix just one MOV of a combined timeline.
@@ -155,7 +157,9 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
       basename === hints[index].basename && conflict_policy === "overwrite";
     if (conflict_policy === "overwrite" && !reuse) overwrites++;
     plans.push({ ...input, basename, suggestedBasename: rawMovieNames[index],
-      reuse, conflict_policy, canonicalOutputDir: destination.canonical_output_dir,
+      reuse, reuseReason: hints[index].reason ?? (reuse
+        ? "保存済みMOVを検証済み" : "検証可能な再利用条件がないため生成"),
+      conflict_policy, canonicalOutputDir: destination.canonical_output_dir,
       labSourceIdentity: input.labSourceIdentity });
   }
   const basename = timelineName;

@@ -21,7 +21,7 @@ from tachie_motion.web.solo_output import validate_media_basename, single_destin
 from tachie_motion.web.combined_otio import create_combined_otio
 from tachie_motion.web.batch_session import BatchCoordinator, validate_names, has_foreign_otio
 from tachie_motion.web.selective_history import capture_recipe_sources, render_recipe
-from tachie_motion.web.selective_plan import verified_reuse
+from tachie_motion.web.selective_plan import load_saved_movies, verified_reuse
 from tachie_motion.web.export_progress import ExportProgress, ExportCancelled
 from tachie_motion.web.batch_publish import require_batch_recovery_clear
 from tachie_motion.web.service import (
@@ -480,11 +480,19 @@ async def preset_batch_reuse_candidate(payload: BatchReuseCandidate):
         require_batch_recovery_clear(canonical)
         local_file(payload.render.psd, ".psd")
         local_file(payload.render.wav, ".wav")
+        history = await asyncio.to_thread(
+            load_saved_movies, canonical, payload.timeline_basename)
         saved = await asyncio.to_thread(
             verified_reuse, canonical, payload.timeline_basename,
-            item_id=payload.item_id, render=payload.render.model_dump())
+            item_id=payload.item_id, render=payload.render.model_dump(),
+            saved_movies=history)
+        reason = (
+            "保存履歴・描画条件・公開MOVを検証済み" if saved else
+            "検証可能な生成履歴がなく再利用不可（初回・旧版・履歴異常など）" if payload.item_id not in history else
+            "元素材・描画条件・公開MOVのいずれかが変更、または検証不能のため再生成"
+        )
         return {"basename": saved.basename if saved else payload.suggested_basename,
-                "reuse": saved is not None}
+                "reuse": saved is not None, "reason": reason}
     except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
         raise bad_request(exc) from exc
 
