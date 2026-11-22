@@ -17,6 +17,9 @@ export type Plan = {
   item: UtteranceItem;
   preset: UnifiedPreset;
   basename: string;
+  suggestedBasename: string;
+  reuse: boolean;
+  reuseReason: string;
   conflict_policy: Conflict;
   canonicalOutputDir: string;
   labSourceIdentity: string | null;
@@ -37,6 +40,7 @@ type MovieResult = {
   frames: number;
   sample_count: number;
   sample_rate: number;
+  reused?: boolean;
   warning?: string;
 };
 type TimelineResult = { otio: string; entries: number; warning?: string };
@@ -83,6 +87,32 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
       rawMovieNames.length + 1) {
     throw new Error("MOVの保存名が重複します");
   }
+  const inputs = items.map((item, index) => {
+    const preset = draft.collection.items.find((entry) => entry.id === item.presetId);
+    const reason = exportReadinessError(preset, item, labStatuses[item.id], draft.collection);
+    if (reason || !preset) {
+      throw new Error(`${index + 1}番 ${item.wavPath} — ${reason ?? "プリセットが見つかりません。"}`);
+    }
+    const labSourceIdentity = effectiveLabSourceIdentity(
+      item, preset, labStatuses[item.id]?.source_identity,
+      (item.presetChanges ?? []).map((point) => draft.collection.items.find(
+        (value) => value.id === point.presetId)).filter(
+        (value): value is UnifiedPreset => !!value),
+    );
+    return { item, preset, labSourceIdentity };
+  });
+  // Reused MOVs keep their original public basenames. This browser preflight
+  // is advisory; server start and media checks repeat all safety decisions.
+  const hints = choice === "overwrite" ? await Promise.all(inputs.map(async (input, index) =>
+    post<{ basename: string; reuse: boolean; reason?: string }>("preset-batch-reuse-candidate", {
+      timeline_basename: rawTimelineName, item_id: input.item.id,
+      suggested_basename: rawMovieNames[index],
+      render: exportPayload(draft, { ...input.item, outputDir: naming.outputDir },
+        input.preset, rawMovieNames[index], "overwrite", input.labSourceIdentity),
+    })
+  )) : rawMovieNames.map((basename) => ({ basename, reuse: false,
+    reason: "別名保存のため全件新規生成" }));
+  const preferredMovieNames = hints.map((hint) => hint.basename);
   // A rename affects the entire generation together. Do not silently mix
   // new and overwritten names, or suffix just one MOV of a combined timeline.
   let resolved: { movieNames: string[]; timelineName: string;
@@ -90,7 +120,7 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   const limit = choice === "rename" ? 1000 : 1;
   for (let attempt = 0; attempt < limit; attempt++) {
     const suffix = attempt === 0 ? "" : "_" + String(attempt + 1).padStart(3, "0");
-    const movieNames = rawMovieNames.map((name) => suffixedOutputName(name, suffix));
+    const movieNames = preferredMovieNames.map((name) => suffixedOutputName(name, suffix));
     const timelineName = suffixedOutputName(rawTimelineName, suffix);
     // Truncation can collapse originally distinct names; the server also
     // rejects Unicode NFC+casefold collisions before any export begins.
@@ -119,24 +149,18 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   const { movieNames, timelineName, movies, timeline: dest } = resolved;
   const plans: Plan[] = [];
   let overwrites = 0;
-  for (const [index, item] of items.entries()) {
-    const preset = draft.collection.items.find((entry) => entry.id === item.presetId);
-    const reason = exportReadinessError(preset, item, labStatuses[item.id], draft.collection);
-    if (reason || !preset) {
-      throw new Error(`${index + 1}番 ${item.wavPath} — ${reason ?? "プリセットが見つかりません。"}`);
-    }
+  for (const [index, input] of inputs.entries()) {
     const basename = movieNames[index];
     const destination = movies[index];
     const conflict_policy = allowedDestination(destination, basename);
-    if (conflict_policy === "overwrite") overwrites++;
-    plans.push({ item, preset, basename, conflict_policy,
-      canonicalOutputDir: destination.canonical_output_dir,
-      labSourceIdentity: effectiveLabSourceIdentity(
-        item, preset, labStatuses[item.id]?.source_identity,
-        (item.presetChanges ?? []).map((point) => draft.collection.items.find(
-          (value) => value.id === point.presetId)).filter(
-            (value): value is UnifiedPreset => !!value),
-      ) });
+    const reuse = hints[index].reuse && choice === "overwrite" &&
+      basename === hints[index].basename && conflict_policy === "overwrite";
+    if (conflict_policy === "overwrite" && !reuse) overwrites++;
+    plans.push({ ...input, basename, suggestedBasename: rawMovieNames[index],
+      reuse, reuseReason: hints[index].reason ?? (reuse
+        ? "保存済みMOVを検証済み" : "検証可能な再利用条件がないため生成"),
+      conflict_policy, canonicalOutputDir: destination.canonical_output_dir,
+      labSourceIdentity: input.labSourceIdentity });
   }
   const basename = timelineName;
   const policy = allowedDestination(dest, basename);
@@ -147,7 +171,7 @@ async function prepare(items: UtteranceItem[], draft: PresetDraft,
   // Match BatchCoordinator.start: another OTIO might reference a MOV being
   // replaced. Show this before enabling the button, without weakening the
   // server's second check when the folder changes between preview and start.
-  if (plans.some((plan) => plan.conflict_policy === "overwrite") &&
+  if (plans.some((plan) => plan.conflict_policy === "overwrite" && !plan.reuse) &&
       dest.other_otio_present) {
     throw new Error(
       "別のOTIOが同じフォルダにあります。上書き対象MOVを参照している可能性があるため、" +
@@ -178,7 +202,7 @@ function planKey(draft: PresetDraft, batch: PreparedBatch): string {
   return JSON.stringify({
     timeline: batch.timeline,
     plans: batch.plans.map((plan) => ({
-      id: plan.item.id, folder: plan.canonicalOutputDir,
+      id: plan.item.id, folder: plan.canonicalOutputDir, reuse: plan.reuse,
       payload: exportPayload(draft, { ...plan.item, outputDir: plan.canonicalOutputDir },
         plan.preset, plan.basename, plan.conflict_policy, plan.labSourceIdentity),
     })),
@@ -277,6 +301,7 @@ export function useBatchUtteranceExport(
         timeline_basename: timeline.basename,
         timeline_policy: timeline.conflict_policy,
         entries: plans.map((plan) => ({
+          item_id: plan.item.id, reuse: plan.reuse,
           basename: plan.basename, wav: plan.item.wavPath,
           source_identity: plan.item.wav.source_identity,
           lab_source_identity: plan.labSourceIdentity, fps: plan.item.fps,
@@ -291,6 +316,7 @@ export function useBatchUtteranceExport(
         overlay.begin(sessionId, plans.map((plan) => wavFilename(plan.item.wavPath)));
       }
       let successes = 0;
+      let reusedCount = 0;
       let failures = 0;
       const complete: { basename: string; frames: number; fps: number;
         samples: number; sample_rate: number }[] = [];
@@ -318,6 +344,7 @@ export function useBatchUtteranceExport(
           complete.push({ basename: plan.basename, frames: result.frames,
             fps: item.fps, samples: result.sample_count, sample_rate: result.sample_rate });
           if (result.warning) notes.push(result.warning);
+          if (result.reused) reusedCount++;
           successes++;
           stagedResults.push({ id: item.id, result });
         } catch (error) {
@@ -366,7 +393,9 @@ export function useBatchUtteranceExport(
         } : entry;
       }));
       outcome = "success";
-      setSummary("一括書き出し完了：MOV " + successes + "件／全体OTIO " + done.otio +
+      setSummary("一括書き出し完了：MOV " + successes + "件（再利用 " +
+        reusedCount + "件／再生成 " + (successes - reusedCount) +
+        "件）／全体OTIO " + done.otio +
         (notes.length ? " ／ 注意：" + notes.join(" ") : ""));
       onFinished();
     } catch (error) {

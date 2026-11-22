@@ -16,13 +16,16 @@ from pathlib import Path
 import shutil
 import stat
 import tempfile
+from collections.abc import Callable
 
 try:
     import fcntl  # POSIX flock: live batches keep their stage from being swept.
 except ImportError:  # Platforms without flock do not auto-collect orphan stages.
     fcntl = None
 
-from tachie_motion.web.solo_output import _identity, published_media_identity
+from tachie_motion.web.solo_output import (
+    _identity, published_media_identity, refuse_equivalent_output_name,
+)
 
 RECOVERY_PREFIX = ".tachie-batch-recovery-"
 STAGE_PREFIX = ".tachie-batch-stage-"
@@ -160,6 +163,7 @@ def publish_batch(
     *, folder: Path, stage: Path, movie_names: list[str],
     timeline_name: str, original: dict[str, tuple | None],
     expected_stage: dict[str, tuple],
+    validate_external: Callable[[bool], None] | None = None,
 ) -> str | None:
     """Publish all names or restore the previous set on ordinary exceptions.
 
@@ -179,6 +183,14 @@ def publish_batch(
     sources = [stage / name for name in names]
     if set(original) != set(names) or set(expected_stage) != set(names):
         raise ValueError("Batch publication manifest differs from staging")
+
+    def check_external(*, final: bool = False) -> None:
+        for target in targets:
+            refuse_equivalent_output_name(target)
+        if validate_external is not None:
+            validate_external(final)
+
+    check_external()
     for target, source in zip(targets, sources):
         if _identity(target) != original[target.name]:
             raise FileExistsError("Output changed before publishing: " + target.name)
@@ -190,10 +202,12 @@ def publish_batch(
     for source in sources:
         _fsync_regular(source, expected_stage[source.name])
     _fsync_directory(stage)
+    check_external()
     recovery = Path(tempfile.mkdtemp(prefix=RECOVERY_PREFIX, dir=folder))
     mutated: set[int] = set()
     preserve_recovery = False
     try:
+        check_external()
         # Hardlinks preserve original data across rename, hard crash and
         # rollback, without temporarily duplicating large ProRes MOV bytes.
         for i, target in enumerate(targets):
@@ -214,7 +228,9 @@ def publish_batch(
         _fsync_directory(stage)
         _persist_manifest(folder, recovery, targets, original)
         # The manifest and all original hardlinks exist before any rename.
+        check_external()
         for i, (target, source) in enumerate(zip(targets, sources)):
+            check_external()
             old = original[target.name]
             if _identity(target) != old:
                 raise FileExistsError("Output changed during batch publication: " + target.name)
@@ -248,8 +264,13 @@ def publish_batch(
                 preserve_recovery = True
                 raise FileExistsError(
                     "Staged media changed while publishing: " + target.name)
+            check_external()
         _fsync_directory(recovery)
         _fsync_directory(folder)
+        # Hash all reused MOVs after the final OTIO link. During intermediate
+        # steps cheap inode/ctime/size checks suffice; rehashing at each step
+        # would cause quadratic IO in the number of reused MOVs.
+        check_external(final=True)
     except BaseException as failure:
         try:
             for i in reversed(range(len(targets))):

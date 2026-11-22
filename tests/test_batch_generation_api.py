@@ -90,6 +90,202 @@ class BatchGenerationApiTests(unittest.TestCase):
                              json={"batch_id": self.token})
             self.token = None
 
+    def start_selective(self, ids, flags, policy):
+        self.assertEqual(len(ids), len(self.names))
+        self.assertEqual(len(flags), len(self.names))
+        payload = {
+            "output_dir": str(self.root), "timeline_basename": self.timeline,
+            "timeline_policy": policy,
+            "entries": [{
+                "item_id": item_id, "reuse": reuse, "basename": name,
+                "wav": str(self.wav),
+                "source_identity": self.base["source_identity"],
+                "fps": 30, "samples": self.samples,
+                "sample_rate": self.sample_rate,
+                "conflict_policy": policy,
+                "lab_source_identity": None,
+            } for item_id, reuse, name in zip(ids, flags, self.names)],
+        }
+        self.token = self.send("preset-batch-start", payload)["batch_id"]
+        return policy
+
+    def test_selective_reorder_updates_only_otio_and_calls_no_encoder(self):
+        """Real synthetic PSD→MOV, followed by full cache reuse and new OTIO."""
+        from unittest.mock import patch
+        ids = ["stable-one", "stable-two"]
+        self.start_selective(ids, [False, False], "error")
+        created = [self.mov(i, "error") for i in range(2)]
+        self.finish("error", created)
+        old = {
+            name: ((self.root / (name + ".mov")).stat().st_ino,
+                   (self.root / (name + ".mov")).read_bytes())
+            for name in self.names
+        }
+        original_timeline = (self.root / (self.timeline + ".otio")).read_bytes()
+        first = json.loads(original_timeline)
+        self.assertEqual(len(
+            first["metadata"]["tachie_motion_selective"]["entries"]), 2)
+        self.names.reverse()
+        ids.reverse()
+        self.start_selective(ids, [True, True], "overwrite")
+        with patch("tachie_motion.web.app.export_preset_utterance",
+                   side_effect=RuntimeError("encoder was invoked")) as encoder:
+            reused = [self.mov(i, "overwrite") for i in range(2)]
+            encoder.assert_not_called()
+        self.assertTrue(all(item["reused"] for item in reused))
+        self.finish("overwrite", reused)
+        self.assertNotEqual(
+            (self.root / (self.timeline + ".otio")).read_bytes(),
+            original_timeline)
+        for name in self.names:
+            movie = self.root / (name + ".mov")
+            self.assertEqual((movie.stat().st_ino, movie.read_bytes()), old[name])
+        updated = json.loads((self.root / (self.timeline + ".otio")).read_text(
+            encoding="utf-8"))
+        for track in updated["tracks"]["children"]:
+            self.assertEqual([
+                Path(clip["media_references"]["DEFAULT_MEDIA"]["target_url"]).name
+                for clip in track["children"]
+            ], [name + ".mov" for name in self.names])
+
+    def test_selective_fps_change_reencodes_only_one_movie(self):
+        """Only changed output calls the encoder; untouched MOV remains byte-identical."""
+        from unittest.mock import patch
+        from tachie_motion.web.preset_utterance import export_preset_utterance
+        ids = ["stable-one", "stable-two"]
+        self.start_selective(ids, [False, False], "error")
+        self.finish("error", [self.mov(i, "error") for i in range(2)])
+        stable = self.root / (self.names[0] + ".mov")
+        dirty = self.root / (self.names[1] + ".mov")
+        stable_before = (stable.stat().st_ino, stable.read_bytes())
+        dirty_before = dirty.read_bytes()
+        start_request = {
+            "output_dir": str(self.root), "timeline_basename": self.timeline,
+            "timeline_policy": "overwrite",
+            "entries": [{
+                "item_id": item_id, "reuse": index == 0,
+                "basename": name, "wav": str(self.wav),
+                "source_identity": self.base["source_identity"],
+                "fps": 30 if index == 0 else 24,
+                "samples": self.samples, "sample_rate": self.sample_rate,
+                "conflict_policy": "overwrite",
+            } for index, (item_id, name) in enumerate(zip(ids, self.names))],
+        }
+        self.token = self.send("preset-batch-start", start_request)["batch_id"]
+        with patch("tachie_motion.web.app.export_preset_utterance",
+                   wraps=export_preset_utterance) as encoder:
+            reused = self.mov(0, "overwrite")
+            changed = self.send("preset-batch-mov-export", {
+                **self.base, "basename": self.names[1], "fps": 24,
+                "conflict_policy": "overwrite",
+                "batch_id": self.token, "batch_index": 1,
+            })
+            self.assertEqual(encoder.call_count, 1)
+        self.assertTrue(reused["reused"])
+        self.assertFalse(changed.get("reused", False))
+        finished = self.send("preset-combined-otio", {
+            "output_dir": str(self.root), "basename": self.timeline,
+            "conflict_policy": "overwrite", "batch_id": self.token,
+            "entries": [
+                {"basename": self.names[0], "frames": reused["frames"],
+                 "fps": 30, "samples": self.samples,
+                 "sample_rate": self.sample_rate},
+                {"basename": self.names[1], "frames": changed["frames"],
+                 "fps": 24, "samples": self.samples,
+                 "sample_rate": self.sample_rate},
+            ],
+        })
+        self.assertEqual(finished["entries"], 2)
+        self.assertEqual((stable.stat().st_ino, stable.read_bytes()), stable_before)
+        self.assertNotEqual(dirty.read_bytes(), dirty_before)
+
+    def test_selective_external_mov_edit_invalidates_reuse(self):
+        """A swapped public MOV cannot be silently accepted as a cache hit."""
+        from unittest.mock import patch
+        ids = ["stable-one", "stable-two"]
+        self.start_selective(ids, [False, False], "error")
+        self.finish("error", [self.mov(i, "error") for i in range(2)])
+        hint = {
+            "timeline_basename": self.timeline, "item_id": ids[0],
+            "suggested_basename": self.names[0],
+            "render": {**self.base, "basename": self.names[0],
+                       "conflict_policy": "overwrite"},
+        }
+        verified_hint = self.send("preset-batch-reuse-candidate", hint)
+        self.assertTrue(verified_hint["reuse"])
+        self.assertIn("検証済み", verified_hint["reason"])
+        old_otio = (self.root / (self.timeline + ".otio")).read_bytes()
+        changed_movie = self.root / (self.names[0] + ".mov")
+        changed_movie.write_bytes(changed_movie.read_bytes() + b"foreign modification")
+        failed_hint = self.send("preset-batch-reuse-candidate", hint)
+        self.assertFalse(failed_hint["reuse"])
+        self.assertIn("再生成", failed_hint["reason"])
+        self.start_selective(ids, [True, True], "overwrite")
+        with patch("tachie_motion.web.app.export_preset_utterance",
+                   side_effect=RuntimeError("encoder was invoked")) as encoder:
+            failed = self.client.post("/api/preset-batch-mov-export", json={
+                **self.base, "basename": self.names[0], "conflict_policy": "overwrite",
+                "batch_id": self.token, "batch_index": 0,
+            })
+            encoder.assert_not_called()
+        self.assertNotEqual(failed.status_code, 200)
+        self.assertEqual((self.root / (self.timeline + ".otio")).read_bytes(), old_otio)
+
+    def test_selective_candidate_explains_missing_history(self):
+        response = self.send("preset-batch-reuse-candidate", {
+            "timeline_basename": self.timeline, "item_id": "first-run",
+            "suggested_basename": self.names[0],
+            "render": {**self.base, "basename": self.names[0],
+                       "conflict_policy": "overwrite"},
+        })
+        self.assertFalse(response["reuse"])
+        self.assertIn("生成履歴", response["reason"])
+
+    def test_selective_staged_render_cannot_publish_after_psd_changes(self):
+        """Changing original PSD after render must not publish stale MOVs or OTIO."""
+        ids = ["stable-one", "stable-two"]
+        self.start_selective(ids, [False, False], "error")
+        results = [self.mov(i, "error") for i in range(2)]
+        self.psd.write_bytes(self.psd.read_bytes() + b"external PSD edit")
+        failed = self.client.post("/api/preset-combined-otio", json={
+            "output_dir": str(self.root), "basename": self.timeline,
+            "conflict_policy": "error", "batch_id": self.token,
+            "entries": [{
+                "basename": name, "frames": result["frames"], "fps": 30,
+                "samples": result["sample_count"],
+                "sample_rate": result["sample_rate"],
+            } for name, result in zip(self.names, results)],
+        })
+        self.assertNotEqual(failed.status_code, 200)
+        for name in self.names:
+            self.assertFalse((self.root / (name + ".mov")).exists())
+        self.assertFalse((self.root / (self.timeline + ".otio")).exists())
+
+    def test_selective_corrupt_history_refuses_reuse_without_encoding(self):
+        from unittest.mock import patch
+        ids = ["stable-one", "stable-two"]
+        self.start_selective(ids, [False, False], "error")
+        self.finish("error", [self.mov(i, "error") for i in range(2)])
+        timeline = self.root / (self.timeline + ".otio")
+        document = json.loads(timeline.read_text(encoding="utf-8"))
+        document["metadata"]["tachie_motion_selective"]["format"] = "corrupted"
+        timeline.write_text(json.dumps(document), encoding="utf-8")
+        self.assertIsNone(self.app.state.batch.active)
+        failed = self.client.post("/api/preset-batch-start", json={
+            "output_dir": str(self.root), "timeline_basename": self.timeline,
+            "timeline_policy": "overwrite",
+            "entries": [{
+                "item_id": ids[i], "reuse": True, "basename": name,
+                "wav": str(self.wav), "source_identity": self.base["source_identity"],
+                "fps": 30, "samples": self.samples,
+                "sample_rate": self.sample_rate, "conflict_policy": "overwrite",
+            } for i, name in enumerate(self.names)],
+        })
+        self.assertNotEqual(failed.status_code, 200)
+        self.assertFalse(any(
+            (self.root / name).is_symlink() for name in
+            [*(n + ".mov" for n in self.names), self.timeline + ".otio"]))
+
     def test_synthetic_batch_is_private_until_all_movie_and_otio_success(self):
         policy = self.start(overwrite=False)
         a = self.mov(0, policy)
@@ -155,6 +351,59 @@ class BatchGenerationApiTests(unittest.TestCase):
         self.assertFalse(any(p.name.startswith(".tachie-batch-recovery-")
                              for p in self.root.iterdir()))
 
+
+    def test_late_foreign_otio_blocks_dirty_batch(self):
+        self.start(overwrite=False)
+        self.finish("error", [self.mov(i, "error") for i in range(2)])
+        old = {name: (self.root / name).read_bytes() for name in
+               [*(n + ".mov" for n in self.names), self.timeline + ".otio"]}
+        self.start(overwrite=True)
+        updated = [self.mov(i, "overwrite") for i in range(2)]
+        other = self.root / "new-external.otio"
+        other.write_bytes(b"FOREIGN-OTIO")
+        response = self.client.post("/api/preset-combined-otio", json={
+            "output_dir": str(self.root), "basename": self.timeline,
+            "conflict_policy": "overwrite", "batch_id": self.token,
+            "entries": [{"basename": name, "frames": result["frames"], "fps": 30,
+                         "samples": result["sample_count"],
+                         "sample_rate": result["sample_rate"]}
+                        for name, result in zip(self.names, updated)],
+        })
+        self.assertNotEqual(response.status_code, 200)
+        self.assertEqual(other.read_bytes(), b"FOREIGN-OTIO")
+        for name, old_bytes in old.items():
+            self.assertEqual((self.root / name).read_bytes(), old_bytes)
+
+    def test_reused_mov_changed_at_publisher_entry_is_rejected(self):
+        from unittest.mock import patch
+        from tachie_motion.web.batch_publish import publish_batch
+        ids = ["stable-one", "stable-two"]
+        self.start_selective(ids, [False, False], "error")
+        self.finish("error", [self.mov(i, "error") for i in range(2)])
+        old_dirty = (self.root / (self.names[1] + ".mov")).read_bytes()
+        old_timeline = (self.root / (self.timeline + ".otio")).read_bytes()
+        self.start_selective(ids, [True, False], "overwrite")
+        results = [self.mov(i, "overwrite") for i in range(2)]
+        reusable = self.root / (self.names[0] + ".mov")
+
+        def intervene(**kwargs):
+            reusable.write_bytes(reusable.read_bytes() + b"EXTERNAL")
+            return publish_batch(**kwargs)
+
+        with patch("tachie_motion.web.batch_session.publish_batch",
+                   side_effect=intervene):
+            response = self.client.post("/api/preset-combined-otio", json={
+                "output_dir": str(self.root), "basename": self.timeline,
+                "conflict_policy": "overwrite", "batch_id": self.token,
+                "entries": [{"basename": name, "frames": result["frames"],
+                             "fps": 30, "samples": result["sample_count"],
+                             "sample_rate": result["sample_rate"]}
+                            for name, result in zip(self.names, results)],
+            })
+        self.assertNotEqual(response.status_code, 200)
+        self.assertEqual((self.root / (self.names[1] + ".mov")).read_bytes(), old_dirty)
+        self.assertEqual((self.root / (self.timeline + ".otio")).read_bytes(), old_timeline)
+        self.assertTrue(reusable.read_bytes().endswith(b"EXTERNAL"))
 
     def test_foreign_otio_preflight_matches_start_guard_without_changes(self):
         # Stage nothing if a second timeline may reference overwritten MOVs.

@@ -164,7 +164,7 @@ export default function UtteranceExportPanel({
 
     {scope === "all" && <div className="export-overview">
       <h3>全件の書き出し内容</h3>
-      <p className="hint">WAV一覧順に各MOVを書き出し、全件成功後に全体OTIOを1本生成します。</p>
+      <p className="hint">変更のないMOVは元のファイル名で再利用し、変更分のみ再生成します。セリフ順は全体OTIOに反映します。</p>
       <fieldset className="output-conflict-choice" aria-label="一括書き出しの保存方法">
         <legend>同名ファイルがある場合</legend>
         <label><input type="radio" name="batch-conflict-choice" value="overwrite"
@@ -209,7 +209,11 @@ export default function UtteranceExportPanel({
           <span title={plan.basename}>
             {plan.basename}.mov
           </span>
-          <span>{plan.conflict_policy === "overwrite" ? "上書き" : "新規保存"}</span>
+          <span>{plan.reuse ? "再利用（MOVは変更しない）" :
+            plan.conflict_policy === "overwrite" ? "再生成して上書き" : "新規生成"}</span>
+          <span className="hint">理由: {plan.reuseReason}</span>
+          {plan.reuse && plan.suggestedBasename !== plan.basename &&
+            <span className="hint">現在の自動名: {plan.suggestedBasename}.mov（既存ファイル名を優先）</span>}
         </li>)}
       </ol>
       {batch.displayed && <p className="hint batch-timeline-plan">

@@ -9,6 +9,16 @@
 - Browser E2E: Playwright import/preview/toggle/change-point/save/export with deterministic fixtures.
 - CI: Linux unit jobs plus macOS/Windows where dependencies allow; manual Resolve import is a separate human gate.
 
+## Public Issue #62 — 変更済みMOVのみ再生成（開発中）
+
+- 利用者承認のA案（D31）：複数のMOVを生成後にWAV順を逆転しても、以前の公開MOVのパス・inode・ハッシュは不変で、全体OTIOの参照順だけ変わる。古いファイル連番と現在の順序の不一致を受容し、表示では自動名と再利用名、再生成の理由を区別する。再生成が必要なMOVの新規候補名と再利用MOVの実名がNFC/casefoldで衝突する場合は、第三者ファイルに触れず処理を停止する。手動命名済みのMOVは勝手に古い自動名へ戻さない。
+
+- キャッシュ判定の基礎として、PSD/WAV/必要時LABおよび既存公開MOVの実バイトSHA256を安全に読み、ファイル差し替え・シンボリックリンク・欠損を拒否する。WAV順、名前、出力先、進捗トークンは画音レシピから除き、fps・口形・レイヤー・瞬き・変更点・実素材変更は個別に失効させる。未知の新しいレンダー入力は安全側で拒否する。
+- 安定IDを持つバッチでは、生成前後のPSD/WAV/LAB実バイト・inode同一性を確認し、出力MOV SHA256とサンプル・フレームのメタデータを全体OTIOに埋め込む。生成中に元ファイルが変更された場合は公開を拒否する。旧リクエストには生成履歴を追加せず、従来API契約を退行させない。
+- 実際の一括経路で旧全体OTIOの両トラック参照・生成履歴を読み戻し、素材・レシピ・実MOV・映像とPCMの時間基準を照合して再利用可否をサーバー側で再判定する。全再利用による並べ替えでは公開MOVのパス・inode・内容不変、OTIO参照順のみ変化、FFmpegレンダー呼び出し0件をspyで確認する。1件だけfps変更時はそのMOVだけ再エンコードし、未変更側は不変。履歴破損・公開MOV外部改変・symlink・source変更を誤再利用しない。取消・公開失敗・外部競合で旧成果物を保護する。
+- 2026-11-22独立監査MEDIUM-01〜04回帰：公開前の最後の検査後に再利用MOVを差し替え、OTIO公開後に同じ内容を再改変し、失敗なら更新MOV・OTIOだけを復旧して再利用先や第三者の改変を削除しない。バッチ開始後に別OTIOが現れた場合の上書き禁止、既存NFC/NFD/casefold同等名の非破壊的拒否も故障注入する。正しい構造・ハッシュを備えた偽造OTIO／発行者認証鍵の欠損では再利用を拒否する。署名のほか、ProRes 4444・alphaとPCM内容・尺を独立照合する。
+- 並び替え時は利用者承認済みA案（D31）：既存公開MOV名を固定し、OTIOのみ更新する。別のOTIOが同フォルダにあっても、公開MOVの書き換えがない再利用は許容し、変更済みMOVの上書きは引き続き拒否する。別名保存は全MOVを新規作成する従来契約を守る。Mac実素材とResolveは自動CIとは別のHumanゲート。
+
 ## Public Issue #49 — 変更点タイムライン（Draft PR #50）
 
 - TypeScript: PCMサンプル整数の追加・移動・削除・差し替え、境界、重複、逆順、不明な安定プリセットID、元データ不変、2つのWAV登録の独立性を検証。フレーム中央式は24/30/60fpsと最終端数フレームで検査する。
@@ -372,6 +382,7 @@ Use self-authored / permission-cleared synthetic test PSD and WAV in CI. Do not 
 
 - **Issue #32で旧規則を廃止：** aiueoの休止口`n`も明示的なレイヤー選択が必須。空配列は未設定としてフロント／Pythonの両方で書き出しを拒否する。固定と同じレイヤーを選んだ場合も設定済みとして扱い、合成プレビュー・実MOVで一致すること。旧素材・JSONはGitHubテストフィクスチャへコピーしない。
 
+
 ## Public Issue #29 — aiueoの非ブロッキング回帰強化（旧PR #28 LOW後続）
 
 - `aiueoMouthReady`と単一・一括共通の事前エラー判定は、6形すべての存在、配列型、形状要素の正確な`path`/`visible`フィールド、正規のPSDインデックスパス、保存済み基本レイヤーパスへの所属、形状内のパス重複、明示可視葉をチェックする。キー欠落・未知キー・`n: []`・型破損でもJavaScript例外を出さずに拒否し、具体的な口形名または未知キー名を示す。
@@ -379,7 +390,6 @@ Use self-authored / permission-cleared synthetic test PSD and WAV in CI. Do not 
 - 合成PSD/WAV/LABの一括経路で全6形の有効選択→全MOV＋全体OTIOを確認。無音時の「ん」を固定状態・母音「あ」「い」と区別できる黄色の専用合成葉に設定する。公開MOVの復号RGBAで三者の差と専用葉の色を独立オラクルで検証し、固定状態への暗黙継承・「あ」への誤割当を検出する。
 - `n: []`の一括APIはエラー終了し、元PSD/WAV/LAB、公開MOV/OTIOを作成・変更しない。新たな製品仕様・保存JSON・出力形式は導入しない。
 - Python/Playwright対象回帰、ビルド、CI、exact remote HEADの独立コード監査を別々に記録。出先ではMac実素材・DaVinci ResolveのHuman E2Eは未実施とする。
-
 
 ## Public Issue #20 — 一括上書き時の別OTIO事前警告
 
