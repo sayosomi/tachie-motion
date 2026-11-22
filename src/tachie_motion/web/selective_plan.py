@@ -7,6 +7,7 @@ granting reuse. A corrupt/legacy OTIO never grants reuse.
 import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 import stat
 from typing import Any
@@ -15,6 +16,7 @@ from tachie_motion.timeline.media import probe_movie, probe_wav
 from tachie_motion.web.combined_otio import probe_embedded_pcm
 from tachie_motion.web.preview_frame import file_identity
 from tachie_motion.web.selective_history import capture_recipe_sources, render_recipe
+from tachie_motion.web.selective_attestation import authenticated_timeline
 from tachie_motion.web.selective_recipe import digest_regular_file
 from tachie_motion.web.selective_reuse import (
     SavedMovie, decode_history, verify_published_movie,
@@ -23,6 +25,25 @@ from tachie_motion.web.solo_output import validate_media_basename
 
 _HISTORY_KEY = "tachie_motion_selective"
 _MAX_OTIO_BYTES = 16 * 1024 * 1024
+
+
+def probe_alpha_prores(movie: Path) -> bool:
+    """Reject altered non-ProRes or alpha-less media even with valid timing."""
+    try:
+        result = subprocess.run([
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=codec_name,profile,pix_fmt",
+            "-of", "json", str(movie),
+        ], capture_output=True, check=False, timeout=30)
+        if result.returncode:
+            return False
+        streams = json.loads(result.stdout)["streams"]
+        return (len(streams) == 1 and streams[0]["codec_name"] == "prores" and
+                "4444" in streams[0]["profile"] and
+                streams[0]["pix_fmt"].startswith("yuva444p"))
+    except (OSError, ValueError, TypeError, KeyError, IndexError,
+            subprocess.TimeoutExpired):
+        return False
 
 
 def load_saved_movies(folder: Path, timeline_name: str) -> dict[str, SavedMovie]:
@@ -60,7 +81,8 @@ def load_saved_movies(folder: Path, timeline_name: str) -> dict[str, SavedMovie]
         if not isinstance(doc, dict) or doc.get("OTIO_SCHEMA") != "Timeline.1":
             return {}
         metadata = doc.get("metadata")
-        if not isinstance(metadata, dict) or _HISTORY_KEY not in metadata:
+        if (not isinstance(metadata, dict) or _HISTORY_KEY not in metadata
+                or not authenticated_timeline(doc)):
             return {}
         saved = decode_history(metadata[_HISTORY_KEY])
         entries = metadata[_HISTORY_KEY]["entries"]
@@ -108,6 +130,8 @@ def verified_reuse(
             fps=render["fps"], samples=saved.samples, sample_rate=saved.sample_rate,
             video_probe=probe_movie, audio_probe=probe_embedded_pcm,
         ):
+            return None
+        if not probe_alpha_prores(folder / (saved.basename + ".mov")):
             return None
         # Source must remain stable throughout the MOV validation and probes.
         if capture_recipe_sources(render) != sources:

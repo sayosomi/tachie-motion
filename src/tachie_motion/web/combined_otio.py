@@ -90,6 +90,9 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
                 media = clip["media_references"]["DEFAULT_MEDIA"]
                 media["target_url"] = str(final.absolute())
                 media["name"] = final.name
+    if generation_history is not None:
+        from tachie_motion.web.selective_attestation import sign_timeline
+        sign_timeline(document)
     with tempfile.TemporaryDirectory(prefix=".tachie-timeline-", dir=folder) as tmp:
         staged = Path(tmp) / "timeline.otio"
         write_otio(document, staged)
