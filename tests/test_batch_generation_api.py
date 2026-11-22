@@ -85,6 +85,89 @@ class BatchGenerationApiTests(unittest.TestCase):
                              json={"batch_id": self.token})
             self.token = None
 
+    def start_selective(self, ids, flags, policy):
+        self.assertEqual(len(ids), len(self.names))
+        self.assertEqual(len(flags), len(self.names))
+        payload = {
+            "output_dir": str(self.root), "timeline_basename": self.timeline,
+            "timeline_policy": policy,
+            "entries": [{
+                "item_id": item_id, "reuse": reuse, "basename": name,
+                "wav": str(self.wav),
+                "source_identity": self.base["source_identity"],
+                "fps": 30, "samples": self.samples,
+                "sample_rate": self.sample_rate,
+                "conflict_policy": policy,
+                "lab_source_identity": None,
+            } for item_id, reuse, name in zip(ids, flags, self.names)],
+        }
+        self.token = self.send("preset-batch-start", payload)["batch_id"]
+        return policy
+
+    def test_selective_reorder_updates_only_otio_and_calls_no_encoder(self):
+        """Real synthetic PSD→MOV, followed by full cache reuse and new OTIO."""
+        from unittest.mock import patch
+        ids = ["stable-one", "stable-two"]
+        self.start_selective(ids, [False, False], "error")
+        created = [self.mov(i, "error") for i in range(2)]
+        self.finish("error", created)
+        old = {
+            name: ((self.root / (name + ".mov")).stat().st_ino,
+                   (self.root / (name + ".mov")).read_bytes())
+            for name in self.names
+        }
+        original_timeline = (self.root / (self.timeline + ".otio")).read_bytes()
+        first = json.loads(original_timeline)
+        self.assertEqual(len(
+            first["metadata"]["tachie_motion_selective"]["entries"]), 2)
+        self.names.reverse()
+        ids.reverse()
+        self.start_selective(ids, [True, True], "overwrite")
+        with patch("tachie_motion.web.app.export_preset_utterance",
+                   side_effect=RuntimeError("encoder was invoked")) as encoder:
+            reused = [self.mov(i, "overwrite") for i in range(2)]
+            encoder.assert_not_called()
+        self.assertTrue(all(item["reused"] for item in reused))
+        self.finish("overwrite", reused)
+        self.assertNotEqual(
+            (self.root / (self.timeline + ".otio")).read_bytes(),
+            original_timeline)
+        for name in self.names:
+            movie = self.root / (name + ".mov")
+            self.assertEqual((movie.stat().st_ino, movie.read_bytes()), old[name])
+        updated = json.loads((self.root / (self.timeline + ".otio")).read_text(
+            encoding="utf-8"))
+        for track in updated["tracks"]["children"]:
+            self.assertEqual([
+                Path(clip["media_references"]["DEFAULT_MEDIA"]["target_url"]).name
+                for clip in track["children"]
+            ], [name + ".mov" for name in self.names])
+
+    def test_selective_corrupt_history_refuses_reuse_without_encoding(self):
+        from unittest.mock import patch
+        ids = ["stable-one", "stable-two"]
+        self.start_selective(ids, [False, False], "error")
+        self.finish("error", [self.mov(i, "error") for i in range(2)])
+        timeline = self.root / (self.timeline + ".otio")
+        document = json.loads(timeline.read_text(encoding="utf-8"))
+        document["metadata"]["tachie_motion_selective"]["format"] = "corrupted"
+        timeline.write_text(json.dumps(document), encoding="utf-8")
+        self.assertIsNone(self.app.state.batch.active)
+        failed = self.client.post("/api/preset-batch-start", json={
+            "output_dir": str(self.root), "timeline_basename": self.timeline,
+            "timeline_policy": "overwrite",
+            "entries": [{
+                "item_id": ids[i], "reuse": True, "basename": name,
+                "wav": str(self.wav), "source_identity": self.base["source_identity"],
+                "fps": 30, "samples": self.samples,
+                "sample_rate": self.sample_rate, "conflict_policy": "overwrite",
+            } for i, name in enumerate(self.names)],
+        })
+        self.assertNotEqual(failed.status_code, 200)
+        self.assertFalse(any(
+            (self.root / name).is_symlink() for name in
+            [*(n + ".mov" for n in self.names), self.timeline + ".otio"]))
+
     def test_synthetic_batch_is_private_until_all_movie_and_otio_success(self):
         policy = self.start(overwrite=False)
         a = self.mov(0, policy)
