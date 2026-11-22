@@ -438,7 +438,7 @@ class BatchCoordinator:
                     raise ValueError("Reused public MOV changed before OTIO publication")
         # Recheck external media and references *inside* the publication
         # transaction, including after the OTIO link while rollback is possible.
-        def validate_external() -> None:
+        def validate_external(final: bool) -> None:
             if (any(not item.reuse and item.original is not None
                     for item in session.entries) and
                     has_foreign_otio(session.folder, session.timeline_name)):
@@ -449,7 +449,8 @@ class BatchCoordinator:
                 public = session.folder / (item.basename + ".mov")
                 refuse_equivalent_output_name(public)
                 if (published_media_identity(public) != session.identities[item.basename]
-                        or digest_regular_file(public).sha256 != item.saved.mov_sha256):
+                        or (final and
+                            digest_regular_file(public).sha256 != item.saved.mov_sha256)):
                     raise ValueError("Reused MOV changed during publication: " + item.basename)
 
         # This changes only dirty/new MOVs and the combined OTIO, never reused MOVs.

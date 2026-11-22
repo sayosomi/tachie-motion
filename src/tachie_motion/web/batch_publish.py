@@ -163,7 +163,7 @@ def publish_batch(
     *, folder: Path, stage: Path, movie_names: list[str],
     timeline_name: str, original: dict[str, tuple | None],
     expected_stage: dict[str, tuple],
-    validate_external: Callable[[], None] | None = None,
+    validate_external: Callable[[bool], None] | None = None,
 ) -> str | None:
     """Publish all names or restore the previous set on ordinary exceptions.
 
@@ -184,11 +184,11 @@ def publish_batch(
     if set(original) != set(names) or set(expected_stage) != set(names):
         raise ValueError("Batch publication manifest differs from staging")
 
-    def check_external() -> None:
+    def check_external(*, final: bool = False) -> None:
         for target in targets:
             refuse_equivalent_output_name(target)
         if validate_external is not None:
-            validate_external()
+            validate_external(final)
 
     check_external()
     for target, source in zip(targets, sources):
@@ -267,8 +267,10 @@ def publish_batch(
             check_external()
         _fsync_directory(recovery)
         _fsync_directory(folder)
-        # The last check is after the new combined OTIO was made public.
-        check_external()
+        # Hash all reused MOVs after the final OTIO link. During intermediate
+        # steps cheap inode/ctime/size checks suffice; rehashing at each step
+        # would cause quadratic IO in the number of reused MOVs.
+        check_external(final=True)
     except BaseException as failure:
         try:
             for i in reversed(range(len(targets))):

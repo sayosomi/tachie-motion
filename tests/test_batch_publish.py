@@ -90,9 +90,9 @@ class BatchPublicationTests(unittest.TestCase):
         timeline = self.folder / self.names[-1]
         checks = []
 
-        def verify_external():
-            checks.append(timeline.read_bytes())
-            if timeline.read_bytes() == b"NEW-2-":
+        def verify_external(final=False):
+            checks.append((final, timeline.read_bytes()))
+            if final and timeline.read_bytes() == b"NEW-2-":
                 reused.write_bytes(b"EXTERNAL")
                 raise ValueError("reused MOV changed after OTIO publish")
 
@@ -101,7 +101,7 @@ class BatchPublicationTests(unittest.TestCase):
                           movie_names=self.mov_names, timeline_name=self.otio,
                           original=originals, expected_stage=staged,
                           validate_external=verify_external)
-        self.assertIn(b"NEW-2-", checks)
+        self.assertIn((True, b"NEW-2-"), checks)
         self.assert_old()
         self.assertEqual(reused.read_bytes(), b"EXTERNAL")
         self.assertEqual(recovery_directories(self.folder), ())
