@@ -59,6 +59,8 @@ class SelectivePlanTests(unittest.TestCase):
 
     def verify(self, **kw):
         with self.probe(), patch(
+            "tachie_motion.web.selective_plan.probe_wav",
+            return_value=SimpleNamespace(samples=48000, sample_rate=48000)), patch(
             "tachie_motion.web.selective_plan.probe_movie",
             return_value=SimpleNamespace(frames=30, fps=30)), patch(
             "tachie_motion.web.selective_plan.probe_embedded_pcm",
