@@ -12,7 +12,7 @@ import time
 import unicodedata
 
 from tachie_motion.web.preview_frame import file_identity
-from tachie_motion.web.selective_recipe import digest_regular_file
+from tachie_motion.web.selective_recipe import FileDigest, digest_regular_file
 from tachie_motion.web.selective_plan import load_saved_movies
 from tachie_motion.web.selective_reuse import SavedMovie, encode_history
 from tachie_motion.web.aiueo_renderer import inspect_export_lab
@@ -89,6 +89,8 @@ class Session:
     results: list[dict | None] = field(default_factory=list)
     identities: dict[str, tuple] = field(default_factory=dict)
     generation_records: list[SavedMovie] = field(default_factory=list)
+    source_snapshots: dict[int, tuple[tuple[Path, FileDigest], ...]] = field(
+        default_factory=dict)
 
 
 class BatchCoordinator:
@@ -305,6 +307,36 @@ class BatchCoordinator:
             "sample_rate": verified.sample_rate,
         }
 
+    def remember_sources(
+        self, token: str, index: int, payload: dict,
+        digests: tuple[FileDigest, FileDigest, FileDigest | None],
+    ) -> None:
+        session = self._finish_render_session(token)
+        if index != session.next_index or session.entries[index].item_id is None:
+            raise ValueError("Source history is not authorized for this MOV")
+        if index in session.source_snapshots:
+            raise ValueError("Source history has already been recorded")
+        wav = Path(payload["wav"])
+        sources = [(Path(payload["psd"]), digests[0]), (wav, digests[1])]
+        if digests[2] is not None:
+            sources.append((wav.with_suffix(".lab"), digests[2]))
+        session.source_snapshots[index] = tuple(sources)
+
+    @staticmethod
+    def _verify_source_snapshots(session: Session) -> None:
+        if not session.entries or session.entries[0].item_id is None:
+            return  # Legacy API has no generation history.
+        if len(session.source_snapshots) != len(session.entries):
+            raise ValueError("Batch source digest manifest is incomplete")
+        # Deduplicate the common PSD across many WAVs without weakening checks.
+        checked: dict[Path, FileDigest] = {}
+        for snapshots in session.source_snapshots.values():
+            for path, initial in snapshots:
+                if path not in checked:
+                    checked[path] = digest_regular_file(path)
+                if checked[path] != initial:
+                    raise ValueError("Source bytes changed after MOV rendering: " + path.name)
+
     def failed(self, token: str, index: int) -> None:
         session = self._finish_render_session(token)
         if index == session.next_index:
@@ -328,6 +360,7 @@ class BatchCoordinator:
             or any(item is None for item in session.results)
             or entries != session.results):
             raise ValueError("Batch is incomplete or the combined OTIO plan has changed")
+        self._verify_source_snapshots(session)
         now = initial_single_identity(folder / (timeline_name + ".otio"), policy)
         if now != session.timeline_original:
             raise ValueError("OTIO destination changed after batch approval")
@@ -389,6 +422,7 @@ class BatchCoordinator:
                     for planned in session.entries if not planned.reuse}
         original[otio_name] = session.timeline_original
         # Last source identity gate before public batch publication.
+        self._verify_source_snapshots(session)
         for planned in session.entries:
             if source_token(planned.wav) != planned.source_identity:
                 raise ValueError("WAV changed since registration; batch not published")
