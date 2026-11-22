@@ -105,6 +105,7 @@ export default function UtteranceWorkspace({ active = true, items, setItems,
     () => setProbeVersion((previous) => previous + 1),
     active && exportScope === "all" && !projectBusy && !exportingId,
     naming, () => projectBusyRef.current || singleExportLock.current, labStatuses,
+    psdPreview?.source_identity ?? null,
     { begin: exportProgress.begin, settle: exportProgress.settle,
       uncertain: exportProgress.uncertain,
       terminalPhase: exportProgress.view?.phase === "success" ||
