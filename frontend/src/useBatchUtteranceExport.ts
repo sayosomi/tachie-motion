@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { PresetDraft } from "./presetDraftStorage";
 import type { UnifiedPreset } from "./presetModel";
+import { blinkFrames } from "./blinkTiming";
 import { effectiveLabSourceIdentity, exportPayload, exportReadinessError } from "./utteranceExportRequest";
 import { movName, otioName, suffixedOutputName, validateBatchNaming, type BatchNaming } from "./nameTemplate";
 import { wavFilename, type UtteranceItem, type IdleAfter } from "./utteranceItems";
