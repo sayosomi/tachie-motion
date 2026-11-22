@@ -12,6 +12,8 @@ export type ExportData = {
 };
 export type LipMode = "none" | "open" | "aiueo";
 export type Fps = 24 | 30 | 60;
+/** Explicit gap following one WAV; never inferred from adjacent presets. */
+export type IdleAfter = { id: string; presetId: string; frames: number; fps: Fps };
 import type { PresetChangePoint } from "./presetChangePoints";
 
 export type UtteranceItem = {
@@ -20,6 +22,7 @@ export type UtteranceItem = {
   wavPath: string;
   wav: WavData;
   presetId: string;
+  idleAfter?: IdleAfter | null;
   /** Optional for internal legacy fixtures; new registrations always own their own list. */
   presetChanges?: PresetChangePoint[];
   mode: LipMode;
@@ -40,7 +43,7 @@ export function createUtterance(
   outputDir: string, sequence: number,
 ): UtteranceItem {
   return {
-    id, registrationOrder: sequence, wavPath, wav, presetId, presetChanges: [], mode: "none", fps: 30, outputDir,
+    id, registrationOrder: sequence, wavPath, wav, presetId, idleAfter: null, presetChanges: [], mode: "none", fps: 30, outputDir,
     basename: "speech_" + String(sequence).padStart(3, "0"), basenameEdited: false,
     conflictChoice: "overwrite", saveAsName: null, result: null, error: "",
   };

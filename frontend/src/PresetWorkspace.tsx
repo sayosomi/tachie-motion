@@ -445,7 +445,8 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending }
       return;
     }
     const users = utterances.filter((item) => item.presetId === id ||
-      (item.presetChanges ?? []).some((point) => point.presetId === id));
+      (item.presetChanges ?? []).some((point) => point.presetId === id) ||
+      item.idleAfter?.presetId === id);
     if (users.length) {
       const names = users.slice(0, 3).map((item) => wavFilename(item.wavPath)).join("、");
       setError(`プリセット「${name}」はセリフのWAV ${users.length}件で使用中です（${names}${users.length > 3 ? "、ほか" : ""}）。「セリフ」で初期プリセットと編集点の割り当てを変更してから削除してください。`);
