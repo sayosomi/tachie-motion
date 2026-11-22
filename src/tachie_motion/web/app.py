@@ -23,6 +23,7 @@ from tachie_motion.web.batch_session import BatchCoordinator, validate_names, ha
 from tachie_motion.web.selective_history import capture_recipe_sources, render_recipe
 from tachie_motion.web.selective_plan import load_saved_movies, verified_reuse
 from tachie_motion.web.export_progress import ExportProgress, ExportCancelled
+from tachie_motion.web.idle_api import router as idle_api_router
 from tachie_motion.web.batch_publish import require_batch_recovery_clear
 from tachie_motion.web.service import (
     describe_psd, describe_wav, describe_wav_lab, load_psd, local_file, preview_mouth,
@@ -176,6 +177,7 @@ app.state.export_progress = ExportProgress()
 app.state.batch = BatchCoordinator(
     on_expire=lambda token: app.state.export_progress.finish(token, "failed")
 )
+app.include_router(idle_api_router)
 FRONTEND_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"
 if (FRONTEND_DIST / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")

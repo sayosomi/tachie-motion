@@ -30,6 +30,13 @@
 - Mac Human: 変更点の視認性、波形との位置合わせ、ドラッグ操作、プリセット切替、WAV別独立性、動画の見た目を実素材で評価。DaVinci Resolveで変更点・PCM・透明映像の結果を別途確認する。自動テスト・人間評価を相互代用しない。
 - PR #50はDraft。HEAD `3dac97e7d8a61321cf606bd0b286a9a01633211c` のGitHub ActionsはWeb UI run 44889847800／Python run 44889847790ともにSUCCESS。2026-11-21独立再監査では、前回のWAV登録中の削除競合MEDIUM-02-R1は解消したが、同じプリセットIDを維持する外部レイヤー改変を登録完了時に見逃すMEDIUM-01を検出し、BLOCKED（HIGH 0／MEDIUM 1／LOW 1）。修正後HEADのCIと独立再監査、Mac Human UX、Resolve確認は別々のゲートで判定し、未確認をPASSと記さない。
 
+## Public Issue #57 — 待機MOVのローカルHTTP接続（UI・JSONは後続）
+
+- 合成PSDとFFmpegで、`POST /api/idle-motion-export` の固定レイヤー・フレーム数・fps・Unicode／NFD出力名から音声なしMOVを作る。PSD/WAV原本不変、個別OTIOなし、既存OTIO参照と上書き禁止条件を維持。APIはファイルのバイト列をアップロードさせず、登録済みPSDの絶対パス・source_identity・fingerprintを再検証する。
+- 不正なフレーム型・値・fps、出力先・名前・PSD参照・未設定の瞬きを拒否。PSDの登録済み`source_identity`／`fingerprint`、レイヤー状態、瞬きの整数タイミング・eyeグループ／選択状態を**レンダラー呼び出し前**に検証し、不正入力でHTTP 400かつ`export_idle_motion`未呼び出しを明示的にテスト。PSD読み込み中の変更と事前検証後の変更はレンダラー内の再検証でも保護する。CSRF相当の異なるOrigin、JSON以外のPOST、別タブのバッチ占有でもレンダラーを呼ばない。HTTP 400の事前検証失敗では予約済みトークンを失効させる。Pydanticが経路実行前に拒否する422は既存の予約有効期限（120秒）で失効する。
+- 既存のUUID予約／進捗照会／キャンセルAPIと接続し、エンコード中の取消は停止確認後にcancelled、最終公開中の取消は受理せず、成功は公開完了後に100%。例外時はfailedを記録してロック解放。HTTP接続切断でもworkerの公開／復旧が終わるまでファイル保護ロックを保持する。
+- 既存セリフ・一括MOVのAPI、進捗・キャンセル、OTIO、Python全体回帰とブラウザCIを変更せずPASS確認する。#55の内部レンダラーと#57のHTTP経路の独立監査を分け、実PSD／Resolveは後日Human確認。UIやJSONからの操作・ループライブラリは本Issueの合格対象外。
+
 ## Public Issue #55 — 無音の場面専用待機MOV・内部描画基盤
 
 - Python合成PSDで、固定プリセット・指定フレーム数・24/30/60fpsの透過ProRes 4444 MOVを生成。独立全フレーム復号検証後にのみ公開し、映像フレーム数が正確で、同一姿勢は同じ復号画素、音声ストリーム・個別OTIOは存在しないことを確認する。瞬きONでは既存の閉眼グループ割当を使用し、決定的な揺らぎ0の例で開眼／閉眼画素が別々の指定フレームへ出ることを検証する。
