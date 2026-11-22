@@ -167,7 +167,7 @@ export function serializeProjectFile(
         source_identity: value.wav.source_identity,
       },
       presetId: value.presetId, presetChanges: value.presetChanges ?? [],
-      idleAfter: value.idleAfter ?? null,
+      ...(value.idleAfter ? { idleAfter: value.idleAfter } : {}),
       mode: value.mode, fps: value.fps,
       outputDir: value.outputDir,
       basename: soloMovName(value, index + 1, naming),

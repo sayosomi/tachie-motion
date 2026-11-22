@@ -387,11 +387,9 @@ export function useBatchUtteranceExport(
           sample_rate: segment.plan.item.wav.sample_rate,
           conflict_policy: segment.plan.conflict_policy,
         }) : ({
+          ...idlePayload(draft, psdIdentity!, segment.plan),
           kind: "idle", item_id: segment.plan.idle.id, reuse: false,
-          basename: segment.plan.basename, psd: draft.path,
-          fingerprint: draft.fingerprint, source_identity: psdIdentity!,
-          fps: segment.plan.idle.fps, frames: segment.plan.idle.frames,
-          conflict_policy: segment.plan.conflict_policy,
+          frames: segment.plan.idle.frames,
         })),
       });
       if (!session.batch_id) throw new Error("一括書き出しのセッションを開始できません");

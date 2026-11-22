@@ -81,6 +81,7 @@ class Planned:
     psd: Path | None = None
     frames: int | None = None
     fingerprint: str | None = None
+    render_options: dict | None = None
 
 
 @dataclass
@@ -168,9 +169,14 @@ class BatchCoordinator:
                     raise ValueError("Idle batch needs a stable item ID")
                 policy = raw["conflict_policy"]
                 prior = initial_single_identity(folder / (raw["basename"] + ".mov"), policy)
+                if type(raw.get("layers")) is not list or type(raw.get("blink_enabled")) is not bool:
+                    raise ValueError("Idle render settings must be bound at batch start")
+                options = {key: raw.get(key) for key in (
+                    "layers", "blink_enabled", "eyes", "eye_groups", "blink_timing")}
                 planned.append(Planned(raw["basename"], None, source_identity, fps, 0, 0,
                                        policy, prior, item_id=stable_id, kind="idle",
-                                       psd=psd, frames=frames, fingerprint=fingerprint))
+                                       psd=psd, frames=frames, fingerprint=fingerprint,
+                                       render_options=options))
                 continue
             if kind != "speech":
                 raise ValueError("Unsupported batch segment kind")
@@ -300,7 +306,8 @@ class BatchCoordinator:
 
     def before_idle(self, token: str, index: int, folder: Path, basename: str,
                     psd: Path, source_identity: str, fingerprint: str,
-                    fps: int, frames: int, policy: str) -> None:
+                    fps: int, frames: int, policy: str,
+                    render_options: dict) -> None:
         session = self._session(token)
         if index != session.next_index or index < 0 or index >= len(session.entries):
             raise ValueError("Batch idle MOV order has changed")
@@ -309,7 +316,8 @@ class BatchCoordinator:
                 original.basename != basename or original.psd != psd or
                 original.source_identity != source_identity or
                 original.fingerprint != fingerprint or original.fps != fps or
-                original.frames != frames or original.conflict_policy != policy):
+                original.frames != frames or original.conflict_policy != policy or
+                original.render_options != render_options):
             raise ValueError("Idle MOV does not match the approved manifest")
         if (source_token(psd) != source_identity or
                 psd_snapshot_token(str(psd)) != fingerprint):

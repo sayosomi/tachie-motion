@@ -130,6 +130,11 @@ class BatchPlannedMedia(BaseModel):
     lab_source_identity: str | None = None
     fps: int
     frames: int | None = None
+    layers: list[dict] | None = None
+    blink_enabled: bool | None = None
+    eyes: dict | None = None
+    eye_groups: list[str] | None = None
+    blink_timing: dict | None = None
     samples: int | None = None
     sample_rate: int | None = None
     conflict_policy: str
@@ -706,7 +711,10 @@ async def preset_batch_idle_export(payload: BatchIdleRequest):
             app.state.batch.before_idle(
                 payload.batch_id, payload.batch_index, canonical, payload.basename,
                 psd, payload.source_identity, payload.fingerprint,
-                payload.fps, payload.frame_count, payload.conflict_policy)
+                payload.fps, payload.frame_count, payload.conflict_policy,
+                {"layers": payload.layers, "blink_enabled": payload.blink_enabled,
+                 "eyes": payload.eyes, "eye_groups": payload.eye_groups,
+                 "blink_timing": payload.blink_timing})
             try:
                 app.state.export_progress.item(payload.batch_id, payload.batch_index)
                 stage = app.state.batch.staged_folder(payload.batch_id)

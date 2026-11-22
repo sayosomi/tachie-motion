@@ -124,6 +124,7 @@ class BatchGenerationApiTests(unittest.TestCase):
                     "fingerprint": info["fingerprint"],
                     "source_identity": info["source_identity"],
                     "fps": 30, "frames": 60, "conflict_policy": policy,
+                    "layers": self.base["layers"], "blink_enabled": False,
                 })
             else:
                 entries.append({
@@ -203,6 +204,7 @@ class BatchGenerationApiTests(unittest.TestCase):
                 "psd": str(self.psd), "fingerprint": info["fingerprint"],
                 "source_identity": info["source_identity"], "fps": 30,
                 "frames": 30, "conflict_policy": "error",
+                "layers": self.base["layers"], "blink_enabled": False,
             }],
         })
         self.assertEqual(response.status_code, 400, response.text)
