@@ -4,7 +4,9 @@ An OTIO is untrusted input: its history is only a *candidate*. Verify its
 schema, both track references, current input bytes and output MOV bytes before
 granting reuse. A corrupt/legacy OTIO never grants reuse.
 """
+import hashlib
 import json
+import os
 from pathlib import Path
 import stat
 from typing import Any
@@ -35,7 +37,23 @@ def load_saved_movies(folder: Path, timeline_name: str) -> dict[str, SavedMovie]
         before = digest_regular_file(path)
         if before.size > _MAX_OTIO_BYTES:
             return {}
-        raw = path.read_bytes()
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) |
+                     getattr(os, "O_NONBLOCK", 0))
+        try:
+            identity = os.fstat(fd)
+            if (not stat.S_ISREG(identity.st_mode) or
+                    (identity.st_dev, identity.st_ino, identity.st_ctime_ns,
+                     identity.st_size, identity.st_mtime_ns) != before.identity):
+                return {}
+            raw = os.read(fd, _MAX_OTIO_BYTES + 1)
+            after = os.fstat(fd)
+            if (len(raw) != before.size or
+                    hashlib.sha256(raw).hexdigest() != before.sha256 or
+                    (after.st_dev, after.st_ino, after.st_ctime_ns,
+                     after.st_size, after.st_mtime_ns) != before.identity):
+                return {}
+        finally:
+            os.close(fd)
         if digest_regular_file(path) != before:
             return {}
         doc = json.loads(raw)
