@@ -40,7 +40,9 @@ def probe_embedded_pcm(movie: Path) -> WaveTiming:
 def create_combined_otio(folder: Path, basename: str, entries: list[dict],
                          conflict_policy: str,
                          expected_identities: dict[str, tuple] | None = None,
-                         reference_folder: Path | None = None) -> dict:
+                         reference_folder: Path | None = None,
+                         generation_history: dict | None = None,
+                         reused_basenames: set[str] | None = None) -> dict:
     validate_media_basename(basename)
     if not entries or len(entries) > 2000:
         raise ValueError("Combined timeline requires 1–2000 MOV entries")
@@ -54,7 +56,10 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
         if key in names:
             raise ValueError("Duplicate media basename")
         names.add(key)
-        mov = folder / (name + ".mov")
+        is_reused = name in (reused_basenames or set())
+        if is_reused and reference_folder is None:
+            raise ValueError("Reused MOV needs its published folder")
+        mov = (reference_folder if is_reused else folder) / (name + ".mov")
         if not mov.is_file() or mov.is_symlink():
             raise ValueError("Missing or unsafe MOV: " + name)
         if expected_identities is not None and published_media_identity(mov) != expected_identities.get(name):
@@ -71,6 +76,11 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
 
     document = build_combined_utterances([(mov, movie, audio)
                                          for mov, movie, audio, _ in verified])
+    if generation_history is not None:
+        from tachie_motion.web.selective_reuse import decode_history
+        if len(decode_history(generation_history)) != len(entries):
+            raise ValueError("Incomplete generation history for combined OTIO")
+        document["metadata"]["tachie_motion_selective"] = generation_history
     if reference_folder is not None:
         # Render/verify staged MOVs but refer to final published MOV paths.
         # Both tracks use plain filesystem paths for Resolve compatibility.
@@ -80,6 +90,9 @@ def create_combined_otio(folder: Path, basename: str, entries: list[dict],
                 media = clip["media_references"]["DEFAULT_MEDIA"]
                 media["target_url"] = str(final.absolute())
                 media["name"] = final.name
+    if generation_history is not None:
+        from tachie_motion.web.selective_attestation import sign_timeline
+        sign_timeline(document)
     with tempfile.TemporaryDirectory(prefix=".tachie-timeline-", dir=folder) as tmp:
         staged = Path(tmp) / "timeline.otio"
         write_otio(document, staged)

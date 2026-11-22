@@ -343,8 +343,8 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .utterance-list-panel { margin:0 0 20px; }
 .utterance-list-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .utterance-list-header .meta { margin:0; }
-.utterance-items { list-style:none; padding:0; margin:15px 0 0; max-height:350px;
-  overflow-y:auto; border:1px solid #31465b; border-radius:9px; }
+.utterance-items { list-style:none; padding:0; margin:15px 0 0;
+  overflow:visible; border:1px solid #31465b; border-radius:9px; }
 .utterance-item { display:grid; grid-template-columns:minmax(0,1fr) auto;
   align-items:center; gap:8px; padding:7px; border-bottom:1px solid #263a4b; }
 .utterance-item:last-child { border-bottom:0; }
@@ -376,9 +376,9 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   gap:10px; align-items:center; padding:8px;
 }
 .utterance-list-columns { padding-bottom:0; margin-top:12px; color:#9cb4c7;
-  font-size:12px; font-weight:700; overflow-y:auto; scrollbar-gutter:stable; }
-/* Both the scrollable rows and their separate header reserve the same scrollbar gutter. */
-.utterance-items { scrollbar-gutter:stable; }
+  font-size:12px; font-weight:700; overflow-y:visible; }
+/* WAV editors expand in normal page flow. Avoid a header-only scrollbar gutter. */
+.utterance-items { scrollbar-gutter:auto; }
 .utterance-item-actions { min-width:0; }
 .utterance-column-name { grid-column:3; }
 .utterance-column-preset { grid-column:4; }
@@ -407,11 +407,21 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
 .utterance-item-actions { grid-column:6; grid-row:1; }
 .utterance-row-progress { grid-column:3 / 6; grid-row:2; display:flex; align-items:center; gap:12px;
   padding:0 8px 7px; min-width:0; }
+.utterance-item-edit-toggle { grid-column:3 / -1; grid-row:2; justify-self:start;
+  display:flex; flex-wrap:wrap; gap:12px; align-items:center;
+  min-height:34px; padding:5px 10px; font-size:12px; border:1px solid #42647b;
+  border-radius:5px; background:#192e42; color:#d8f4ec; }
+.utterance-item-edit-toggle .meta { font-size:11px; color:#a9c1d4; }
+.utterance-item-editor { grid-column:1 / -1; grid-row:3; min-width:0; width:100%;
+  padding:7px 0 2px; }
+.utterance-item-editor .preset-change-editor { background:#132536; border-color:#3c5c72; }
+
 .wav-timeline { flex:1; min-width:0; }
 .wav-timeline input[type="range"] { display:block; width:100%; min-width:0; margin:4px 0; }
 .wav-waveform { height:40px; border-radius:4px; background:#142937;
   cursor:ew-resize; touch-action:none; overflow:hidden; }
-.wav-waveform svg { display:block; width:100%; height:100%; pointer-events:none; }
+.wav-waveform svg { display:block; width:100%; height:100%; }
+.wav-waveform svg path, .wav-waveform svg line:not([data-change-marker]) { pointer-events:none; }
 .wav-waveform path { fill:none; stroke:#95dccc; stroke-width:1.4; }
 .wav-waveform line { stroke:#f6d795; stroke-width:1.4; }
 .wav-waveform:has(+ input:disabled) { opacity:.6; cursor:default; }
@@ -451,11 +461,15 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   .utterance-row-mode { grid-column:3; grid-row:3; }
   .utterance-item-actions { grid-column:4; grid-row:1 / 4; align-self:center; }
   .utterance-row-progress { grid-column:3 / 5; grid-row:4; }
+  .utterance-item-edit-toggle { grid-column:3 / 5; grid-row:4; }
+  .utterance-item-editor { grid-column:1 / -1; grid-row:5; }
 }
 @media(max-width:650px) {
   .utterance-item { grid-template-columns:30px 34px minmax(0,1fr); }
   .utterance-item-actions { grid-column:3; grid-row:4; justify-content:flex-end; }
   .utterance-row-progress { grid-column:2 / 4; grid-row:5; }
+  .utterance-item-edit-toggle { grid-column:2 / 4; grid-row:5; }
+  .utterance-item-editor { grid-row:6; }
   .export-plan-items li { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
   .export-plan-items .export-plan-path { grid-column:1 / -1; }
   .export-plan-items li > span:nth-child(5) { grid-column:1 / -1; }
@@ -471,6 +485,8 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   .utterance-row-mode { grid-column:2; grid-row:3; }
   .utterance-item-actions { grid-column:3; grid-row:1 / 4; }
   .utterance-row-progress { grid-column:2 / 4; grid-row:4; }
+  .utterance-item-edit-toggle { grid-column:2 / 4; grid-row:4; }
+  .utterance-item-editor { grid-row:5; }
 }
 
 
@@ -611,4 +627,42 @@ footer { margin:28px 0 0; padding-top:15px; text-align:center; color:#60788e; fo
   .export-progress-dialog { border-radius:14px; max-height:calc(100dvh - 20px); }
   .export-progress-percent { margin:15px auto; }
   .export-progress-details { padding:13px; }
+}
+
+/* WAV edit points: the list rows themselves are the only edit form. */
+.preset-change-editor { display:grid; gap:8px; min-width:0; width:100%;
+  padding:10px; border:1px solid #48667b; border-radius:7px; }
+.preset-change-editor .wav-waveform { height:64px; }
+.preset-change-editor .wav-waveform:focus-visible { outline:2px solid #a5e6d8; outline-offset:2px; }
+.preset-change-ticks { display:flex; justify-content:space-between;
+  color:#a7bacb; font-size:11px; font-variant-numeric:tabular-nums; }
+.preset-change-fallback { margin:0; }
+.preset-change-table-heading, .preset-change-point {
+  display:grid; grid-template-columns:110px 95px minmax(160px,320px) 34px;
+  gap:8px; align-items:center; min-width:0; }
+.preset-change-table-heading { font-size:11px; color:#a6bfce; padding:2px 4px; }
+.preset-change-points { display:grid; gap:0; margin:0; padding:0; list-style:none; }
+.preset-change-point { padding:5px 4px; border-bottom:1px solid #355065; }
+.preset-change-point[data-selected="true"] { background:#1d394b; }
+.preset-change-point > input { box-sizing:border-box; height:35px; width:100%;
+  min-width:0; padding:5px 8px; font-variant-numeric:tabular-nums; font-size:12px; }
+.preset-change-point > input[aria-invalid="true"] { outline:2px solid #d88d85; }
+.preset-change-point .preset-picker { width:100%; min-width:0; max-width:320px; }
+.preset-change-point .preset-picker-trigger { min-height:38px; padding:3px 6px; }
+.preset-change-point .preset-picker-thumb { width:36px; height:27px; flex-basis:36px; }
+.preset-change-remove { width:34px; height:34px; min-height:34px;
+  padding:0; border:1px solid #496478; border-radius:5px;
+  background:#1e3649; color:#cbdfe9; font-size:19px; cursor:pointer; }
+.preset-change-remove:hover { color:#fff; border-color:#b4cbd8; }
+.preset-change-add-button { justify-self:start; font-size:12px;
+  min-height:35px; padding:6px 12px; }
+.wav-waveform svg .preset-change-marker { opacity:.85; cursor:ew-resize;
+  pointer-events:stroke; stroke-width:8px; stroke:#efb866; }
+@media (max-width:650px) {
+  .preset-change-editor { padding:7px; }
+  .preset-change-table-heading, .preset-change-point {
+    grid-template-columns:minmax(66px,85px) minmax(66px,80px) minmax(100px,1fr) 30px;
+    gap:5px; }
+  .preset-change-point > input { font-size:11px; padding:4px; }
+  .preset-change-remove { width:30px; }
 }

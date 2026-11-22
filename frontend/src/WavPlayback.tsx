@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { wavFilename, type UtteranceItem } from "./utteranceItems";
+import type { UtteranceItem } from "./utteranceItems";
 import { decodeWavPeaks } from "./wavPeaks";
 
 type Source = Pick<UtteranceItem, "id" | "wavPath">;
@@ -11,7 +11,7 @@ export type WavPlaybackControls = {
   elapsed: number;
   waveform: { sourceId: string; peaks: number[] } | null;
   status: string;
-  toggleItem: (id: string) => void;
+  toggleItem: (id: string, startSeconds?: number) => void;
   playAll: () => void;
   stop: () => void;
   seek: (seconds: number) => void;
@@ -26,6 +26,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
   const objectUrl = useRef<string | null>(null);
   const source = useRef<Source | null>(null);
   const generation = useRef(0);
+  const pendingStart = useRef<{ epoch: number; seconds: number } | null>(null);
   const playlist = useRef<Source[]>([]);
   const playlistIndex = useRef(0);
   const allMode = useRef(false);
@@ -38,6 +39,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
   const [status, setStatus] = useState("");
 
   function discardSource() {
+    pendingStart.current = null;
     waveformPending.current?.abort();
     waveformPending.current = null;
     pending.current?.abort();
@@ -102,15 +104,19 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
     if (activeId && !items.some((item) => item.id === activeId)) stop();
   }, [items, activeId]);
 
-  async function startSource(item: Source) {
+  async function startSource(item: Source, fromSeconds = 0) {
     const epoch = ++generation.current;
     discardSource();
+    // Retain a user-selected waveform cursor until metadata provides the real duration.
+    if (Number.isFinite(fromSeconds) && fromSeconds > 0) {
+      pendingStart.current = { epoch, seconds: fromSeconds };
+    }
     source.current = item;
     setActiveId(item.id);
     setPaused(false);
     setLoading(true);
     setElapsed(0);
-    setStatus("音声を読み込み中: " + wavFilename(item.wavPath));
+    setStatus("");
     const controller = new AbortController();
     pending.current = controller;
     try {
@@ -145,7 +151,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
       await player.play();
       if (epoch === generation.current) {
         setLoading(false);
-        setStatus("再生中: " + wavFilename(item.wavPath));
+        setStatus("");
       }
     } catch (error) {
       if (epoch !== generation.current || controller.signal.aborted) return;
@@ -165,7 +171,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
     });
   }
 
-  function toggleItem(id: string) {
+  function toggleItem(id: string, startSeconds = 0) {
     const item = items.find((entry) => entry.id === id);
     if (!item) return;
     // Clicking an already-loading row is cancellation, not a second fetch.
@@ -182,7 +188,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
     allMode.current = false;
     playlist.current = [];
     setMode("single");
-    void startSource(item);
+    void startSource(item, startSeconds);
   }
 
   function playAll() {
@@ -208,7 +214,7 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
       setPaused(false);
       setLoading(false);
       setElapsed(0);
-      setStatus("再生が終了しました");
+      setStatus("");
     }
   }
 
@@ -222,18 +228,28 @@ export default function useWavPlayback(items: UtteranceItem[]): WavPlaybackContr
 
   const audioElement = <div className="utterance-playback" hidden>
     <audio ref={audio} preload="none" onEnded={onEnded} onError={onMediaError}
+      onLoadedMetadata={() => {
+        const pendingPosition = pendingStart.current;
+        const player = audio.current;
+        if (pendingPosition && player &&
+            pendingPosition.epoch === generation.current) {
+          pendingStart.current = null;
+          player.currentTime = Math.max(0, Math.min(
+            pendingPosition.seconds, player.duration || pendingPosition.seconds));
+        }
+      }}
       onTimeUpdate={() => setElapsed(audio.current?.currentTime ?? 0)}
       onPause={() => {
         if (!objectUrl.current || !source.current) return;
         setPaused(true);
         setLoading(false);
-        setStatus("一時停止: " + wavFilename(source.current.wavPath));
+        setStatus("");
       }}
       onPlay={() => {
         if (!objectUrl.current || !source.current) return;
         setPaused(false);
         setLoading(false);
-        setStatus("再生中: " + wavFilename(source.current.wavPath));
+        setStatus("");
       }}
       aria-label="WAV試聴プレーヤー" />
   </div>;

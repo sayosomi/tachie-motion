@@ -46,6 +46,12 @@ async function openSpeech(page: Page) {
     return route.fulfill({ json: { mov: "/tmp/output/" + body.basename + ".mov",
       frames: 30, sample_count: 800, sample_rate: 8000 } });
   });
+  await page.route("**/api/preset-batch-reuse-candidate", (route) => {
+    const request = route.request().postDataJSON() as { suggested_basename: string };
+    return route.fulfill({ json: {
+      basename: request.suggested_basename, reuse: false,
+    } });
+  });
   await page.route("**/api/preset-batch-check-names", (route) =>
     route.fulfill({ json: { valid: true } }));
   await page.route("**/api/preset-batch-start", (route) =>
@@ -298,12 +304,16 @@ test("browser WAV controls read through bounded POST API for single and all play
   await openSpeech(page);
   await addWav(page, "/tmp/a.wav");
   await addWav(page, "/tmp/b.wav");
+  await page.getByRole("button", { name: /プリセット編集を閉じる/ }).click();
+  // The selected editor may load a waveform without starting playback.
+  const beforeSingle = requested.length;
   await page.locator(".utterance-item-play").nth(1).click();
-  await expect.poll(() => requested.length).toBe(1);
-  expect(requested[0]).toBe("/tmp/b.wav");
+  await expect.poll(() => requested.length - beforeSingle).toBe(1);
+  expect(requested[beforeSingle]).toBe("/tmp/b.wav");
+  const beforeAll = requested.length;
   await page.getByRole("button", { name: "全件を連続再生" }).click();
-  await expect.poll(() => requested.length, { timeout: 10000 }).toBe(3);
-  expect(requested).toEqual(["/tmp/b.wav", "/tmp/a.wav", "/tmp/b.wav"]);
+  await expect.poll(() => requested.length - beforeAll, { timeout: 10000 }).toBe(2);
+  expect(requested.slice(beforeAll)).toEqual(["/tmp/a.wav", "/tmp/b.wav"]);
 });
 
 test("batch exports every WAV in list order and retains individual failures", async ({ page }) => {
@@ -454,7 +464,7 @@ test("batch locks the preset selector throughout an in-progress render", async (
   await expect(presetTrigger(page.locator('[data-selected="true"]'))).toBeDisabled();
   await expect(presetTrigger(page.locator('[data-selected="true"]'))).toHaveAttribute("data-selected-preset-id", assignedPreset!);
   releaseFirst!();
-  await expect(page.getByText("一括書き出し完了：MOV 2件／全体OTIO", { exact: false }))
+  await expect(page.getByText("一括書き出し完了：MOV 2件（再利用 0件／再生成 2件）／全体OTIO", { exact: false }))
     .toBeVisible();
   await expect(presetTrigger(page.locator('[data-selected="true"]'))).toBeEnabled();
   expect(payloads.map((item) => item.wav)).toEqual(["/tmp/a.wav", "/tmp/b.wav"]);
@@ -488,8 +498,10 @@ test("media error stops the playlist and releases Blob URLs on error and on norm
   await openSpeech(page);
   await addWav(page, "/tmp/one.wav");
   await addWav(page, "/tmp/two.wav");
+  await page.getByRole("button", { name: /プリセット編集を閉じる/ }).click();
   const player = page.locator(".utterance-playback audio");
 
+  const beforeFirst = requests.length;
   await page.getByRole("button", { name: "全件を連続再生" }).click();
   await expect(player).toHaveAttribute("src", /^blob:/);
   const brokenUrl = await player.getAttribute("src");
@@ -500,24 +512,25 @@ test("media error stops the playlist and releases Blob URLs on error and on norm
   const firstRevoked = await page.evaluate(
     () => (window as Window & { __revokedBlobUrls: string[] }).__revokedBlobUrls);
   expect(firstRevoked).toContain(brokenUrl);
-  expect(requests).toEqual(["/tmp/one.wav"]);
+  expect(requests.slice(beforeFirst)).toEqual(["/tmp/one.wav"]);
 
+  const beforeRestart = requests.length;
   await page.getByRole("button", { name: "全件を連続再生" }).click();
-  await expect.poll(() => requests.length).toBe(2);
+  await expect.poll(() => requests.length - beforeRestart).toBe(1);
   await expect.poll(async () => {
     const src = await player.getAttribute("src");
     return Boolean(src?.startsWith("blob:"));
   }).toBe(true);
   const firstUrl = await player.getAttribute("src");
   await player.evaluate((node) => node.dispatchEvent(new Event("ended")));
-  await expect.poll(() => requests.length).toBe(3);
+  await expect.poll(() => requests.length - beforeRestart).toBe(2);
   await expect.poll(async () => {
     const src = await player.getAttribute("src");
     return Boolean(src?.startsWith("blob:") && src !== firstUrl);
   }).toBe(true);
   const secondUrl = await player.getAttribute("src");
   await player.evaluate((node) => node.dispatchEvent(new Event("ended")));
-  await expect(page.getByText("再生が終了しました")).toBeVisible();
+  await expect(page.getByText("再生が終了しました")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "停止" })).toBeDisabled();
   await expect.poll(async () => player.evaluate((node) => node.hasAttribute("src"))).toBe(false);
   const revoked = await page.evaluate(
@@ -679,7 +692,7 @@ test("batch preview is invalidated when the actual destination changes before ex
   await page.getByRole("radio", { name: /^全件/ }).check();
   const plan = page.locator(".export-plan-items li").first();
   await expect(plan).toContainText("001_character_a.mov");
-  await expect(plan).toContainText("新規保存");
+  await expect(plan).toContainText("新規生成");
   outputExists = true;
   await page.getByRole("button", { name: "全件を書き出す" }).click();
   await expect(page.getByText("出力予定が変更されました", { exact: false })).toBeVisible();
@@ -702,6 +715,8 @@ test("clicking the loading WAV row cancels its fetch instead of starting a secon
   await openSpeech(page);
   await addWav(page, "/tmp/loading.wav");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await page.getByRole("button", { name: /プリセット編集を閉じる/ }).click();
+  const beforePlay = requests;
   await page.locator(".utterance-item-play").click();
   await expect.poll(() => Boolean(release)).toBe(true);
   await expect(page.getByRole("button", { name: /読み込み中止:/ })).toBeVisible();
@@ -714,7 +729,7 @@ test("clicking the loading WAV row cancels its fetch instead of starting a secon
   await expect(page.getByRole("button", { name: /再生: 1 loading.wav/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "停止" })).toBeDisabled();
   await expect(page.getByText("音声の再生に失敗:", { exact: false })).toHaveCount(0);
-  await expect.poll(() => requests).toBe(1);
+  await expect.poll(() => requests - beforePlay).toBe(1);
 });
 
 test("inline WAV pause, resume and seeking operate on the currently loaded audio", async ({ page }) => {
@@ -736,6 +751,8 @@ test("inline WAV pause, resume and seeking operate on the currently loaded audio
   await openSpeech(page);
   await addWav(page, "/tmp/long.wav");
   await expect(page.locator("[data-utterance-id]")).toHaveCount(1);
+  await page.getByRole("button", { name: /プリセット編集を閉じる/ }).click();
+  const beforePlay = requests.length;
   await page.locator(".utterance-item-play").click();
   const player = page.locator(".utterance-playback audio");
   await expect(page.getByRole("button", { name: /一時停止:/ })).toBeVisible();
@@ -753,7 +770,7 @@ test("inline WAV pause, resume and seeking operate on the currently loaded audio
   await expect(page.getByRole("button", { name: /一時停止:/ })).toBeVisible();
   await page.getByRole("button", { name: "停止", exact: true }).click();
   await expect.poll(() => player.evaluate((el) => el.hasAttribute("src"))).toBe(false);
-  expect(requests).toEqual(["/tmp/long.wav"]);
+  expect(requests.slice(beforePlay)).toEqual(["/tmp/long.wav"]);
 });
 
 
@@ -906,7 +923,7 @@ test("WAV list shows each item's preset and lip mode after editing and reorderin
 });
 
 
-test("desktop WAV headers align with dropdown columns both with and without a list scrollbar", async ({ page }) => {
+test("desktop WAV headers align while expanded WAV rows use page scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.route("**/api/wav", (route) => route.fulfill({
     json: { samples: 800, sample_rate: 8000, duration_seconds: 0.1 },
@@ -935,7 +952,7 @@ test("desktop WAV headers align with dropdown columns both with and without a li
   }
   await expect(page.locator("[data-utterance-id]")).toHaveCount(9);
   widths = await aligned();
-  expect(widths.scrollable).toBe(true);
+  expect(widths.scrollable).toBe(false);
   expect(Math.abs(widths.preset)).toBeLessThanOrEqual(2);
   expect(Math.abs(widths.mode)).toBeLessThanOrEqual(2);
 });
@@ -991,7 +1008,7 @@ test("an edit in the same JS turn as starting batch export is rejected by the sy
     .toHaveAttribute("data-selected", "true");
   await expect(page.locator(".utterance-row-mode select:disabled")).toHaveCount(2);
   releaseExport!();
-  await expect(page.getByText("一括書き出し完了：MOV 2件／全体OTIO", { exact: false }))
+  await expect(page.getByText("一括書き出し完了：MOV 2件（再利用 0件／再生成 2件）／全体OTIO", { exact: false }))
     .toBeVisible();
 });
 
@@ -1001,7 +1018,7 @@ test("preset verification failure is not displayed as a missing assigned preset"
   }));
   await openSpeech(page);
   await addWav(page, "/tmp/voice.wav");
-  const preset = page.locator("[data-utterance-id] .preset-picker-trigger");
+  const preset = page.locator("[data-utterance-id] .utterance-row-preset .preset-picker-trigger");
   await expect(preset).toBeEnabled();
 
   await page.getByRole("button", { name: "プリセット", exact: true }).click();
@@ -1105,7 +1122,7 @@ test("batch naming shows exact preview and creates one combined OTIO for reorder
     } });
   });
   await page.getByRole("button", { name: "全件を書き出す" }).click();
-  await expect(page.getByText("一括書き出し完了：MOV 2件／全体OTIO", { exact: false }))
+  await expect(page.getByText("一括書き出し完了：MOV 2件（再利用 0件／再生成 2件）／全体OTIO", { exact: false }))
     .toBeVisible();
   expect(order).toEqual(["001_あんこもん_あいさつ", "002_あんこもん_e\u0301"]);
   expect(timelinePayload?.basename).toBe("さよそみ動画");
@@ -1254,7 +1271,7 @@ for (const sample of [
         body.timeline_basename === "project_002" &&
         JSON.stringify(body.basenames) === JSON.stringify(sample.resolved))).toBe(true);
       await page.getByRole("button", { name: "全件を書き出す" }).click();
-      await expect(page.getByText("一括書き出し完了：MOV 2件／全体OTIO", { exact: false }))
+      await expect(page.getByText("一括書き出し完了：MOV 2件（再利用 0件／再生成 2件）／全体OTIO", { exact: false }))
         .toBeVisible();
       expect(startPayload?.timeline_basename).toBe("project_002");
       expect(startPayload?.entries.map((entry) => entry.basename)).toEqual(sample.resolved);
@@ -1412,7 +1429,7 @@ test("batch manifest and actual MOV requests agree for valid LAB none/open/aiueo
   await page.getByRole("radio", { name: /^全件/ }).check();
   await expect(page.locator(".export-plan-items li")).toHaveCount(4);
   await page.getByRole("button", { name: "全件を書き出す" }).click();
-  await expect(page.getByText("一括書き出し完了：MOV 4件／全体OTIO", { exact: false }))
+  await expect(page.getByText("一括書き出し完了：MOV 4件（再利用 0件／再生成 4件）／全体OTIO", { exact: false }))
     .toBeVisible();
 
   expect(manifests).toHaveLength(1);
@@ -1570,7 +1587,8 @@ test("WAV waveform seeks and drops old peaks after switching sources", async ({ 
   const second = rows.nth(1).locator(".wav-waveform");
   await expect(second.locator("path")).toHaveAttribute("d", /^M/);
   expect(await second.locator("path").getAttribute("d")).not.toBe(firstWave);
-  expect(requests).toEqual(["/tmp/one.wav", "/tmp/two.wav"]);
+  expect(requests).toContain("/tmp/one.wav");
+  expect(requests).toContain("/tmp/two.wav");
 });
 
 test("unavailable waveform decoder preserves native WAV seek slider", async ({ page }) => {
@@ -1679,7 +1697,8 @@ test("waveform decodes one WAV at a time and cancels queued stale generations", 
   expect(final.maxActive).toBe(1);
   expect(final.rates).toEqual([8000, 8000]); // never upsample to default 48 kHz
   await page.getByRole("button", { name: "停止", exact: true }).click();
-  await expect(page.locator(".wav-waveform")).toHaveCount(0);
+  // The selected WAV remains editable after playback stops.
+  await expect(row.nth(2).locator(".preset-change-editor")).toBeVisible();
 });
 
 test("PCM memory estimate skips a small compressed-byte WAV before AudioContext allocation", async ({ page }) => {
@@ -1716,4 +1735,451 @@ test("PCM memory estimate skips a small compressed-byte WAV before AudioContext 
   await expect(page.locator(".wav-waveform")).toHaveCount(0);
   expect(await page.evaluate(() =>
     (window as Window & { __waveContextCount: number }).__waveContextCount)).toBe(0);
+});
+
+test("preset change points stay independent per WAV and reach the solo render payload", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  const requests: Array<Record<string, unknown>> = [];
+  await page.route("**/api/preset-utterance-export", (route) => {
+    requests.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill({ json: {
+      mov: "/tmp/output/timeline.mov", frames: 30, sample_count: 1000,
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/first.wav");
+  await addWav(page, "/tmp/second.wav");
+  const rows = page.locator("[data-utterance-id]");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
+  let editor = page.locator(".preset-change-editor");
+  const add = () => editor.getByRole("button", { name: /編集点を追加/ });
+  // One waveform/slider and directly editable rows, not a second add form.
+  await expect(editor.locator(".preset-change-add")).toHaveCount(0);
+  await expect(editor.locator(".preset-change-initial")).toHaveCount(0);
+  await editor.getByRole("slider", { name: /再生位置/ }).press("ArrowRight");
+  await add().click();
+  await expect(editor.locator(".preset-change-points li")).toHaveCount(1);
+  const time = editor.getByRole("spinbutton", { name: "編集点の時刻（秒）" });
+  await time.fill("0.3");
+  await time.press("Enter");
+  await expect(editor.locator('[data-edit-point="300"]')).toHaveCount(1);
+  await expect(add()).toBeDisabled(); // No duplicate at the same sample.
+
+  await rows.first().locator(".utterance-item-select").click();
+  editor = page.locator(".preset-change-editor");
+  await expect(editor.locator(".preset-change-points li")).toHaveCount(0);
+  await editor.getByRole("slider", { name: /再生位置/ }).press("ArrowRight");
+  await add().click();
+  const firstTime = editor.getByRole("spinbutton", { name: "編集点の時刻（秒）" });
+  await firstTime.fill("0.2");
+  await firstTime.press("Enter");
+  await expect(editor.locator('[data-edit-point="200"]')).toHaveCount(1);
+
+  await rows.nth(1).locator(".utterance-item-select").click();
+  editor = page.locator(".preset-change-editor");
+  const secondTime = editor.getByRole("spinbutton", { name: "編集点の時刻（秒）" });
+  await expect(secondTime).toHaveValue("0.3");
+  await secondTime.fill("0.4");
+  await secondTime.press("Enter");
+  await expect(editor.locator('[data-edit-point="400"]')).toHaveCount(1);
+
+  await page.getByRole("button", { name: "MOVを書き出す" }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].wav).toBe("/tmp/second.wav");
+  expect(requests[0].timeline_changes).toMatchObject([
+    { sample: 400, mode: "none", preset_id: expect.any(String) },
+  ]);
+  await page.getByRole("button", { name: "編集画面に戻る" }).click();
+  await rows.first().locator(".utterance-item-select").click();
+  editor = page.locator(".preset-change-editor");
+  await expect(editor.locator('[data-edit-point="200"]')).toHaveCount(1);
+  await editor.getByRole("button", { name: "編集点を削除" }).click();
+  await expect(editor.locator(".preset-change-points li")).toHaveCount(0);
+});
+
+test("change points stay editable through slider when audio waveform is unavailable", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 800, sample_rate: 8000, duration_seconds: 0.1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  await page.route("**/api/wav-playback", (route) =>
+    route.fulfill({ status: 404, json: { detail: "unavailable" } }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/no-waveform.wav");
+  const editor = page.locator(".preset-change-editor");
+  await expect(editor.locator(".wav-waveform")).toHaveCount(0);
+  const slider = editor.getByRole("slider", { name: /再生位置/ });
+  await slider.focus();
+  for (let step = 0; step < 5; step++) await slider.press("ArrowRight");
+  await editor.getByRole("button", { name: /編集点を追加/ }).click();
+  await expect(editor.locator('[data-edit-point="400"]')).toHaveCount(1);
+  await expect(editor.locator(".preset-change-marker")).toHaveCount(0);
+  const percentage = editor.getByRole("spinbutton", { name: "編集点の位置（%）" });
+  await percentage.fill("75");
+  await percentage.press("Enter");
+  await expect(editor.locator('[data-edit-point="600"]')).toHaveCount(1);
+  await expect(editor.locator(".wav-waveform")).toHaveCount(0);
+});
+
+test("Escape cancels both edit-point fields before blur can commit", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+  } }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/cancel.wav");
+  const editor = page.locator(".preset-change-editor");
+  await editor.getByRole("slider", { name: /再生位置/ }).press("ArrowRight");
+  await editor.getByRole("button", { name: /編集点を追加/ }).click();
+  const row = editor.locator(".preset-change-point");
+  const initial = Number(await row.getAttribute("data-edit-point"));
+  expect(initial).toBeGreaterThan(0);
+  const seconds = editor.getByRole("spinbutton", { name: "編集点の時刻（秒）" });
+  const percent = editor.getByRole("spinbutton", { name: "編集点の位置（%）" });
+  const originalSeconds = await seconds.inputValue();
+  const originalPercent = await percent.inputValue();
+
+  await seconds.fill("0.7");
+  await seconds.press("Escape");
+  await expect(row).toHaveAttribute("data-edit-point", String(initial));
+  await expect(seconds).toHaveValue(originalSeconds);
+  await expect(percent).toHaveValue(originalPercent);
+  await seconds.fill("-3");
+  await seconds.press("Escape");
+  await expect(row).toHaveAttribute("data-edit-point", String(initial));
+
+  await percent.fill("80");
+  await percent.press("Escape");
+  await expect(row).toHaveAttribute("data-edit-point", String(initial));
+  await expect(percent).toHaveValue(originalPercent);
+  await percent.fill("100");
+  await percent.press("Escape");
+  await expect(row).toHaveAttribute("data-edit-point", String(initial));
+
+  await seconds.fill("0.6");
+  await seconds.press("Enter");
+  await expect(editor.locator('[data-edit-point="600"]')).toHaveCount(1);
+  await percent.fill("70");
+  await percent.press("Tab");
+  await expect(editor.locator('[data-edit-point="700"]')).toHaveCount(1);
+});
+
+test("a preset used by an initial WAV or edit point cannot be deleted", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+  } }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/first.wav");
+  const first = page.locator("[data-utterance-id]").first();
+  const initialId = await presetTrigger(first).getAttribute("data-selected-preset-id");
+  expect(initialId).toBeTruthy();
+
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await page.getByRole("button", { name: "＋ 作成" }).click();
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  const card = page.locator(".preset-card").filter({ hasText: "新しいプリセット" });
+  const addedId = await card.getAttribute("data-preset-id");
+  expect(addedId).toBeTruthy();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+
+  await addWav(page, "/tmp/second.wav");
+  const second = page.locator("[data-utterance-id]").nth(1);
+  await choosePreset(second, addedId!); // Referenced as an initial WAV preset.
+  await first.locator(".utterance-item-select").click();
+  const editor = first.locator(".preset-change-editor");
+  await editor.getByRole("slider", { name: /再生位置/ }).press("ArrowRight");
+  await editor.getByRole("button", { name: /編集点を追加/ }).click();
+  await editor.locator(".preset-change-point .preset-picker-trigger").click();
+  await editor.locator(`.preset-change-point .preset-picker-option[data-preset-id="${addedId}"]`).click();
+  await expect(editor.locator(".preset-change-point .preset-picker-trigger"))
+    .toHaveAttribute("data-selected-preset-id", addedId!);
+
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  const alert = page.getByRole("alert").filter({ hasText: "使用中" });
+  await expect(alert).toContainText("WAV 2件");
+  await expect(alert).toContainText("first.wav");
+  await expect(alert).toContainText("second.wav");
+  await expect(card).toHaveCount(1);
+
+  // Only the explicit assignments are changed; all other WAV data survives.
+  await page.getByRole("button", { name: "エラーを閉じる" }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await choosePreset(second, initialId!);
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "使用中" }))
+    .toContainText("WAV 1件");
+  await expect(card).toHaveCount(1); // The remaining edit point alone protects B.
+  await page.getByRole("button", { name: "エラーを閉じる" }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await first.locator(".utterance-item-select").click();
+  await editor.getByRole("button", { name: "編集点を削除" }).click();
+  await expect(editor.locator(".preset-change-point")).toHaveCount(0);
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(card).toHaveCount(0);
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await expect(presetTrigger(first)).toHaveAttribute("data-selected-preset-id", initialId!);
+  await expect(presetTrigger(second)).toHaveAttribute("data-selected-preset-id", initialId!);
+});
+
+test("pending WAV inspection blocks preset deletion across screens until its row is committed", async ({ page }) => {
+  let releaseInspection: (() => void) | undefined;
+  await page.route("**/api/wav", async (route) => {
+    await new Promise<void>((resolve) => { releaseInspection = resolve; });
+    await route.fulfill({ json: {
+      samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/pending.wav");
+  await expect.poll(() => Boolean(releaseInspection)).toBe(true);
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  const card = page.locator(".preset-card").first();
+  await expect(card).toBeVisible();
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "WAVを登録中" })).toBeVisible();
+  await expect(card).toHaveCount(1);
+
+  releaseInspection!();
+  await page.getByRole("button", { name: "エラーを閉じる" }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  const row = page.locator("[data-utterance-id]");
+  await expect(row).toHaveCount(1);
+  await expect(row.first().locator("small").first()).toHaveText("/tmp/pending.wav");
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "使用中" }))
+    .toContainText("pending.wav");
+
+  await page.getByRole("button", { name: "エラーを閉じる" }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await page.getByRole("button", { name: "削除: 1 pending.wav" }).click();
+  await expect(row).toHaveCount(0);
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(card).toHaveCount(0);
+});
+
+test("a late WAV response cannot register a preset removed from persisted storage", async ({ page }) => {
+  let releaseInspection: (() => void) | undefined;
+  await page.route("**/api/wav", async (route) => {
+    await new Promise<void>((resolve) => { releaseInspection = resolve; });
+    await route.fulfill({ json: {
+      samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    } });
+  });
+  await openSpeech(page);
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await page.getByRole("button", { name: "＋ 作成" }).click();
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  await page.getByRole("button", { name: "セリフ", exact: true }).click();
+  await addWav(page, "/tmp/stale.wav");
+  await expect.poll(() => Boolean(releaseInspection)).toBe(true);
+  // Model a newer persisted preset snapshot from another tab while the API is pending.
+  await page.evaluate(() => {
+    const key = "tachie-motion.preset-draft.v2";
+    const saved = JSON.parse(localStorage.getItem(key)!) as {
+      collection: { items: Array<{ id: string }>; defaultId: string };
+    };
+    const formerDefault = saved.collection.defaultId;
+    saved.collection.items = saved.collection.items.filter((item) => item.id !== formerDefault);
+    saved.collection.defaultId = saved.collection.items[0].id;
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  releaseInspection!();
+  await expect(page.getByRole("alert").filter({ hasText: "登録開始時のプリセット" }))
+    .toContainText("登録し直してください");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(0);
+});
+
+test("a late WAV response rejects a same-ID preset with invalid PSD paths", async ({ page }) => {
+  let releaseInspection: (() => void) | undefined;
+  await page.route("**/api/wav", async (route) => {
+    await new Promise<void>((resolve) => { releaseInspection = resolve; });
+    await route.fulfill({ json: {
+      samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/invalid-same-id.wav");
+  await expect.poll(() => Boolean(releaseInspection)).toBe(true);
+  const otherTab = await page.context().newPage();
+  await otherTab.goto("/");
+  await otherTab.evaluate(() => {
+    const key = "tachie-motion.preset-draft.v2";
+    const saved = JSON.parse(localStorage.getItem(key)!) as {
+      collection: { items: Array<{ id: string; base: Array<{ path: string; visible: boolean }> }>;
+        defaultId: string };
+    };
+    const preset = saved.collection.items.find((item) => item.id === saved.collection.defaultId)!;
+    preset.base[0].path = "404"; // Valid JSON shape, but absent from the inspected PSD.
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  await otherTab.close();
+  releaseInspection!();
+  await expect(page.getByRole("alert").filter({ hasText: "登録開始時のプリセット" }))
+    .toContainText("登録し直してください");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(0);
+});
+
+test("a late WAV response rejects a changed preset even if its ID and PSD paths remain valid", async ({ page }) => {
+  let releaseInspection: (() => void) | undefined;
+  await page.route("**/api/wav", async (route) => {
+    await new Promise<void>((resolve) => { releaseInspection = resolve; });
+    await route.fulfill({ json: {
+      samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    } });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/changed-same-id.wav");
+  await expect.poll(() => Boolean(releaseInspection)).toBe(true);
+  await page.evaluate(() => {
+    const key = "tachie-motion.preset-draft.v2";
+    const saved = JSON.parse(localStorage.getItem(key)!) as {
+      collection: { items: Array<{ id: string; name: string }>; defaultId: string };
+    };
+    saved.collection.items.find((item) => item.id === saved.collection.defaultId)!.name = "別タブで改名";
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  releaseInspection!();
+  await expect(page.getByRole("alert").filter({ hasText: "登録開始時のプリセット" }))
+    .toContainText("登録し直してください");
+  await expect(page.locator("[data-utterance-id]")).toHaveCount(0);
+});
+
+test("batch MOV requests carry only their own preset changes", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 1000, sample_rate: 1000, duration_seconds: 1,
+    source_identity: "1:2:3:4:5",
+  } }));
+  await openSpeech(page);
+  const requests: Array<Record<string, unknown>> = [];
+  await page.route("**/api/preset-batch-mov-export", (route) => {
+    requests.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill({ json: {
+      mov: "/tmp/output/timeline.mov", frames: 30, sample_count: 1000, sample_rate: 1000,
+    } });
+  });
+  await addWav(page, "/tmp/a.wav");
+  await addWav(page, "/tmp/b.wav");
+  const rows = page.locator("[data-utterance-id]");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1)).toHaveAttribute("data-selected", "true");
+  const editor = page.locator(".preset-change-editor");
+  await editor.getByRole("slider", { name: /再生位置/ }).press("ArrowRight");
+  await editor.getByRole("button", { name: /編集点を追加/ }).click();
+  const time = editor.getByRole("spinbutton", { name: "編集点の時刻（秒）" });
+  await time.fill("0.5");
+  await time.press("Enter");
+  await expect(editor.locator('[data-edit-point="500"]')).toHaveCount(1);
+  await page.getByRole("radio", { name: /^全件/ }).check();
+  await page.getByRole("button", { name: "全件を書き出す" }).click();
+  await expect.poll(() => requests.length).toBe(2);
+  expect(requests.map((value) => value.wav)).toEqual(["/tmp/a.wav", "/tmp/b.wav"]);
+  expect(requests[0]).not.toHaveProperty("timeline_changes");
+  expect(requests[1].timeline_changes).toMatchObject([{ sample: 500, mode: "none" }]);
+});
+
+test("selected WAV has one waveform and editable point rows with thumbnails", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 16000, sample_rate: 8000, duration_seconds: 2,
+    source_identity: "1:2:3:4:5",
+  } }));
+  const waveformRequests: string[] = [];
+  await page.route("**/api/wav-playback", (route) => {
+    waveformRequests.push((route.request().postDataJSON() as { path: string }).path);
+    return route.fulfill({ body: waveformTestWav(16000), contentType: "audio/wav" });
+  });
+  await openSpeech(page);
+  await addWav(page, "/tmp/first.wav");
+  await addWav(page, "/tmp/second.wav");
+  const rows = page.locator("[data-utterance-id]");
+  await expect(rows).toHaveCount(2);
+  const second = rows.nth(1);
+  await expect(second).toHaveAttribute("data-selected", "true");
+  await expect(rows.nth(0).locator(".preset-change-editor")).toHaveCount(0);
+  await expect(second.locator(".preset-change-editor")).toBeVisible();
+  await expect(second.locator(".wav-waveform path")).toHaveAttribute("d", /^M/);
+  expect(waveformRequests).toContain("/tmp/second.wav");
+  await expect(second.locator(".preset-change-editor input[type=range]")).toHaveCount(0);
+  await expect(page.locator(".utterance-playback audio")).not.toHaveAttribute("src", /^blob:/);
+
+  await second.getByRole("button", { name: /プリセット編集を閉じる/ }).click();
+  await expect(second.locator(".preset-change-editor")).toHaveCount(0);
+  await second.getByRole("button", { name: /プリセット編集を開く/ }).click();
+  const editor = second.locator(".preset-change-editor");
+  const waveform = editor.locator(".wav-waveform");
+  await expect(waveform).toBeVisible();
+  const bounds = await waveform.boundingBox();
+  expect(bounds).not.toBeNull();
+  await waveform.click({ position: { x: bounds!.width * 0.25, y: bounds!.height / 2 } });
+  await editor.getByRole("button", { name: /編集点を追加/ }).click();
+  const marker = editor.locator(".preset-change-marker");
+  await expect(marker).toHaveCount(1);
+  const sample = Number(await marker.getAttribute("data-change-marker"));
+  expect(Math.abs(sample - 4000)).toBeLessThanOrEqual(10);
+  const row = editor.locator(".preset-change-points li");
+  await expect(row).toHaveCount(1);
+  const chooser = row.getByRole("button", { name: /秒のプリセット/ });
+  await expect(chooser.locator(".preset-picker-thumb")).toHaveCount(1);
+  await chooser.click();
+  await expect(row.locator(".preset-picker-option .preset-picker-thumb")).toHaveCount(1);
+  await row.locator(".preset-picker-option").first().click();
+
+  const percentage = row.getByRole("spinbutton", { name: "編集点の位置（%）" });
+  await percentage.fill("50");
+  await percentage.press("Enter");
+  await expect(editor.locator('[data-edit-point="8000"]')).toHaveCount(1);
+  await expect(editor.locator('[data-change-marker="8000"]')).toHaveCount(1);
+  await expect(editor.getByRole("spinbutton", { name: "編集点の時刻（秒）" }))
+    .toHaveValue("1");
+  await editor.getByRole("spinbutton", { name: "編集点の位置（%）" }).fill("100");
+  await editor.getByRole("spinbutton", { name: "編集点の位置（%）" }).press("Tab");
+  await expect(editor.locator('[data-edit-point="8000"]')).toHaveCount(1);
+
+  await rows.nth(0).locator(".utterance-item-select").click();
+  await expect(rows.nth(0).locator(".preset-change-editor")).toBeVisible();
+  await expect(rows.nth(0).locator(".preset-change-points li")).toHaveCount(0);
+  await expect(second.locator(".preset-change-editor")).toHaveCount(0);
+});
+
+test("Space plays and pauses the selected WAV without stealing form or button keys", async ({ page }) => {
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 16000, sample_rate: 8000, duration_seconds: 2,
+    source_identity: "1:2:3:4:5",
+  } }));
+  await page.route("**/api/wav-playback", (route) =>
+    route.fulfill({ body: waveformTestWav(16000), contentType: "audio/wav" }));
+  await openSpeech(page);
+  await addWav(page, "/tmp/space.wav");
+  const row = page.locator("[data-utterance-id]").first();
+  await row.locator(".utterance-item-select").click();
+  await page.keyboard.press("Space");
+  await expect(row.locator(".utterance-item-play")).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Space");
+  await expect(row.locator(".utterance-item-play")).toHaveAttribute("aria-pressed", "false");
+
+  const waveform = row.locator(".preset-change-editor .wav-waveform");
+  await expect(waveform).toBeVisible();
+  const bounds = await waveform.boundingBox();
+  expect(bounds).not.toBeNull();
+  await waveform.click({ position: { x: bounds!.width / 4, y: bounds!.height / 2 } });
+  await page.keyboard.press("Space");
+  await expect(row.locator(".utterance-item-play")).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => page.locator(".utterance-playback audio").evaluate(
+    (el) => (el as HTMLAudioElement).currentTime)).toBeGreaterThan(0.3);
+  await row.getByRole("button", { name: /編集点を追加/ }).click();
+  const field = row.getByRole("spinbutton", { name: "編集点の時刻（秒）" });
+  await field.focus();
+  await page.keyboard.press("Space");
+  await expect(row.locator(".utterance-item-play")).toHaveAttribute("aria-pressed", "true");
 });

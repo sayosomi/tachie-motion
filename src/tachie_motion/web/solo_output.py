@@ -98,9 +98,13 @@ def _has_equivalent_mov_name(path: Path) -> bool:
     )
 
 
-def _refuse_equivalent_mov_name(path: Path) -> None:
+def refuse_equivalent_output_name(path: Path) -> None:
+    """Guard both MOV and OTIO destination names against Unicode aliases."""
     if _has_equivalent_mov_name(path):
         raise ValueError("Equivalent Unicode output filename appeared; refusing publication")
+
+def _refuse_equivalent_mov_name(path: Path) -> None:
+    refuse_equivalent_output_name(path)
 
 
 def _recover_new_mov_collision(staged: Path, target: Path) -> None:
