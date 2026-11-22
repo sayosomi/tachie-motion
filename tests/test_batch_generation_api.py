@@ -188,6 +188,37 @@ class BatchGenerationApiTests(unittest.TestCase):
         self.assertNotIn("tachie_motion_selective", document["metadata"])
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), original)
 
+    def test_idle_batch_rejects_renderer_options_changed_after_start(self):
+        """Do not let a stale tab substitute a different preset pose."""
+        from unittest.mock import patch
+        info = describe_psd(str(self.psd))
+        name = "idle-registered"
+        planned = {
+            "kind": "idle", "item_id": "idle-stable", "basename": name,
+            "psd": str(self.psd), "fingerprint": info["fingerprint"],
+            "source_identity": info["source_identity"],
+            "fps": 30, "frames": 30, "conflict_policy": "error",
+            "layers": self.base["layers"], "blink_enabled": False,
+        }
+        self.token = self.send("preset-batch-start", {
+            "output_dir": str(self.root), "timeline_basename": self.timeline,
+            "timeline_policy": "error", "entries": [planned],
+        })["batch_id"]
+        with patch("tachie_motion.web.app.export_idle_motion") as encoder:
+            response = self.client.post("/api/preset-batch-idle-export", json={
+                "psd": str(self.psd), "fingerprint": info["fingerprint"],
+                "source_identity": info["source_identity"],
+                "layers": [], "frame_count": 30, "fps": 30,
+                "output_dir": str(self.root), "basename": name,
+                "conflict_policy": "error", "batch_id": self.token,
+                "batch_index": 0,
+            })
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("approved manifest", response.text)
+        encoder.assert_not_called()
+        self.assertFalse(list(self.root.glob("*.mov")))
+        self.assertFalse(list(self.root.glob("*.otio")))
+
     def test_idle_source_digest_failure_releases_session_lease(self):
         from unittest.mock import patch
         from tachie_motion.web.batch_session import BatchCoordinator

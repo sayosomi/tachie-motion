@@ -204,7 +204,9 @@ test("clearing eyes with stored opened pose roundtrips draft, character v2 and p
     .getByRole("button", { name: "可動レイヤー" }).click();
   await page.getByRole("tablist", { name: "パーツ" })
     .getByRole("tab", { name: "目" }).click();
-  await page.getByRole("checkbox", { name: "目 ON" }).check();
+  // The restored preset already has eyes enabled. Avoid toggling a controlled
+  // checkbox whose state is settled by the async restore path.
+  await expect(page.getByRole("checkbox", { name: "目 ON" })).toBeChecked();
   await expect(page.getByRole("button", { name: "閉じ目の選択を解除" })).toBeVisible();
   await page.getByRole("button", { name: "閉じ目の選択を解除" }).click();
   const afterClear = JSON.parse((await page.evaluate(() =>
