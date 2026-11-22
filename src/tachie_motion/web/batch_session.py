@@ -257,8 +257,10 @@ class BatchCoordinator:
                         (part.psd, digest_regular_file(part.psd)),)
             return token
         except BaseException:
-            # Stage contents are retained, but its live file-descriptor lease
-            # must not leak when token/session initialization fails.
+            # A source digest can fail *after* self.active is assigned.
+            # Release both the coordinator lease and the filesystem stage,
+            # otherwise all subsequent batches remain incorrectly blocked.
+            self.active = None
             discard_stage(stage)
             raise
 

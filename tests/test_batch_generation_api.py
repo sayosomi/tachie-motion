@@ -188,6 +188,30 @@ class BatchGenerationApiTests(unittest.TestCase):
         self.assertNotIn("tachie_motion_selective", document["metadata"])
         self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), original)
 
+    def test_idle_source_digest_failure_releases_session_lease(self):
+        from unittest.mock import patch
+        from tachie_motion.web.batch_session import BatchCoordinator
+        from tachie_motion.web.selective_recipe import digest_regular_file
+        from tachie_motion.web.batch_publish import recovery_directories
+        info = describe_psd(str(self.psd))
+        idle = {
+            "kind": "idle", "item_id": "idle-1", "basename": "idle-safe",
+            "psd": str(self.psd), "fingerprint": info["fingerprint"],
+            "source_identity": info["source_identity"],
+            "fps": 30, "frames": 30, "conflict_policy": "error",
+            "layers": self.base["layers"], "blink_enabled": False,
+        }
+        coordinator = BatchCoordinator()
+        with patch("tachie_motion.web.batch_session.digest_regular_file",
+                   side_effect=OSError("synthetic unreadable PSD")):
+            with self.assertRaisesRegex(OSError, "unreadable PSD"):
+                coordinator.start(self.root, "test-timeline", "error", [idle])
+        self.assertIsNone(coordinator.active)
+        coordinator.require_idle()
+        self.assertFalse(list(self.root.glob("*.mov")))
+        self.assertFalse(list(self.root.glob("*.otio")))
+        self.assertFalse(recovery_directories(self.root))
+
     def test_mixed_batch_reuse_claim_is_rejected_before_stage(self):
         info = describe_psd(str(self.psd))
         response = self.client.post("/api/preset-batch-start", json={

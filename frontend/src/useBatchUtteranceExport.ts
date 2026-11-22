@@ -499,7 +499,8 @@ export function useBatchUtteranceExport(
       }));
       outcome = "success";
       setSummary("一括書き出し完了：MOV " + successes + "件（再利用 " +
-        reusedCount + "件／新規・再生成 " + (successes - reusedCount) +
+        reusedCount + (sequence.length === plans.length ? "件／再生成 " : "件／新規・再生成 ") +
+        (successes - reusedCount) +
         "件）／全体OTIO " + done.otio +
         (notes.length ? " ／ 注意：" + notes.join(" ") : ""));
       onFinished();
