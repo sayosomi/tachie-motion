@@ -21,6 +21,7 @@ from tachie_motion.web.solo_output import validate_media_basename, single_destin
 from tachie_motion.web.combined_otio import create_combined_otio
 from tachie_motion.web.batch_session import BatchCoordinator, validate_names, has_foreign_otio
 from tachie_motion.web.selective_history import capture_recipe_sources, render_recipe
+from tachie_motion.web.selective_plan import verified_reuse
 from tachie_motion.web.export_progress import ExportProgress, ExportCancelled
 from tachie_motion.web.batch_publish import require_batch_recovery_clear
 from tachie_motion.web.service import (
@@ -115,6 +116,7 @@ class BatchNameRequest(BaseModel):
 
 class BatchPlannedMedia(BaseModel):
     item_id: str | None = None
+    reuse: bool = False
     basename: str
     wav: str
     source_identity: str
@@ -123,6 +125,13 @@ class BatchPlannedMedia(BaseModel):
     samples: int
     sample_rate: int
     conflict_policy: str
+
+
+class BatchReuseCandidate(BaseModel):
+    timeline_basename: str
+    item_id: str
+    suggested_basename: str
+    render: PresetUtteranceRequest
 
 
 class BatchStartRequest(BaseModel):
@@ -455,6 +464,31 @@ def preset_batch_check_names(payload: BatchNameRequest):
         raise bad_request(exc) from exc
 
 
+@app.post("/api/preset-batch-reuse-candidate")
+async def preset_batch_reuse_candidate(payload: BatchReuseCandidate):
+    """Read-only UI hint. Batch start and each MOV request independently check."""
+    try:
+        validate_media_basename(payload.timeline_basename)
+        validate_media_basename(payload.suggested_basename)
+        if (not payload.item_id or len(payload.item_id) > 256 or
+                payload.render.basename != payload.suggested_basename):
+            raise ValueError("Invalid MOV reuse candidate")
+        folder = Path(payload.render.output_dir).expanduser()
+        if not folder.is_absolute() or not folder.is_dir():
+            raise ValueError("Output folder must already exist")
+        canonical = folder.resolve(strict=True)
+        require_batch_recovery_clear(canonical)
+        local_file(payload.render.psd, ".psd")
+        local_file(payload.render.wav, ".wav")
+        saved = await asyncio.to_thread(
+            verified_reuse, canonical, payload.timeline_basename,
+            item_id=payload.item_id, render=payload.render.model_dump())
+        return {"basename": saved.basename if saved else payload.suggested_basename,
+                "reuse": saved is not None}
+    except (ValueError, FileExistsError, OSError, RuntimeError, TypeError) as exc:
+        raise bad_request(exc) from exc
+
+
 @app.post("/api/preset-batch-start")
 async def preset_batch_start(payload: BatchStartRequest):
     try:
@@ -563,6 +597,24 @@ async def preset_batch_mov_export(payload: BatchMovRequest):
                 app.state.export_progress.item(payload.batch_id, payload.batch_index)
                 stage = app.state.batch.staged_folder(payload.batch_id)
                 recipe_payload = payload.model_dump()
+                reuse_saved = app.state.batch.reuse_plan(
+                    payload.batch_id, payload.batch_index)
+                if reuse_saved is not None:
+                    session = app.state.batch.active
+                    if session is None:
+                        raise ValueError("Missing approved batch session")
+                    verified = await asyncio.to_thread(
+                        verified_reuse, canonical, session.timeline_name,
+                        item_id=reuse_saved.item_id, render=recipe_payload,
+                        expected_basename=payload.basename)
+                    if verified != reuse_saved:
+                        raise ValueError("Public MOV no longer matches the approved render recipe")
+                    reused = app.state.batch.reuse_succeeded(
+                        payload.batch_id, payload.batch_index, verified)
+                    return {
+                        **reused, "mov": str(canonical / (payload.basename + ".mov")),
+                        "reused": True, "staged": False,
+                    }
                 initial_sources = (
                     await asyncio.to_thread(capture_recipe_sources, recipe_payload)
                     if app.state.batch.needs_generation_record(payload.batch_id)
@@ -621,6 +673,9 @@ async def preset_combined_otio(payload: CombinedOtioRequest):
             stage = app.state.batch.staged_folder(payload.batch_id)
             history = app.state.batch.generation_history(payload.batch_id)
             history_kwargs = {"generation_history": history} if history is not None else {}
+            reused_names = app.state.batch.reused_names(payload.batch_id)
+            if reused_names:
+                history_kwargs["reused_basenames"] = reused_names
             result = await asyncio.to_thread(
                 create_combined_otio, stage, payload.basename,
                 entries, "error", expected_identities=expected,
