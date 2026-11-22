@@ -90,6 +90,7 @@ function item(value: unknown, ids: Set<string>, presetIds: ReadonlySet<string>):
     fields(value.idleAfter, ["id", "presetId", "frames", "fps"]);
     const gap = value.idleAfter;
     if (typeof gap.id !== "string" || !gap.id.trim() || gap.id.length > 256 ||
+        Object.hasOwn(Object.prototype, gap.id) ||
         typeof gap.presetId !== "string" || !presetIds.has(gap.presetId) ||
         typeof gap.frames !== "number" || !Number.isSafeInteger(gap.frames) ||
         gap.frames < 1 || gap.frames > 216000 || ![24, 30, 60].includes(gap.fps as number)) {

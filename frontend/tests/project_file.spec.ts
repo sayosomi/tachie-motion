@@ -224,6 +224,7 @@ test("explicit idle between WAVs survives optional project v4 field without sour
     (x) => { x.items[0].idleAfter.fps = 25; },
     (x) => { x.items[0].idleAfter.presetId = "missing"; },
     (x) => { x.items[0].idleAfter.id = x.items[1].id; },
+    (x) => { x.items[0].idleAfter.id = "__proto__"; },
     (x) => { x.items[0].idleAfter.extra = true; },
     (x) => { x.items[1].idleAfter = { ...x.items[0].idleAfter }; },
   ];
