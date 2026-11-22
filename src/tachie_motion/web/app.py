@@ -726,7 +726,19 @@ async def preset_batch_idle_export(payload: BatchIdleRequest):
                             app.state.export_progress.update(payload.batch_id, label, percent)
                             if percent < 90 else None),
                     )
-                result = await asyncio.to_thread(render)
+                # Connection loss must not release export_lock while the
+                # worker still writes staged bytes. The lease remains active
+                # until the worker exits and the result is recorded.
+                worker = asyncio.create_task(asyncio.to_thread(render))
+                while True:
+                    try:
+                        result = await asyncio.shield(worker)
+                        break
+                    except asyncio.CancelledError:
+                        if worker.done():
+                            result = worker.result()
+                            break
+                        continue
                 app.state.batch.succeeded_idle(payload.batch_id, payload.batch_index, result)
                 return {**result,
                         "mov": str(canonical / (payload.basename + ".mov")),

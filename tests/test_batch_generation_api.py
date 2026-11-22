@@ -109,6 +109,106 @@ class BatchGenerationApiTests(unittest.TestCase):
         self.token = self.send("preset-batch-start", payload)["batch_id"]
         return policy
 
+    def test_mixed_speech_idle_speech_stages_and_publishes_one_otio(self):
+        """No public idle/speech MOV exists before whole-generation commit."""
+        from tachie_motion.web.combined_otio import probe_no_embedded_audio
+        info = describe_psd(str(self.psd))
+        idle_name = "002_無音待機"
+        policy = "error"
+        entries = []
+        for index, name in enumerate((self.names[0], idle_name, self.names[1])):
+            if index == 1:
+                entries.append({
+                    "kind": "idle", "item_id": "stable-idle-1",
+                    "basename": name, "psd": str(self.psd),
+                    "fingerprint": info["fingerprint"],
+                    "source_identity": info["source_identity"],
+                    "fps": 30, "frames": 60, "conflict_policy": policy,
+                })
+            else:
+                entries.append({
+                    "item_id": f"stable-speech-{index}",
+                    "basename": name, "wav": str(self.wav),
+                    "source_identity": self.base["source_identity"],
+                    "fps": 30, "samples": self.samples,
+                    "sample_rate": self.sample_rate, "conflict_policy": policy,
+                })
+        original = (self.psd.read_bytes(), self.wav.read_bytes())
+        self.token = self.send("preset-batch-start", {
+            "output_dir": str(self.root), "timeline_basename": self.timeline,
+            "timeline_policy": policy, "entries": entries,
+        })["batch_id"]
+        first = self.mov(0, policy)
+        self.assertFalse((self.root / (self.names[0] + ".mov")).exists())
+        idle = self.send("preset-batch-idle-export", {
+            "psd": str(self.psd), "fingerprint": info["fingerprint"],
+            "source_identity": info["source_identity"],
+            "layers": self.base["layers"], "frame_count": 60, "fps": 30,
+            "output_dir": str(self.root), "basename": idle_name,
+            "conflict_policy": policy, "batch_id": self.token, "batch_index": 1,
+        })
+        self.assertFalse(idle["audio"])
+        self.assertEqual(idle["frames"], 60)
+        self.assertFalse((self.root / (idle_name + ".mov")).exists())
+        last = self.send("preset-batch-mov-export", {
+            **self.base, "basename": self.names[1], "conflict_policy": policy,
+            "batch_id": self.token, "batch_index": 2,
+        })
+        self.assertFalse((self.root / (self.names[1] + ".mov")).exists())
+        otio = self.send("preset-combined-otio", {
+            "output_dir": str(self.root), "basename": self.timeline,
+            "conflict_policy": policy, "batch_id": self.token,
+            "entries": [
+                {"basename": self.names[0], "frames": first["frames"],
+                 "fps": 30, "samples": first["sample_count"],
+                 "sample_rate": first["sample_rate"]},
+                {"kind": "idle", "basename": idle_name, "frames": 60, "fps": 30},
+                {"basename": self.names[1], "frames": last["frames"],
+                 "fps": 30, "samples": last["sample_count"],
+                 "sample_rate": last["sample_rate"]},
+            ],
+        })
+        self.assertEqual(otio["entries"], 3)
+        for name in (self.names[0], idle_name, self.names[1]):
+            self.assertTrue((self.root / (name + ".mov")).is_file())
+        probe_no_embedded_audio(self.root / (idle_name + ".mov"))
+        document = json.loads((self.root / (self.timeline + ".otio")).read_text())
+        video, audio = document["tracks"]["children"]
+        self.assertEqual(
+            [clip["name"] for clip in video["children"]],
+            ["Character MOV", "Idle MOV", "Character MOV"])
+        self.assertEqual(
+            [clip["OTIO_SCHEMA"] for clip in audio["children"]],
+            ["Clip.2", "Gap.1", "Clip.2"])
+        self.assertEqual(
+            video["children"][1]["source_range"]["duration"],
+            audio["children"][1]["source_range"]["duration"])
+        self.assertNotIn("media_references", audio["children"][1])
+        self.assertNotIn("tachie_motion_selective", document["metadata"])
+        self.assertEqual((self.psd.read_bytes(), self.wav.read_bytes()), original)
+
+    def test_mixed_batch_reuse_claim_is_rejected_before_stage(self):
+        info = describe_psd(str(self.psd))
+        response = self.client.post("/api/preset-batch-start", json={
+            "output_dir": str(self.root), "timeline_basename": "mix",
+            "timeline_policy": "error",
+            "entries": [{
+                "item_id": "speech", "reuse": True,
+                "basename": "speech", "wav": str(self.wav),
+                "source_identity": self.base["source_identity"],
+                "fps": 30, "samples": self.samples,
+                "sample_rate": self.sample_rate, "conflict_policy": "error",
+            }, {
+                "kind": "idle", "item_id": "idle", "basename": "idle",
+                "psd": str(self.psd), "fingerprint": info["fingerprint"],
+                "source_identity": info["source_identity"], "fps": 30,
+                "frames": 30, "conflict_policy": "error",
+            }],
+        })
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertFalse(list(self.root.glob("*.mov")))
+        self.assertFalse(list(self.root.glob("*.otio")))
+
     def test_selective_reorder_updates_only_otio_and_calls_no_encoder(self):
         """Real synthetic PSD→MOV, followed by full cache reuse and new OTIO."""
         from unittest.mock import patch

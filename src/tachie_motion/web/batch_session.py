@@ -152,7 +152,7 @@ class BatchCoordinator:
             if kind == "idle":
                 if raw.get("wav") is not None or raw.get("samples") is not None or raw.get("sample_rate") is not None or raw.get("lab_source_identity") is not None:
                     raise ValueError("Idle entries must not declare WAV, PCM or LAB")
-                psd = local_file(raw["psd"], ".psd")
+                psd = local_file(raw.get("psd"), ".psd")
                 source_identity = raw["source_identity"]
                 if type(source_identity) is not str or source_token(psd) != source_identity:
                     raise ValueError("PSD changed since idle batch registration")
