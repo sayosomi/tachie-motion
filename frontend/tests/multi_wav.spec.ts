@@ -464,7 +464,7 @@ test("batch locks the preset selector throughout an in-progress render", async (
   await expect(presetTrigger(page.locator('[data-selected="true"]'))).toBeDisabled();
   await expect(presetTrigger(page.locator('[data-selected="true"]'))).toHaveAttribute("data-selected-preset-id", assignedPreset!);
   releaseFirst!();
-  await expect(page.getByText("一括書き出し完了：MOV 2件／全体OTIO", { exact: false }))
+  await expect(page.getByText("一括書き出し完了：MOV 2件（再利用 0件／再生成 2件）／全体OTIO", { exact: false }))
     .toBeVisible();
   await expect(presetTrigger(page.locator('[data-selected="true"]'))).toBeEnabled();
   expect(payloads.map((item) => item.wav)).toEqual(["/tmp/a.wav", "/tmp/b.wav"]);
@@ -692,7 +692,7 @@ test("batch preview is invalidated when the actual destination changes before ex
   await page.getByRole("radio", { name: /^全件/ }).check();
   const plan = page.locator(".export-plan-items li").first();
   await expect(plan).toContainText("001_character_a.mov");
-  await expect(plan).toContainText("新規保存");
+  await expect(plan).toContainText("新規生成");
   outputExists = true;
   await page.getByRole("button", { name: "全件を書き出す" }).click();
   await expect(page.getByText("出力予定が変更されました", { exact: false })).toBeVisible();
@@ -1008,7 +1008,7 @@ test("an edit in the same JS turn as starting batch export is rejected by the sy
     .toHaveAttribute("data-selected", "true");
   await expect(page.locator(".utterance-row-mode select:disabled")).toHaveCount(2);
   releaseExport!();
-  await expect(page.getByText("一括書き出し完了：MOV 2件／全体OTIO", { exact: false }))
+  await expect(page.getByText("一括書き出し完了：MOV 2件（再利用 0件／再生成 2件）／全体OTIO", { exact: false }))
     .toBeVisible();
 });
 
@@ -1122,7 +1122,7 @@ test("batch naming shows exact preview and creates one combined OTIO for reorder
     } });
   });
   await page.getByRole("button", { name: "全件を書き出す" }).click();
-  await expect(page.getByText("一括書き出し完了：MOV 2件／全体OTIO", { exact: false }))
+  await expect(page.getByText("一括書き出し完了：MOV 2件（再利用 0件／再生成 2件）／全体OTIO", { exact: false }))
     .toBeVisible();
   expect(order).toEqual(["001_あんこもん_あいさつ", "002_あんこもん_e\u0301"]);
   expect(timelinePayload?.basename).toBe("さよそみ動画");
@@ -1271,7 +1271,7 @@ for (const sample of [
         body.timeline_basename === "project_002" &&
         JSON.stringify(body.basenames) === JSON.stringify(sample.resolved))).toBe(true);
       await page.getByRole("button", { name: "全件を書き出す" }).click();
-      await expect(page.getByText("一括書き出し完了：MOV 2件／全体OTIO", { exact: false }))
+      await expect(page.getByText("一括書き出し完了：MOV 2件（再利用 0件／再生成 2件）／全体OTIO", { exact: false }))
         .toBeVisible();
       expect(startPayload?.timeline_basename).toBe("project_002");
       expect(startPayload?.entries.map((entry) => entry.basename)).toEqual(sample.resolved);
@@ -1429,7 +1429,7 @@ test("batch manifest and actual MOV requests agree for valid LAB none/open/aiueo
   await page.getByRole("radio", { name: /^全件/ }).check();
   await expect(page.locator(".export-plan-items li")).toHaveCount(4);
   await page.getByRole("button", { name: "全件を書き出す" }).click();
-  await expect(page.getByText("一括書き出し完了：MOV 4件／全体OTIO", { exact: false }))
+  await expect(page.getByText("一括書き出し完了：MOV 4件（再利用 0件／再生成 4件）／全体OTIO", { exact: false }))
     .toBeVisible();
 
   expect(manifests).toHaveLength(1);
