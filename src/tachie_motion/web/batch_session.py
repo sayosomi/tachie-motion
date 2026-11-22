@@ -23,6 +23,7 @@ from tachie_motion.timeline.media import probe_wav
 from tachie_motion.web.service import local_file
 from tachie_motion.web.solo_output import (
     _identity, initial_single_identity, published_media_identity, validate_media_basename,
+    refuse_equivalent_output_name,
 )
 
 # The lease is renewed on each operation, after the current render completes.
@@ -126,6 +127,9 @@ class BatchCoordinator:
         validate_names(names, timeline_name)
         folder = folder.resolve(strict=True)
         require_batch_recovery_clear(folder)
+        for filename in [*(name + ".mov" for name in names),
+                         timeline_name + ".otio"]:
+            refuse_equivalent_output_name(folder / filename)
         planned = []
         # Capture prior metadata before creating any stage or public file.
         saved_history = load_saved_movies(folder, timeline_name) if any(
@@ -432,12 +436,29 @@ class BatchCoordinator:
                 if (published_media_identity(current) != session.identities[planned.basename] or
                         digest_regular_file(current).sha256 != planned.saved.mov_sha256):
                     raise ValueError("Reused public MOV changed before OTIO publication")
+        # Recheck external media and references *inside* the publication
+        # transaction, including after the OTIO link while rollback is possible.
+        def validate_external() -> None:
+            if (any(not item.reuse and item.original is not None
+                    for item in session.entries) and
+                    has_foreign_otio(session.folder, session.timeline_name)):
+                raise ValueError("Another OTIO appeared during batch publication")
+            for item in session.entries:
+                if not item.reuse:
+                    continue
+                public = session.folder / (item.basename + ".mov")
+                refuse_equivalent_output_name(public)
+                if (published_media_identity(public) != session.identities[item.basename]
+                        or digest_regular_file(public).sha256 != item.saved.mov_sha256):
+                    raise ValueError("Reused MOV changed during publication: " + item.basename)
+
         # This changes only dirty/new MOVs and the combined OTIO, never reused MOVs.
         return publish_batch(
             folder=session.folder, stage=session.stage,
             movie_names=[planned.basename for planned in session.entries if not planned.reuse],
             timeline_name=session.timeline_name,
             original=original, expected_stage=staged,
+            validate_external=validate_external,
         )
 
     def release(self, token: str) -> bool:
