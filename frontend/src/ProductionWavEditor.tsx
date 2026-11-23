@@ -1,6 +1,6 @@
 import {
   reorderProjectWavs, type CharacterWavAnimation, type NextProjectFile,
-  resolveWaitPreset,
+  resolveWaitPreset, resolveWaitSeconds,
 } from "./multiProjectFile";
 import { removeProductionWav } from "./multiProjectEditing";
 import { wavFilename } from "./utteranceItems";
@@ -32,24 +32,18 @@ export default function ProductionWavEditor({ project, disabled, onEdit }: Props
   }
 
   function setSpeaker(wavId: string, speakerId: string | null) {
-    onEdit({
-      ...project,
-      wavs: project.wavs.map((wav) =>
-        wav.id === wavId ? { ...wav, speakerId } : wav),
-      // A non-speaker must not keep a formerly active lip-sync setting.
-      characters: project.characters.map((character) => ({
-        ...character, animations: character.animations.map((entry) =>
-          entry.wavId === wavId && character.id !== speakerId ?
-            { ...entry, lipMode: "none" as const } : entry),
-      })),
-    });
+    // A listener's effective none never destroys its saved manual choice.
+    onEdit({ ...project, wavs: project.wavs.map((wav) =>
+      wav.id === wavId ? { ...wav, speakerId, speakerManual: true } : wav) });
   }
 
   function setWait(wavId: string, waitAfter: boolean) {
     onEdit({
       ...project,
       wavs: project.wavs.map((wav) =>
-        wav.id === wavId ? { ...wav, waitAfter } : wav),
+        wav.id === wavId ? {
+          ...wav, waitAfter, waitSecondsOverride: waitAfter ? wav.waitSecondsOverride : null,
+        } : wav),
       characters: waitAfter ? project.characters : project.characters.map((character) => ({
         ...character,
         waitOverrides: character.waitOverrides.filter((entry) => entry.wavId !== wavId),
@@ -71,9 +65,59 @@ export default function ProductionWavEditor({ project, disabled, onEdit }: Props
     });
   }
 
+  function setOpeningEnabled(enabled: boolean) {
+    onEdit({
+      ...project,
+      openingWait: { ...project.openingWait,
+        enabled, secondsOverride: enabled ? project.openingWait.secondsOverride : null },
+      characters: enabled ? project.characters : project.characters.map((character) =>
+        ({ ...character, openingWaitPresetId: null })),
+    });
+  }
+
   return <section aria-label="共通WAVとキャラ別設定">
     <h2>共通WAV</h2>
     <p className="hint">WAVは1つの一覧で管理します。話者なしの音声も登録できます。</p>
+    <section aria-label="冒頭のセリフ間隔" className="project-edit-section">
+      <h3>冒頭のセリフ間隔</h3>
+      <label><input type="checkbox" aria-label="冒頭のセリフ間隔あり"
+        checked={project.openingWait.enabled} disabled={disabled}
+        onChange={(event) => setOpeningEnabled(event.target.checked)} />挿入する</label>
+      {project.openingWait.enabled && <>
+        <div className="input-row">
+          <span>秒数：{resolveWaitSeconds(project, null)}秒</span>
+          <label>個別秒数
+            <input aria-label="冒頭の個別秒数" inputMode="decimal" disabled={disabled}
+              key={project.openingWait.secondsOverride ?? "opening-default"}
+              defaultValue={project.openingWait.secondsOverride ?? ""}
+              placeholder="基本値を使用" onBlur={(event) => onEdit({
+                ...project, openingWait: { ...project.openingWait,
+                  secondsOverride: event.target.value || null },
+              })} />
+          </label>
+          <button type="button" className="secondary" disabled={disabled ||
+            project.openingWait.secondsOverride === null}
+            onClick={() => onEdit({ ...project, openingWait: {
+              ...project.openingWait, secondsOverride: null } })}>
+            基本値に戻す（冒頭）
+          </button>
+        </div>
+        {project.characters.map((character) => <label key={character.id}>
+          {character.name} の冒頭プリセット
+          <select aria-label={"冒頭プリセット: " + character.id} disabled={disabled}
+            value={character.openingWaitPresetId ?? ""}
+            onChange={(event) => onEdit({ ...project,
+              characters: project.characters.map((entry) =>
+                entry.id === character.id ?
+                  { ...entry, openingWaitPresetId: event.target.value || null } : entry),
+            })}>
+            <option value="">キャラ既定に連動</option>
+            {character.profile.collection.items.map((preset) =>
+              <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+          </select>
+        </label>)}
+      </>}
+    </section>
     <ol className="utterance-list">
       {project.wavs.map((wav, index) => <li key={wav.id} data-production-wav-id={wav.id}>
         <div className="input-row">
@@ -118,6 +162,21 @@ export default function ProductionWavEditor({ project, disabled, onEdit }: Props
               onChange={(event) => setWait(wav.id, event.target.checked)} />
             このWAVの後に待機を入れる
           </label>
+          {wav.waitAfter && <>
+            <span>セリフ間隔：{resolveWaitSeconds(project, wav.id)}秒</span>
+            <label>個別秒数
+              <input aria-label={"個別秒数: " + wav.id} inputMode="decimal"
+                disabled={disabled} key={wav.id + ":" + (wav.waitSecondsOverride ?? "default")}
+                defaultValue={wav.waitSecondsOverride ?? ""} placeholder="基本値を使用"
+                onBlur={(event) => updateWav(wav.id, (old) =>
+                  ({ ...old, waitSecondsOverride: event.target.value || null }))} />
+            </label>
+            <button type="button" className="secondary" disabled={disabled ||
+              wav.waitSecondsOverride === null}
+              aria-label={"基本値に戻す: " + wav.id}
+              onClick={() => updateWav(wav.id, (old) =>
+                ({ ...old, waitSecondsOverride: null }))}>基本値に戻す</button>
+          </>}
         </div>
       </li>)}
     </ol>
@@ -145,12 +204,15 @@ export default function ProductionWavEditor({ project, disabled, onEdit }: Props
             </label>
             <label>口パク方式
               <select aria-label={"口パク: " + character.id}
-                value={animation.lipMode}
+                value={current.speakerId === character.id ?
+                  animation.lipModeOverride ?? "auto" : "none"}
                 disabled={disabled || current.speakerId !== character.id}
                 onChange={(event) => onEdit(changeAnimation(
                   project, character.id, current.id, (old) => ({
-                    ...old, lipMode: event.target.value as CharacterWavAnimation["lipMode"],
+                    ...old, lipModeOverride: event.target.value === "auto" ? null :
+                      event.target.value as NonNullable<CharacterWavAnimation["lipModeOverride"]>,
                   })))}>
+                <option value="auto">自動（LAB判定）</option>
                 <option value="none">なし</option>
                 <option value="open">open</option>
                 <option value="aiueo">aiueo</option>
