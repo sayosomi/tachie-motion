@@ -3,6 +3,7 @@
 ## 2026-11-23 新ワークフロー検証（Issue #66〜#74）
 
 - [x] **Issue #66 — 待機透過PNGのOTIO/Resolve互換性PoC（2026-11-23検証完了、PR #75）**：合成RGBA PNGとClip.2/ExternalReference.1を用いた24/30/60fpsの整数／端数秒数、四捨五入（0.5フレーム切り上げ・正の待機は最低1フレーム）の整数演算、同一PNGの反復参照、等尺Audio Gapを検証。exact HEAD `5f18895e521d033ecdc68e42adb271bcb8d63382` のPython 3.12/3.14各484/484 PASS、公式OTIO 6/6 PASS、CI 3ジョブSUCCESS（run `45116032019`）。同HEADの独立差分再監査はHIGH/MEDIUM/LOWすべて0でPASS（前回3件解消）。Mac Resolve Humanは合成PNGの透過・2秒表示、同一参照の反復、右端延長、24/30/60fpsの指定尺・floor/ceil、**別名・別ディレクトリPNGの自動リンク・透過・2秒表示**をPASS。これは**製品に統合された待機書き出し機能ではなくPoC**。実PSDから生成する透過静止画の固定キャンバス・位置・クロップ・画質一致は未実施で、後続Issue #73の製品統合ゲートへ引き継ぐ。手順は [ISSUE66_STILL_PROBE](ISSUE66_STILL_PROBE.md)。
+- [ ] **Issue #67 — 共通WAV＋複数キャラ制作JSON（Draft／モデルのみ）**：`multiProjectFile.ts`で共通WAVの順序・話者・待機有無と、キャラ別PSD/プリセット・WAV演出・待機overrideを分離した**暫定v5**の厳密な検証／往復モデルを作業中。`multiProjectRestore.ts`は全参照元の事前検査を実装。現在の単一キャラUIによるv4保存・読込は変更せず、新形式のUI接続・正式バージョン・v4移行／拒否方針・Mac実素材は未完了。PR内で未決事項を整理し、製品として利用可能になった時点で進捗を更新する。
 - [ ] **Issue #67〜#74**：共通WAV・複数キャラの制作JSON、話者判定、発話者/聞き手のMOV、待機静止画、全体OTIO、選択的再生成を順次実装。Issue #66と#67は並行可能。
 - **旧待機MOV Draft PR #56/#58/#65** は未マージ。新方針の待機静止画と異なるため無断で統合しない。これ以前の「待機MOV」「ループMOV」の記述は旧計画の履歴として扱う。
 
