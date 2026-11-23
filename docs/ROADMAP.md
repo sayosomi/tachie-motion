@@ -2,7 +2,7 @@
 
 ## 2026-11-23 新ワークフロー検証（Issue #66〜#74）
 
-- [ ] **Issue #66 — 待機透過PNGのOTIO/Resolve互換性**：独立PoCとして24/30/60fps、分数フレームのfloor/ceil、同一PNGの反復参照、音声Gapを生成・検査する。手順は [ISSUE66_STILL_PROBE](ISSUE66_STILL_PROBE.md)。このPoCは製品の待機静止画書き出し機能ではなく、2026-11-23のCI（Python 3.12/3.14各483件、公式OTIO 6件）は旧HEADでPASS。Mac Resolve Humanは30fps静止画・2回参照・延長・24/60fps指定尺・全FPSのfloor/ceil指定尺PASS。新しい四捨五入（同点切り上げ・最低1フレーム）の導入後CIと独立監査は別ゲート。別名パス・実PSD品質の実機確認は未実施。
+- [ ] **Issue #66 — 待機透過PNGのOTIO/Resolve互換性**：独立PoCとして24/30/60fps、分数フレームのfloor/ceil、同一PNGの反復参照、音声Gapを生成・検査する。手順は [ISSUE66_STILL_PROBE](ISSUE66_STILL_PROBE.md)。このPoCは製品の待機静止画書き出し機能ではなく、丸め規則は四捨五入（同点切り上げ・正の待機は最低1フレーム）で承認済み。**独立監査対象HEAD `549ef3e61a59cc6ca1566d5270bdc7f141a4be5c`** のCIは Python 3.12/3.14各 **484/484 PASS**、公式OTIO **6/6 PASS**、3ジョブSUCCESS（run `45114659582`）。同HEADの独立監査は文書矛盾MEDIUM 2件・FPS型検証LOW 1件でBLOCKEDとなり、本PRで最小修正。**修正後HEADのCI・独立再監査は別途判定**。Mac Resolve Humanは合成PNGの透過表示・同一PNGの2回参照・延長・24/30/60fpsの指定尺・floor/ceilともPASS。別名パス・実PSD品質の実機確認は未実施。
 - [ ] **Issue #67〜#74**：共通WAV・複数キャラの制作JSON、話者判定、発話者/聞き手のMOV、待機静止画、全体OTIO、選択的再生成を順次実装。Issue #66と#67は並行可能。
 - **旧待機MOV Draft PR #56/#58/#65** は未マージ。新方針の待機静止画と異なるため無断で統合しない。これ以前の「待機MOV」「ループMOV」の記述は旧計画の履歴として扱う。
 
