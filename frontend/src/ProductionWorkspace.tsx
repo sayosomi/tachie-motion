@@ -34,6 +34,10 @@ export default function ProductionWorkspace({
   const [project, setProject] = useState<NextProjectFile>(initialProductionProject);
   const [busy, setBusy] = useState(false);
   const locked = useRef(false);
+  // Successful JSON import starts a new project generation. A Finder reply
+  // initiated for an older generation cannot write into the new project.
+  const projectEpoch = useRef(0);
+  const pickerEpoch = useRef<number | null>(null);
   const [wavPath, setWavPath] = useState("");
   const [newCharacterName, setNewCharacterName] = useState("");
   const [status, setStatus] = useState("");
@@ -53,6 +57,19 @@ export default function ProductionWorkspace({
     return true;
   }
 
+  function beginPicker(): boolean {
+    if (!begin()) return false;
+    pickerEpoch.current = projectEpoch.current;
+    return true;
+  }
+  function isCurrentPicker(): boolean {
+    return pickerEpoch.current !== null && pickerEpoch.current === projectEpoch.current;
+  }
+  function finishPicker() {
+    pickerEpoch.current = null;
+    lock(false);
+  }
+
   function edit(next: NextProjectFile) {
     if (locked.current) return;
     try {
@@ -63,10 +80,12 @@ export default function ProductionWorkspace({
     }
   }
 
-  async function addWav(path: string): Promise<boolean> {
-    if (!begin()) return false;
+  async function addWav(path: string, fromFinder = false): Promise<boolean> {
+    // From Finder, beginPicker already acquired the lock before /pick.
+    if (fromFinder ? !isCurrentPicker() : !begin()) return false;
     try {
       const result = await inspect<WavData>("wav", path);
+      if (fromFinder && !isCurrentPicker()) return false;
       const entry = {
         id: crypto.randomUUID(), wavPath: path, wav: result,
         speakerId: null, waitAfter: true,
@@ -80,7 +99,8 @@ export default function ProductionWorkspace({
       setError("WAVを登録できません：" + reason(failure));
       return false;
     } finally {
-      lock(false);
+      if (!fromFinder) lock(false);
+      // Finder keeps the same lock until onPickFinish, after its callback.
     }
   }
 
@@ -118,6 +138,7 @@ export default function ProductionWorkspace({
 
     <ProductionProjectFiles project={project} disabled={busy}
       onBusyChange={lock} onRestore={(next) => {
+        projectEpoch.current++;
         setProject(next);
         setWavPath("");
         setError("");
@@ -154,10 +175,14 @@ export default function ProductionWorkspace({
       <NativeFilePicker id="production-output-dir" kind="output_dir"
         label="出力先（後続の動画生成で使用）"
         value={project.naming.outputDir} disabled={busy}
-        onChange={(path) => setProject((old) => ({
-          ...old, naming: { ...old.naming, outputDir: path },
-        }))}
+        onPickStart={beginPicker} onPickFinish={finishPicker}
+        onChange={(path) => {
+          if (!locked.current) setProject((old) => ({
+            ...old, naming: { ...old.naming, outputDir: path },
+          }));
+        }}
         onSelected={(path) => {
+          if (!isCurrentPicker()) return false;
           setProject((old) => ({ ...old, naming: { ...old.naming, outputDir: path } }));
           return true;
         }} />
@@ -230,7 +255,9 @@ export default function ProductionWorkspace({
       <h2>WAVを追加</h2>
       <NativeFilePicker id="production-wav-path" kind="wav" label="音声WAV"
         value={wavPath} disabled={busy}
-        onChange={setWavPath} onSelected={addWav}
+        onPickStart={beginPicker} onPickFinish={finishPicker}
+        onChange={(path) => { if (!locked.current) setWavPath(path); }}
+        onSelected={(path) => addWav(path, true)}
         onApply={() => { void addWav(wavPath); }} applyLabel="WAVを登録" />
     </section>
     <ProductionWavEditor project={project} disabled={busy} onEdit={edit} />
