@@ -117,15 +117,26 @@ test("production UI saves and restores two characters with shared ordered WAVs a
   await page.getByRole("textbox", { name: "制作プロジェクト名" }).fill("作品");
   await page.getByRole("textbox", { name: "共通待機秒数" }).fill("1.25");
   await page.getByRole("combobox", { name: "制作FPS" }).selectOption("60");
+  await page.getByRole("combobox", { name: "書き出し解像度" }).selectOption("quarter");
+  await page.getByRole("textbox", { name: "冒頭の個別秒数" }).fill("0.5");
+  await page.getByRole("textbox", { name: "冒頭の個別秒数" }).press("Tab");
 
   const ids = await page.locator("[data-production-wav-id]").evaluateAll((elements) =>
     elements.map((element) => element.getAttribute("data-production-wav-id")!));
   const charIds = await page.locator("[data-production-character]").evaluateAll((elements) =>
     elements.map((element) => element.getAttribute("data-production-character")!));
 
+  await page.getByRole("combobox", { name: "冒頭プリセット: " + charIds[0] })
+    .selectOption("a-happy");
+  await page.getByRole("textbox", { name: "個別秒数: " + ids[0] }).fill("2.25");
+  await page.getByRole("textbox", { name: "個別秒数: " + ids[0] }).press("Tab");
   await page.getByRole("combobox", { name: "話者: " + ids[0] }).selectOption(charIds[0]);
   await page.getByRole("button", { name: "1 音声 e\u0301.wav" }).click();
   await page.getByRole("combobox", { name: "口パク: " + charIds[0] }).selectOption("open");
+  await page.getByRole("combobox", { name: "話者: " + ids[0] }).selectOption(charIds[1]);
+  await expect(page.getByRole("combobox", { name: "口パク: " + charIds[0] })).toBeDisabled();
+  await page.getByRole("combobox", { name: "話者: " + ids[0] }).selectOption(charIds[0]);
+  await expect(page.getByRole("combobox", { name: "口パク: " + charIds[0] })).toHaveValue("open");
   await expect(page.getByRole("combobox", { name: "口パク: " + charIds[1] })).toBeDisabled();
   await page.getByRole("combobox", { name: "初期プリセット: " + charIds[1] }).selectOption("b-happy");
   await page.getByRole("button", { name: "＋ 変更点" }).first().click();
@@ -140,13 +151,21 @@ test("production UI saves and restores two characters with shared ordered WAVs a
   expect(snapshot.version).toBe(5);
   expect(snapshot.fps).toBe(60);
   expect(snapshot.waitSeconds).toBe("1.25");
+  expect(snapshot.exportResolution).toBe("quarter");
+  expect(snapshot.openingWait).toEqual({ enabled: true, secondsOverride: "0.5" });
+  expect(snapshot.naming.outputDir).toBeUndefined();
   expect(snapshot.naming.projectName).toBe("作品");
   expect(snapshot.wavs.map((item: { id: string }) => item.id)).toEqual([ids[1], ids[0]]);
   expect(snapshot.wavs[1].speakerId).toBe(charIds[0]);
+  expect(snapshot.wavs[1].speakerManual).toBe(true);
+  expect(snapshot.wavs[1].waitSecondsOverride).toBe("2.25");
   expect(snapshot.wavs[0].speakerId).toBeNull();
   expect(snapshot.wavs[0].waitAfter).toBe(false);
   expect(snapshot.characters[0].animations.find((item: { wavId: string }) =>
     item.wavId === ids[0]).presetChanges).toEqual([{ sample: 24000, presetId: "a-happy" }]);
+  expect(snapshot.characters[0].openingWaitPresetId).toBe("a-happy");
+  expect(snapshot.characters[0].animations.find((item: { wavId: string }) =>
+    item.wavId === ids[0]).lipModeOverride).toBe("open");
   expect(snapshot.characters[0].waitOverrides).toEqual([
     { wavId: ids[0], presetId: "a-happy" },
   ]);
@@ -161,7 +180,9 @@ test("production UI saves and restores two characters with shared ordered WAVs a
   await expect(page.locator("[data-production-wav-id]")).toHaveCount(2);
   await expect(page.locator("[data-production-character]")).toHaveCount(2);
   await expect(page.getByRole("combobox", { name: "制作FPS" })).toHaveValue("60");
+  await expect(page.getByRole("combobox", { name: "書き出し解像度" })).toHaveValue("quarter");
   const roundtrip = await save(page);
+  expect(roundtrip.openingWait).toEqual(snapshot.openingWait);
   expect(roundtrip.wavs).toEqual(snapshot.wavs);
   expect(roundtrip.characters).toEqual(snapshot.characters);
   // v4 editing screen remains separate.
