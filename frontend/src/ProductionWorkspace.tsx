@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { parseCharacterProfile, validateCharacterProfileOpenTargets } from "./characterProfile";
 import { MAX_PROFILE_SIZE } from "./characterProfile";
 import NativeFilePicker from "./NativeFilePicker";
+import ProductionCharacterNameField from "./ProductionCharacterNameField";
 import ProductionProjectFiles from "./ProductionProjectFiles";
 import ProductionWavEditor from "./ProductionWavEditor";
 import {
@@ -70,13 +71,15 @@ export default function ProductionWorkspace({
     lock(false);
   }
 
-  function edit(next: NextProjectFile) {
-    if (locked.current) return;
+  function edit(next: NextProjectFile): boolean {
+    if (locked.current) return false;
     try {
       setProject(checkedProductionEdit(next));
       setError("");
+      return true;
     } catch (failure) {
       setError(reason(failure));
+      return false;
     }
   }
 
@@ -214,13 +217,13 @@ export default function ProductionWorkspace({
         data-production-character={character.id}>
         <div className="input-row">
           <label>キャラ名
-            <input aria-label={"キャラ名: " + character.id}
-              key={character.id} defaultValue={character.name} disabled={busy}
-              onBlur={(event) => {
-                if (event.target.value === character.name) return;
-                edit({ ...project, characters: project.characters.map((entry) =>
-                  entry.id === character.id ? { ...entry, name: event.target.value } : entry) });
-              }} />
+            <ProductionCharacterNameField
+              key={projectEpoch.current + ":" + character.id}
+              characterId={character.id} name={character.name} disabled={busy}
+              onCommit={(name) => edit({
+                ...project, characters: project.characters.map((entry) =>
+                  entry.id === character.id ? { ...entry, name } : entry),
+              })} />
           </label>
           <label>既定プリセット
             <select aria-label={"既定プリセット: " + character.id}
