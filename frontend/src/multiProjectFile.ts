@@ -20,14 +20,19 @@ export type SharedProjectWav = {
   wavPath: string;
   wav: WavData;
   speakerId: string | null;
+  /** Preserve deliberate speaker selections across later automatic inference. */
+  speakerManual: boolean;
   waitAfter: boolean;
+  /** null inherits the project-wide seconds. */
+  waitSecondsOverride: string | null;
 };
 
 export type CharacterWavAnimation = {
   wavId: string;
   presetId: string;
   presetChanges: PresetChangePoint[];
-  lipMode: LipMode;
+  /** null resolves automatically; explicit choices survive listener periods. */
+  lipModeOverride: LipMode | null;
 };
 
 export type CharacterWaitOverride = { wavId: string; presetId: string };
@@ -38,10 +43,14 @@ export type ProductionCharacter = {
   profile: CharacterProfile;
   animations: CharacterWavAnimation[];
   /** Missing entry means follow the character's default preset live. */
+  /** null inherits the character default for the independent opening interval. */
+  openingWaitPresetId: string | null;
   waitOverrides: CharacterWaitOverride[];
 };
 
-export type ProductionNaming = Omit<BatchNaming, "characterName">;
+export type ProductionNaming = Omit<BatchNaming, "characterName" | "outputDir">;
+export type ExportResolution = "original" | "half" | "quarter";
+export type OpeningWait = { enabled: boolean; secondsOverride: string | null };
 
 export type NextProjectFile = {
   format: typeof PROJECT_FORMAT;
@@ -49,6 +58,9 @@ export type NextProjectFile = {
   fps: Fps;
   /** Exact nonnegative decimal seconds, not a floating-point frame count. */
   waitSeconds: string;
+  /** Both MOV and wait PNG use the same scale; PSD and thumbnails do not. */
+  exportResolution: ExportResolution;
+  openingWait: OpeningWait;
   /** Array position is the current order; every reference uses the stable ID. */
   wavs: SharedProjectWav[];
   characters: ProductionCharacter[];
@@ -105,7 +117,7 @@ function assertWaitSeconds(value: unknown): asserts value is string {
 
 function assertNaming(value: unknown): asserts value is ProductionNaming {
   fields(value, ["projectName", "movTemplate", "otioTemplate", "outputDir"]);
-  validateBatchNaming({ ...value, characterName: "character" });
+  validateBatchNaming({ ...value, characterName: "character", outputDir: "" });
 }
 
 function assertProject(value: unknown): asserts value is NextProjectFile {
@@ -115,12 +127,23 @@ function assertProject(value: unknown): asserts value is NextProjectFile {
       value.version !== NEXT_PROJECT_VERSION) {
     throw new Error("未対応の制作プロジェクトJSON形式・バージョンです");
   }
-  fields(value, ["format", "version", "fps", "waitSeconds", "wavs",
-    "characters", "selectedWavId", "naming"]);
+  fields(value, ["format", "version", "fps", "waitSeconds", "exportResolution",
+    "openingWait", "wavs", "characters", "selectedWavId", "naming"]);
   if (value.fps !== 24 && value.fps !== 30 && value.fps !== 60) {
     throw new Error("プロジェクト共通FPSが不正です");
   }
   assertWaitSeconds(value.waitSeconds);
+  if (!["original", "half", "quarter"].includes(value.exportResolution as string)) {
+    throw new Error("書き出し解像度が不正です");
+  }
+  fields(value.openingWait, ["enabled", "secondsOverride"]);
+  if (typeof value.openingWait.enabled !== "boolean" ||
+      (!value.openingWait.enabled && value.openingWait.secondsOverride !== null)) {
+    throw new Error("冒頭のセリフ間隔が不正です");
+  }
+  if (value.openingWait.secondsOverride !== null) {
+    assertWaitSeconds(value.openingWait.secondsOverride);
+  }
   assertNaming(value.naming);
   if (!Array.isArray(value.wavs) || value.wavs.length > MAX_WAVS ||
       !Array.isArray(value.characters) || value.characters.length > MAX_CHARACTERS) {
@@ -129,13 +152,17 @@ function assertProject(value: unknown): asserts value is NextProjectFile {
 
   const wavIds = new Set<string>();
   for (const raw of value.wavs) {
-    fields(raw, ["id", "wavPath", "wav", "speakerId", "waitAfter"]);
+    fields(raw, ["id", "wavPath", "wav", "speakerId", "speakerManual",
+      "waitAfter", "waitSecondsOverride"]);
     if (!stableId(raw.id) || wavIds.has(raw.id) || !absolutePath(raw.wavPath) ||
+        typeof raw.speakerManual !== "boolean" ||
         typeof raw.waitAfter !== "boolean" ||
+        (!raw.waitAfter && raw.waitSecondsOverride !== null) ||
         (raw.speakerId !== null && !stableId(raw.speakerId))) {
       throw new Error("共通WAVのID・参照・待機設定が不正です");
     }
     assertWavData(raw.wav);
+    if (raw.waitSecondsOverride !== null) assertWaitSeconds(raw.waitSecondsOverride);
     wavIds.add(raw.id);
   }
 
@@ -143,7 +170,8 @@ function assertProject(value: unknown): asserts value is NextProjectFile {
   const characterIds = new Set<string>();
   const names = new Set<string>();
   for (const raw of value.characters) {
-    fields(raw, ["id", "name", "profile", "animations", "waitOverrides"]);
+    fields(raw, ["id", "name", "profile", "animations",
+      "openingWaitPresetId", "waitOverrides"]);
     if (!stableId(raw.id) || characterIds.has(raw.id) ||
         typeof raw.name !== "string" || !raw.name.trim() ||
         raw.name.length > 256 ||
@@ -163,23 +191,27 @@ function assertProject(value: unknown): asserts value is NextProjectFile {
       throw new Error("キャラクターのPSD参照パスが不正です");
     }
     const presetIds = new Set(profile.collection.items.map((preset) => preset.id));
+    if (raw.openingWaitPresetId !== null &&
+        (typeof raw.openingWaitPresetId !== "string" ||
+          !presetIds.has(raw.openingWaitPresetId) || !value.openingWait.enabled)) {
+      throw new Error("冒頭の待機プリセット参照が不正です");
+    }
     if (raw.animations.length !== wavIds.size || raw.waitOverrides.length > wavIds.size) {
       throw new Error("キャラクターのWAV設定件数が不正です");
     }
     const editedWavs = new Set<string>();
     for (const animation of raw.animations) {
-      fields(animation, ["wavId", "presetId", "presetChanges", "lipMode"]);
+      fields(animation, ["wavId", "presetId", "presetChanges", "lipModeOverride"]);
       if (!stableId(animation.wavId) || !wavIds.has(animation.wavId) ||
           editedWavs.has(animation.wavId) ||
           typeof animation.presetId !== "string" ||
           !presetIds.has(animation.presetId) ||
-          !["none", "open", "aiueo"].includes(animation.lipMode as string)) {
+          (animation.lipModeOverride !== null &&
+            !["none", "open", "aiueo"].includes(animation.lipModeOverride as string)) {
         throw new Error("キャラクターのWAV設定・プリセット参照が不正です");
       }
       const wav = wavById.get(animation.wavId)!;
-      if (wav.speakerId !== raw.id && animation.lipMode !== "none") {
-        throw new Error("話者以外のキャラクターには口パクを設定できません");
-      }
+      // Listener output uses none; retain its manually selected mode in storage.
       assertPresetChangePoints(animation.presetChanges, wav.wav.samples, presetIds);
       editedWavs.add(animation.wavId);
     }
@@ -195,7 +227,8 @@ function assertProject(value: unknown): asserts value is NextProjectFile {
       }
       overrideWavs.add(entry.wavId);
     }
-    if ((value.wavs as SharedProjectWav[]).some((wav) => wav.waitAfter) &&
+    if ((value.openingWait.enabled ||
+        (value.wavs as SharedProjectWav[]).some((wav) => wav.waitAfter)) &&
         !profile.collection.defaultId) {
       throw new Error("待機用の既定プリセットが見つかりません");
     }
@@ -229,15 +262,46 @@ export function serializeNextProjectFile(value: NextProjectFile): string {
   return JSON.stringify(parseNextProjectFile(text), null, 2) + "\n";
 }
 
+/** null denotes the opening interval, while the final WAV's wait is the ending. */
 export function resolveWaitPreset(
-  project: NextProjectFile, characterId: string, wavId: string,
+  project: NextProjectFile, characterId: string, wavId: string | null,
 ): string | null {
-  const wav = project.wavs.find((entry) => entry.id === wavId);
   const character = project.characters.find((entry) => entry.id === characterId);
-  if (!wav || !character) throw new Error("待機のWAVまたはキャラクターが見つかりません");
+  if (!character) throw new Error("待機のキャラクターが見つかりません");
+  if (wavId === null) {
+    return project.openingWait.enabled ?
+      character.openingWaitPresetId ?? character.profile.collection.defaultId : null;
+  }
+  const wav = project.wavs.find((entry) => entry.id === wavId);
+  if (!wav) throw new Error("待機のWAVが見つかりません");
   if (!wav.waitAfter) return null;
   return character.waitOverrides.find((entry) => entry.wavId === wavId)?.presetId ??
     character.profile.collection.defaultId;
+}
+
+/** One common interval setting; override follows the WAV's ID, never its row index. */
+export function resolveWaitSeconds(
+  project: NextProjectFile, wavId: string | null,
+): string | null {
+  if (wavId === null) {
+    return project.openingWait.enabled ?
+      project.openingWait.secondsOverride ?? project.waitSeconds : null;
+  }
+  const wav = project.wavs.find((entry) => entry.id === wavId);
+  if (!wav) throw new Error("待機のWAVが見つかりません");
+  return wav.waitAfter ? wav.waitSecondsOverride ?? project.waitSeconds : null;
+}
+
+/** #69 supplies validated LAB status; never infer vowel mode from WAV alone. */
+export function resolveEffectiveLipMode(
+  project: NextProjectFile, characterId: string, wavId: string, validLab: boolean,
+): LipMode {
+  const wav = project.wavs.find((entry) => entry.id === wavId);
+  const character = project.characters.find((entry) => entry.id === characterId);
+  const animation = character?.animations.find((entry) => entry.wavId === wavId);
+  if (!wav || !character || !animation) throw new Error("WAV×キャラ参照が見つかりません");
+  if (wav.speakerId !== characterId) return "none";
+  return animation.lipModeOverride ?? (validLab ? "aiueo" : "open");
 }
 
 /** Reordering never transfers animation, speaker or waiting overrides to another WAV. */
