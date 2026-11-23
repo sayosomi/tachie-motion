@@ -38,7 +38,7 @@ python -m tachie_motion.timeline.still_probe \
 
 floorとceilは**互換性比較のため**引き続き併記しています。採用したのはnearest（四捨五入、0.5フレーム以上は切り上げ）です。`frames = max(1, floor(seconds × fps + 1/2))` （seconds > 0）。実装では Fraction と整数演算を使用し、floatは入力として認めません。秒数が文字列の場合は `Fraction(str_value)` 等で正確に変換してから渡します。実際の総待機時間は各区間を整数フレームに変換した値の総和です。24/30/60fpsのfloor/ceilはHuman PASSですが、nearestファイルは旧floorまたはceilと同じ長さになるため、採用計算そのものは新CIテストで検証します。
 
-## Mac DaVinci Resolve Human E2E — 部分PASS（2026-11-23）
+## Mac DaVinci Resolve Human E2E — 合成PNG互換性PASS（2026-11-23）
 
 利用者報告によるPASS範囲：
 - 30fps・2秒のPNG OTIO読込、画像表示・透明表示、60フレーム尺
@@ -47,7 +47,7 @@ floorとceilは**互換性比較のため**引き続き併記しています。�
 - 24fps／60fpsの2秒尺
 - 24/30/60fpsそれぞれの1.02秒 floor／ceil 両候補のDuration表示
 
-**まだ確認していないこと：** PNGの異名／別ディレクトリを指定したOTIOの自動リンク、実PSDプリセット由来の固定透過キャンバスの画質一致、独立コード監査。通常の合成PNG表示に関するHuman PASSをこれらへ拡張しない。
+**追加Human PASS：** 合成PNGを別名 `別名 透過画像.png` として別ディレクトリへコピーし、別出力ディレクトリ内の `still_30fps_2s.otio` からResolveが自動オンライン参照でき、透明部分を含めて2秒正常表示された（利用者報告）。**独立差分再監査**：exact HEAD `5f18895e521d033ecdc68e42adb271bcb8d63382` でHIGH/MEDIUM/LOW=0、PASS。**引き続き未確認（後続Issue #73の製品静止画生成・統合ゲート）**：実PSDプリセットから書き出した固定透過キャンバスの寸法、位置、クロップ、輪郭と画質一致。合成PoCの成功から品質を推定しない。
 
 ### 再現・追加確認手順
 
