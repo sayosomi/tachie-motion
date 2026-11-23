@@ -1,5 +1,13 @@
 # Test strategy and Phase 0 acceptance criteria
 
+
+## Public Issue #67 — 共通WAV／複数キャラ制作プロジェクト（Draftモデルの検証項目）
+
+- **モデル検証**：暫定v5の保存→再読込で共有WAV ID・順序・話者null・待機有無、PSDプロフィールスナップショット、WAV×キャラ初期プリセット・PCM変更点・口パク、待機overrideと既定連動、共通FPS・十進秒数を保持。WAV並べ替えでキャラ別設定を別IDへ移動しない。旧v4の実UI保存／読込挙動は変えない。
+- **不正JSON**：バージョン・ID衝突・参照先不明・非絶対パス・不正wav identity・巨大JSON・余分な項目・重複変更点・話者以外の口パク・待機無効へのoverrideを拒否。入力を自動修復せず、既存編集状態を変更しない。
+- **ソース確認**：全PSDのfingerprint・layerPaths・動作対象と各WAVのsource_identityを復元前に検査。WAV同一パスの重複登録は読み取りを共有し設定IDは別に保つ。同一パス変更時は明示承認、変更点があるWAVのサンプル数／レート変更は拒否。失敗時は一件も状態へコミットしない。
+- **未実装ゲート**：新UIの追加・操作ロック・保存ダイアログ・既存v4からの移行判断と確認操作、マルチキャラの実素材での復元・出力。これらをモデルテストだけでPASSとしない。映像／OTIO書き出しはIssue #67の対象外。CI・独立コード監査・Mac Humanを別ゲートにする。
+
 ## Issue #66 — 透過PNGのOTIO/Resolve互換性PoC（2026-11-23 Human検証完了）
 
 - 合成RGBA画像1枚で、OTIO ExternalReference.1 の1-frame available_rangeと、指定frame数のClip.2 source_rangeを個別に検証する。Audioトラックは等尺のGap.1とし、WAVを追加しない。
