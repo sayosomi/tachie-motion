@@ -1,12 +1,12 @@
 # Test strategy and Phase 0 acceptance criteria
 
-## Issue #66 — 透過PNGのOTIO/Resolve互換性PoC（未完了）
+## Issue #66 — 透過PNGのOTIO/Resolve互換性PoC（2026-11-23 Human検証完了）
 
 - 合成RGBA画像1枚で、OTIO ExternalReference.1 の1-frame available_rangeと、指定frame数のClip.2 source_rangeを個別に検証する。Audioトラックは等尺のGap.1とし、WAVを追加しない。
 - 24/30/60fpsで2秒の整数フレーム尺と1.02秒のfloor/ceil両候補を保存し、**承認済み四捨五入（同点切り上げ、正の待機は最低1フレーム）**によるnearestの3ケースも確認する。整数演算、半フレームの境界値、正数極小値、無効FPS・無効秒数を自動テストする。
 - 同じPNGを複数Clipで参照し、Unicode（日本語・空白・NFD）パスと通常の絶対ファイルパス（file URIでない）、元PNG不変、無断上書き防止、RGBA/alpha入力検証を自動テストする。
 - Python CIのテストとOpenTimelineIO 0.18.1のdeserialize/serializeを別ゲートで実施する。どちらもMacのResolve表示・透過・切り抜き・静止画延長を保証しない。
-- Human E2E：2026-11-23利用者報告で30fps・2秒の透過PNG表示、静止画像延長、同じPNGの2回参照、24/60fps・2秒、および24/30/60fpsの1.02秒floor/ceil表示尺はPASS。**未実施**：異名/別パスの実機確認、実PSD由来の固定キャンバス画質確認、独立コード監査。手順と期待値をIssue #66に記録する。手順と期待値は [ISSUE66_STILL_PROBE](ISSUE66_STILL_PROBE.md)。
+- Human E2E：2026-11-23利用者報告で30fps・2秒の合成透過PNG表示、静止画像延長、同じPNGの2回参照、24/60fps・2秒、および24/30/60fpsの1.02秒floor/ceil表示尺はPASS。別名・別ディレクトリへコピーした合成PNG（日本語・空白の名前）を、別ディレクトリのOTIOからResolveで自動参照し、透過・2秒表示もPASS。exact HEAD `5f18895e521d033ecdc68e42adb271bcb8d63382` の独立再監査HIGH/MEDIUM/LOW=0でPASS。**未実施／後続Issue #73の製品生成ゲート**：実PSDプリセット由来の透明固定キャンバス・画像の位置・クロップ・画質の一致。合成PoCのPASSで代用しない。手順は [ISSUE66_STILL_PROBE](ISSUE66_STILL_PROBE.md)。
 - 製品の待機静止画生成・本番OTIO統合、実PSD品質と固定キャンバス、単一音声所有は後続Issueに残す。
 
 
