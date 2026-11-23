@@ -1,5 +1,12 @@
 # Roadmap
 
+## 2026-11-23 新ワークフロー検証（Issue #66〜#74）
+
+- [x] **Issue #66 — 待機透過PNGのOTIO/Resolve互換性PoC（2026-11-23検証完了、PR #75）**：合成RGBA PNGとClip.2/ExternalReference.1を用いた24/30/60fpsの整数／端数秒数、四捨五入（0.5フレーム切り上げ・正の待機は最低1フレーム）の整数演算、同一PNGの反復参照、等尺Audio Gapを検証。exact HEAD `5f18895e521d033ecdc68e42adb271bcb8d63382` のPython 3.12/3.14各484/484 PASS、公式OTIO 6/6 PASS、CI 3ジョブSUCCESS（run `45116032019`）。同HEADの独立差分再監査はHIGH/MEDIUM/LOWすべて0でPASS（前回3件解消）。Mac Resolve Humanは合成PNGの透過・2秒表示、同一参照の反復、右端延長、24/30/60fpsの指定尺・floor/ceil、**別名・別ディレクトリPNGの自動リンク・透過・2秒表示**をPASS。これは**製品に統合された待機書き出し機能ではなくPoC**。実PSDから生成する透過静止画の固定キャンバス・位置・クロップ・画質一致は未実施で、後続Issue #73の製品統合ゲートへ引き継ぐ。手順は [ISSUE66_STILL_PROBE](ISSUE66_STILL_PROBE.md)。
+- [ ] **Issue #67〜#74**：共通WAV・複数キャラの制作JSON、話者判定、発話者/聞き手のMOV、待機静止画、全体OTIO、選択的再生成を順次実装。Issue #66と#67は並行可能。
+- **旧待機MOV Draft PR #56/#58/#65** は未マージ。新方針の待機静止画と異なるため無断で統合しない。これ以前の「待機MOV」「ループMOV」の記述は旧計画の履歴として扱う。
+
+
 **現在の状態：Phase 0とPhase 1のCLI、およびmainの統合プリセット編集・Mac Finder選択・単一WAVのnone/open書き出しは実装済み。新規・上書き・別名保存とDaVinci Resolveの透過・口パク・音声同期は2026年11月1日にMac Human PASS。aiueoの6口形レイヤー編集・静止プレビューはmainで対応済み。LAB駆動aiueoのMOV生成はIssue #27 / PR #28でmainへ統合済み（当時の個別OTIOは旧仕様）。**現行の製品Web UIでは単一書き出しがPCM内包MOVのみ、一括書き出しがMOV群＋全体OTIO 1本で、個別OTIOは生成しない（Issue #38 / PR #39、2026-11-19 main統合）。**CI・独立監査・Mac実機の書き出し／口パク表示／Resolve OTIO読み込みを確認済み。単一キャラクターの瞬き付きセリフMOV（Issue #34 / PR #35）は実装済み・CI／コード監査／Mac実PSD・DaVinci ResolveのHuman確認PASS。変更点タイムライン（Issue #49 / PR #50）と変更済みMOVだけの再生成（Issue #62 / PR #63）は実装済み。複数キャラクター・セリフ間の待機MOV挿入（Issue #64）は未実装。制作プロジェクトJSON保存・復元、単一キャラ全体OTIOはPR #17・#19で実装済み。キャラクター設定JSONの独立保存・読み込みは既存機能として実装済み。JSON往復の自動テストとMac Chrome保存UIのHuman UXはPASS。**
 
 この文書は実装の進捗と今後の作業範囲を示します。確定した製品要件は [PRODUCT_SPEC.md](PRODUCT_SPEC.md)、実際に使えるコマンドは [README.md](../README.md) を参照してください。PoCで確認したことと、完成したアプリでできることは区別します。

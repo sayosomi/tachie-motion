@@ -279,5 +279,46 @@ class OfficialOtioRoundtrip(unittest.TestCase):
             )
 
 
+    def test_still_png_reuse_and_one_frame_available_range_roundtrip(self):
+        from tachie_motion.timeline.still_probe import (
+            build_still_timeline, create_synthetic_png,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            image = root / "日本語 画像 é.png"
+            create_synthetic_png(image)
+            path = root / "still.otio"
+            write_otio(build_still_timeline(image, 30, (30, 60)), path)
+            timeline = otio.adapters.read_from_file(str(path))
+            self.assertIsInstance(timeline, otio.schema.Timeline)
+            self.assertEqual(
+                [t.kind for t in timeline.tracks],
+                [otio.schema.TrackKind.Video, otio.schema.TrackKind.Audio],
+            )
+            video, audio = timeline.tracks
+            self.assertEqual(len(video), 2)
+            self.assertEqual(len(audio), 1)
+            self.assertIsInstance(audio[0], otio.schema.Gap)
+            self.assertEqual(audio[0].source_range.duration.value, 90)
+            for clip, duration in zip(video, (30, 60), strict=True):
+                self.assertIsInstance(clip, otio.schema.Clip)
+                self.assertEqual(clip.media_reference.target_url, str(image.resolve()))
+                self.assertEqual(clip.media_reference.available_range.duration.value, 1)
+                self.assertEqual(clip.source_range.duration.value, duration)
+                self.assertEqual(clip.source_range.duration.rate, 30)
+            roundtrip = otio.adapters.read_from_string(
+                otio.adapters.write_to_string(timeline, "otio_json"),
+                "otio_json",
+            )
+            self.assertEqual(
+                [clip.source_range.duration.value for clip in roundtrip.tracks[0]],
+                [30, 60],
+            )
+            self.assertEqual(
+                roundtrip.tracks[0][1].media_reference.target_url,
+                str(image.resolve()),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
