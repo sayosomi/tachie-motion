@@ -155,6 +155,9 @@ test("candidate parser rejects old v4 instead of silently consuming or rewriting
   const old = fixture() as NextProjectFile & Record<string, any>;
   old.version = 4;
   expect(() => parseNextProjectFile(JSON.stringify(old))).toThrow("未対応");
+  const actualV4Shape = { format: "tachie-motion-project", version: 4,
+    character: {}, items: [], selectedId: null, naming: {} };
+  expect(() => parseNextProjectFile(JSON.stringify(actualV4Shape))).toThrow("未対応");
   expect(() => parseNextProjectFile("{")).toThrow("解析");
   expect(() => parseNextProjectFile(" ".repeat(16_000_001))).toThrow("大きすぎ");
 });
