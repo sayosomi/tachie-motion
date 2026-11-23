@@ -4,6 +4,7 @@ import {
 } from "./multiProjectFile";
 import { removeProductionWav } from "./multiProjectEditing";
 import { wavFilename } from "./utteranceItems";
+import { MAX_PRESET_CHANGE_POINTS } from "./presetChangePoints";
 
 type Props = {
   project: NextProjectFile;
@@ -160,7 +161,8 @@ export default function ProductionWavEditor({ project, disabled, onEdit }: Props
             <span>プリセット変更点（PCMサンプル位置）</span>
             <button type="button" className="secondary"
               disabled={disabled || current.wav.samples < 2 ||
-                animation.presetChanges.length >= current.wav.samples - 1}
+                animation.presetChanges.length >= current.wav.samples - 1 ||
+                animation.presetChanges.length >= MAX_PRESET_CHANGE_POINTS}
               onClick={() => {
                 const used = new Set(animation.presetChanges.map((point) => point.sample));
                 let sample = Math.max(1, Math.floor(current.wav.samples / 2));
