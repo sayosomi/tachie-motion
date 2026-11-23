@@ -122,7 +122,7 @@ test("delayed Finder WAV response locks project edits and preserves preexisting 
   ]);
 });
 
-test("delayed output-folder Finder prevents replacing project before its reply", async ({ page }) => {
+test("delayed WAV Finder blocks project replacement until selection finishes", async ({ page }) => {
   await setup(page);
   const finder = await delayedFinder(page);
   await openProduction(page);
@@ -130,39 +130,40 @@ test("delayed output-folder Finder prevents replacing project before its reply",
   await page.getByRole("textbox", { name: "制作プロジェクト名" }).fill("旧作品");
   const original = await save(page);
   const newProject = { ...original, naming: { ...original.naming,
-    projectName: "読み込んだ作品", outputDir: "/tmp/imported-output" } };
-  const choose = page.locator("#production-output-dir-advanced")
-    .locator("xpath=..").getByRole("button", { name: "フォルダを選ぶ" });
-  await expect(choose).toBeEnabled();
+    projectName: "読み込んだ作品" } };
+  const choose = page.locator('section[aria-label="WAV登録"] button.picker-choose');
   await choose.click();
-  expect(await finder.started).toBe("output_dir");
+  expect(await finder.started).toBe("wav");
   await expect(page.getByRole("button", { name: "制作JSONを読み込む" })).toBeDisabled();
   await expect(page.locator("#production-project-input")).toBeDisabled();
   await expect(page.getByRole("textbox", { name: "制作プロジェクト名" })).toBeDisabled();
-  finder.release({ status: "selected", path: "/tmp/selected-output" });
-  await expect(page.getByRole("button", { name: "制作JSONを読み込む" })).toBeEnabled();
-
+  finder.release({ status: "selected", path: "/tmp/delayed.wav" });
+  await expect(page.locator("[data-production-wav-id]")).toHaveCount(2);
   page.once("dialog", (dialog) => { void dialog.accept(); });
   await load(page, newProject);
   await expect(page.getByRole("status")
     .filter({ hasText: "複数キャラ制作プロジェクトを読み込みました" })).toBeVisible();
   const after = await save(page);
   expect(after.naming).toEqual(newProject.naming);
+  expect(after.wavs).toEqual(newProject.wavs);
 });
 
-test("Finder cancellation releases the edit lock without changing the output directory", async ({ page }) => {
+test("Finder cancellation releases the lock without changing WAV IDs or timing", async ({ page }) => {
   await setup(page);
   const finder = await delayedFinder(page);
   await openProduction(page);
-  const output = page.locator(".production-workspace button.picker-choose").first();
-  await expect(output).toBeEnabled();
-  await output.click();
-  expect(await finder.started).toBe("output_dir");
+  await addWavDirect(page);
+  const before = await save(page);
+  const choose = page.locator('section[aria-label="WAV登録"] button.picker-choose');
+  await expect(choose).toBeEnabled();
+  await choose.click();
+  expect(await finder.started).toBe("wav");
   await expect(page.getByRole("button", { name: "制作JSONを保存" })).toBeDisabled();
   finder.release({ status: "cancelled" });
   await expect(page.getByRole("button", { name: "制作JSONを保存" })).toBeEnabled();
   const saved = await save(page);
-  expect(saved.naming.outputDir).toBe("");
+  expect(saved.wavs).toEqual(before.wavs);
+  expect(saved.openingWait).toEqual(before.openingWait);
 });
 
 test("change-point add button is disabled at the shared 2048-point limit", async ({ page }) => {
