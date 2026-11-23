@@ -96,7 +96,7 @@ source .venv/bin/activate
 python -m tachie_motion.timeline.still_probe --output-dir "$HOME/Desktop/tachie-issue66-probe"
 ~~~
 
-合成RGBA PNGと、24/30/60fps・指定尺・分数フレームfloor/ceil/四捨五入比較・反復参照の13個のOTIOを作成します。待機秒数は承認済みの四捨五入（同点切り上げ・正数最低1フレーム）で整数フレームへ変換します。元PSD/WAVを読み書きせず、既存の出力を上書きしません。既存のPNGを読み取り専用で指定する場合は --image "/path/to/example.png" を追加してください。**2026-11-23 Mac Resolve Human部分PASS**：合成透過PNGの表示・透過、クリップ延長、同じPNGの2回参照、24/30/60fpsの指定尺とfloor/ceil。**未実施**：別名・別ディレクトリPNG参照と、実PSD由来の固定キャンバス・画質照合。詳細は [検証手順](docs/ISSUE66_STILL_PROBE.md) に記録します。
+合成RGBA PNGと、24/30/60fps・指定尺・分数フレームfloor/ceil/四捨五入比較・反復参照の13個のOTIOを作成します。待機秒数は承認済みの四捨五入（同点切り上げ・正数最低1フレーム）で整数フレームへ変換します。元PSD/WAVを読み書きせず、既存の出力を上書きしません。既存のPNGを読み取り専用で指定する場合は --image "/path/to/example.png" を追加してください。**2026-11-23 Mac Resolve Human部分PASS**：合成透過PNGの表示・透過、クリップ延長、同じPNGの2回参照、24/30/60fpsの指定尺とfloor/ceil。**追加Human PASS**：別名・別ディレクトリのPNGを別出力フォルダのOTIOから参照し、Resolveで自動オンライン・透過・2秒表示を確認。**未実施（後続の製品静止画出力ゲート）**：実PSD由来の固定キャンバス・画質照合。詳細は [検証手順](docs/ISSUE66_STILL_PROBE.md) に記録します。
 
 ## セットアップ（開発者向けCLI）
 
