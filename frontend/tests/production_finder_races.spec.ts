@@ -154,8 +154,6 @@ test("Finder cancellation releases the edit lock without changing the output dir
   await setup(page);
   const finder = await delayedFinder(page);
   await openProduction(page);
-  const choose = page.locator('section[aria-label="共通制作設定"] button.picker-choose');
-  // The region is labelled '制作共通設定' in the editor.
   const output = page.locator(".production-workspace button.picker-choose").first();
   await expect(output).toBeEnabled();
   await output.click();
@@ -165,7 +163,6 @@ test("Finder cancellation releases the edit lock without changing the output dir
   await expect(page.getByRole("button", { name: "制作JSONを保存" })).toBeEnabled();
   const saved = await save(page);
   expect(saved.naming.outputDir).toBe("");
-  expect(choose).toBeDefined();
 });
 
 test("change-point add button is disabled at the shared 2048-point limit", async ({ page }) => {
