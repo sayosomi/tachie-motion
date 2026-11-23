@@ -9,10 +9,11 @@ import type { NextProjectInspection } from "./multiProjectRestore";
 export function initialProductionProject(): NextProjectFile {
   return {
     format: "tachie-motion-project", version: NEXT_PROJECT_VERSION,
-    fps: 30, waitSeconds: "1",
+    fps: 30, waitSeconds: "1", exportResolution: "original",
+    openingWait: { enabled: true, secondsOverride: null },
     wavs: [], characters: [], selectedWavId: null,
     naming: { projectName: "project", movTemplate: "{番号}_{キャラ名}_{WAV名}",
-      otioTemplate: "{プロジェクト名}", outputDir: "" },
+      otioTemplate: "{プロジェクト名}" },
   };
 }
 
@@ -31,8 +32,9 @@ export function addProductionCharacter(
     id, name, profile,
     animations: project.wavs.map((wav) => ({
       wavId: wav.id, presetId: profile.collection.defaultId!,
-      presetChanges: [], lipMode: "none",
+      presetChanges: [], lipModeOverride: null,
     })),
+    openingWaitPresetId: null,
     waitOverrides: [],
   };
   return checkedProductionEdit({
@@ -52,7 +54,7 @@ export function addProductionWav(
       animations: [...character.animations, {
         wavId: entry.id,
         presetId: character.profile.collection.defaultId!,
-        presetChanges: [], lipMode: "none" as const,
+        presetChanges: [], lipModeOverride: null,
       }],
     })),
   });
@@ -75,7 +77,7 @@ export function removeProductionCharacter(project: NextProjectFile, id: string):
   return checkedProductionEdit({
     ...project,
     wavs: project.wavs.map((wav) => wav.speakerId === id ?
-      { ...wav, speakerId: null } : wav),
+      { ...wav, speakerId: null, speakerManual: false } : wav),
     characters: project.characters.filter((character) => character.id !== id),
   });
 }
