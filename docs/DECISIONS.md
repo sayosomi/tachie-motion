@@ -55,4 +55,6 @@ These decisions are carried from product planning. Changes require an explicit p
 - Default output pixel scaling, future preset migration rules, and schema-version changes beyond the approved project JSON v4.
 
 
+- **Issue #67（2026-11-23、未承認の実装案）**：共通WAV列、キャラ別プロフィールスナップショット、WAV×キャラの初期プリセット／PCM変更点／口パク、共通FPS、十進文字列の共通待機秒数、WAV単位の待機有無、待機プリセットのoverrideだけを保存し、省略時はキャラの既定プリセットへ連動する構造を検証中。候補バージョンは **v5**（正式承認前）。既存の**v4読込・保存コードおよびデータは変更しない**。v4からの明示変換を提供するか、v4専用経路を残して新形式では拒否するかは未決。旧v4の手動MOV名・出力先・競合選択、キャラ名や待機初期値、PSD再指定時の画面導線を無断で消す移行は禁止。合成テストPASSでも新UI・旧データ移行・Mac実機PASSとは扱わない。
+
 Do not silently resolve any of these as if already user-approved.
