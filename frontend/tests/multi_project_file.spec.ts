@@ -109,9 +109,9 @@ test("default-linked waiting changes with the character default; override remain
 
 test("strict parser rejects dangling IDs, malformed sources, invalid timing and extra fields", () => {
   const cases: ((data: NextProjectFile & Record<string, any>) => void)[] = [
-    (data) => { data.version = 4 as 5; },
-    (data) => { data.format = "wrong" as typeof data.format; },
-    (data) => { data.fps = 25 as 30; },
+    (data) => { data.version = 4 as unknown as typeof data.version; },
+    (data) => { data.format = "wrong" as unknown as typeof data.format; },
+    (data) => { data.fps = 25 as unknown as typeof data.fps; },
     (data) => { data.waitSeconds = "-1"; },
     (data) => { data.waitSeconds = "1e2"; },
     (data) => { data.waitSeconds = "3600.01"; },
