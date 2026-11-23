@@ -1,5 +1,15 @@
 # Test strategy and Phase 0 acceptance criteria
 
+## Issue #66 — 透過PNGのOTIO/Resolve互換性PoC（未完了）
+
+- 合成RGBA画像1枚で、OTIO ExternalReference.1 の1-frame available_rangeと、指定frame数のClip.2 source_rangeを個別に検証する。Audioトラックは等尺のGap.1とし、WAVを追加しない。
+- 24/30/60fpsで2秒の整数フレーム尺と1.02秒のfloor/ceil両候補を保存し、採用丸め規則を**未決のまま**比較する。
+- 同じPNGを複数Clipで参照し、Unicode（日本語・空白・NFD）パスと通常の絶対ファイルパス（file URIでない）、元PNG不変、無断上書き防止、RGBA/alpha入力検証を自動テストする。
+- Python CIのテストとOpenTimelineIO 0.18.1のdeserialize/serializeを別ゲートで実施する。どちらもMacのResolve表示・透過・切り抜き・静止画延長を保証しない。
+- Human E2Eは実機Resolveでalpha（半透明を含む）、左右上下のクロップ、タイムライン尺、右端延長、2回参照、異名/別パスを確認し、実測結果をIssue #66に記録する。手順と期待値は [ISSUE66_STILL_PROBE](ISSUE66_STILL_PROBE.md)。
+- 製品の待機静止画生成・本番OTIO統合、実PSD品質と固定キャンバス、単一音声所有は後続Issueに残す。
+
+
 ## Test pyramid
 
 - Python unit tests: timeline change-point semantics, independent initial states, lip-disabled mode, LAB units, **pure blink scheduler reproducibility with explicit seed** (distinct from MOV export randomness), bounds computation.
