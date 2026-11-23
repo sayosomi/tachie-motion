@@ -40,7 +40,7 @@ function why(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Separate v5-preview load/save path. Neither a v4 JSON nor existing editor state is overwritten. */
+/** v5-only production load/save. Legacy v4 is not supported or converted. */
 export default function ProductionProjectFiles({
   project, disabled, onBusyChange, onRestore,
 }: Props) {
