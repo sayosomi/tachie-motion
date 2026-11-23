@@ -2,7 +2,8 @@ import { expect, test } from "@playwright/test";
 import type { CharacterProfile } from "../src/characterProfile";
 import {
   NEXT_PROJECT_VERSION, parseNextProjectFile, reorderProjectWavs,
-  resolveWaitPreset, serializeNextProjectFile, type NextProjectFile,
+  resolveEffectiveLipMode, resolveWaitPreset, resolveWaitSeconds,
+  serializeNextProjectFile, type NextProjectFile,
 } from "../src/multiProjectFile";
 import { inspectNextProjectSources } from "../src/multiProjectRestore";
 import type { Layer } from "../src/LayerTree";
@@ -34,32 +35,36 @@ function fixture(): NextProjectFile {
     source_identity: "1:2:3:4:5" };
   return {
     format: "tachie-motion-project", version: NEXT_PROJECT_VERSION,
-    fps: 30, waitSeconds: "1.25",
+    fps: 30, waitSeconds: "1.25", exportResolution: "half",
+    openingWait: { enabled: true, secondsOverride: "0.75" },
     wavs: [
-      { id: "speech-1", wavPath, wav, speakerId: "alice", waitAfter: true },
-      { id: "speech-2", wavPath, wav, speakerId: null, waitAfter: false },
+      { id: "speech-1", wavPath, wav, speakerId: "alice", speakerManual: true,
+        waitAfter: true, waitSecondsOverride: "2.5" },
+      { id: "speech-2", wavPath, wav, speakerId: null, speakerManual: false,
+        waitAfter: false, waitSecondsOverride: null },
     ],
     characters: [
       { id: "alice", name: "あんこ e\u0301", profile: characterProfile("a", "/tmp/a.psd"),
         animations: [
-          { wavId: "speech-1", presetId: "a-default", lipMode: "open",
+          { wavId: "speech-1", presetId: "a-default", lipModeOverride: "open",
             presetChanges: [{ sample: 24000, presetId: "a-alternate" }] },
-          { wavId: "speech-2", presetId: "a-alternate", lipMode: "none",
+          { wavId: "speech-2", presetId: "a-alternate", lipModeOverride: null,
             presetChanges: [] },
         ],
+        openingWaitPresetId: "a-alternate",
         waitOverrides: [{ wavId: "speech-1", presetId: "a-alternate" }] },
       { id: "bob", name: "ぼぶ", profile: characterProfile("b", "/tmp/b.psd"),
         animations: [
-          { wavId: "speech-1", presetId: "b-default", lipMode: "none",
+          { wavId: "speech-1", presetId: "b-default", lipModeOverride: "aiueo",
             presetChanges: [{ sample: 100, presetId: "b-alternate" }] },
-          { wavId: "speech-2", presetId: "b-alternate", lipMode: "none",
+          { wavId: "speech-2", presetId: "b-alternate", lipModeOverride: null,
             presetChanges: [] },
         ],
-        waitOverrides: [] },
+        openingWaitPresetId: null, waitOverrides: [] },
     ],
     selectedWavId: "speech-1",
     naming: { projectName: "作品", movTemplate: "{番号}_{キャラ名}_{WAV名}",
-      otioTemplate: "{プロジェクト名}", outputDir: "/tmp/output" },
+      otioTemplate: "{プロジェクト名}" },
   };
 }
 
@@ -69,16 +74,26 @@ test("new model round-trips shared WAVs, independent character animations, and e
   expect(parsed.version).toBe(5);
   expect(parsed.fps).toBe(30);
   expect(parsed.waitSeconds).toBe("1.25");
+  expect(parsed.exportResolution).toBe("half");
+  expect(parsed.openingWait).toEqual({ enabled: true, secondsOverride: "0.75" });
+  expect(parsed.wavs[0].speakerManual).toBe(true);
+  expect(parsed.wavs[1].speakerManual).toBe(false);
+  expect(resolveWaitSeconds(parsed, null)).toBe("0.75");
+  expect(resolveWaitSeconds(parsed, "speech-1")).toBe("2.5");
   expect(parsed.wavs.map((wav) => wav.id)).toEqual(["speech-1", "speech-2"]);
   expect(parsed.wavs[0].wavPath).toBe(wavPath);
   expect(parsed.wavs[1].speakerId).toBeNull();
   expect(parsed.characters[0].animations[0].presetChanges).toEqual([
     { sample: 24000, presetId: "a-alternate" },
   ]);
-  expect(parsed.characters[1].animations[0].lipMode).toBe("none");
+  expect(parsed.characters[1].animations[0].lipModeOverride).toBe("aiueo");
+  expect(resolveEffectiveLipMode(parsed, "bob", "speech-1", true)).toBe("none");
+  expect(resolveWaitPreset(parsed, "alice", null)).toBe("a-alternate");
+  expect(resolveWaitPreset(parsed, "bob", null)).toBe("b-default");
   expect(resolveWaitPreset(parsed, "alice", "speech-1")).toBe("a-alternate");
   expect(resolveWaitPreset(parsed, "bob", "speech-1")).toBe("b-default");
   expect(resolveWaitPreset(parsed, "bob", "speech-2")).toBeNull();
+  expect(saved).not.toContain("outputDir");
   expect(saved).not.toContain("result");
   expect(saved).not.toContain("data:image");
 });
@@ -93,6 +108,8 @@ test("reorder retains speaker, animation and wait override by stable WAV ID", ()
   expect(restored.characters[0].animations.find((entry) => entry.wavId === "speech-1")
     ?.presetChanges[0].sample).toBe(24000);
   expect(resolveWaitPreset(restored, "alice", "speech-1")).toBe("a-alternate");
+  expect(resolveWaitSeconds(restored, "speech-1")).toBe("2.5");
+  expect(resolveWaitSeconds(restored, null)).toBe("0.75");
   expect(source.wavs[0].id).toBe("speech-1");
 });
 
@@ -102,9 +119,42 @@ test("default-linked waiting changes with the character default; override remain
   data.characters[0].profile.collection.defaultId = "a-alternate";
   const result = parseNextProjectFile(serializeNextProjectFile(data));
   expect(resolveWaitPreset(result, "bob", "speech-1")).toBe("b-alternate");
+  expect(resolveWaitPreset(result, "bob", null)).toBe("b-alternate");
   expect(resolveWaitPreset(result, "alice", "speech-1")).toBe("a-alternate");
   result.characters[0].profile.collection.defaultId = "a-default";
   expect(resolveWaitPreset(result, "alice", "speech-1")).toBe("a-alternate");
+});
+
+test("effective automatic/manual lip modes survive speaker changes and reset correctly", () => {
+  const data = fixture();
+  expect(resolveEffectiveLipMode(data, "alice", "speech-1", true)).toBe("open");
+  expect(resolveEffectiveLipMode(data, "bob", "speech-1", true)).toBe("none");
+  data.wavs[0].speakerId = "bob";
+  expect(resolveEffectiveLipMode(data, "alice", "speech-1", false)).toBe("none");
+  expect(resolveEffectiveLipMode(data, "bob", "speech-1", false)).toBe("aiueo");
+  data.wavs[0].speakerId = "alice";
+  const restored = parseNextProjectFile(serializeNextProjectFile(data));
+  expect(resolveEffectiveLipMode(restored, "alice", "speech-1", true)).toBe("open");
+  restored.characters[0].animations[0].lipModeOverride = null;
+  expect(resolveEffectiveLipMode(restored, "alice", "speech-1", true)).toBe("aiueo");
+  expect(resolveEffectiveLipMode(restored, "alice", "speech-1", false)).toBe("open");
+  restored.characters[0].animations[0].lipModeOverride = "none";
+  expect(resolveEffectiveLipMode(restored, "alice", "speech-1", true)).toBe("none");
+});
+
+test("base seconds follow the project; explicit seconds and opening presets do not", () => {
+  const data = fixture();
+  data.waitSeconds = "3";
+  expect(resolveWaitSeconds(data, null)).toBe("0.75");
+  expect(resolveWaitSeconds(data, "speech-1")).toBe("2.5");
+  data.openingWait.secondsOverride = null;
+  data.wavs[0].waitSecondsOverride = null;
+  expect(resolveWaitSeconds(data, null)).toBe("3");
+  expect(resolveWaitSeconds(data, "speech-1")).toBe("3");
+  data.openingWait.enabled = false;
+  data.characters[0].openingWaitPresetId = null;
+  expect(resolveWaitSeconds(data, null)).toBeNull();
+  expect(resolveWaitPreset(data, "alice", null)).toBeNull();
 });
 
 test("strict parser rejects dangling IDs, malformed sources, invalid timing and extra fields", () => {
@@ -112,6 +162,12 @@ test("strict parser rejects dangling IDs, malformed sources, invalid timing and 
     (data) => { data.version = 4 as unknown as typeof data.version; },
     (data) => { data.format = "wrong" as unknown as typeof data.format; },
     (data) => { data.fps = 25 as unknown as typeof data.fps; },
+    (data) => { data.exportResolution = "2x" as any; },
+    (data) => { delete (data as any).exportResolution; },
+    (data) => { (data.openingWait as any).enabled = "yes"; },
+    (data) => { data.openingWait.secondsOverride = "3601"; },
+    (data) => { data.openingWait.enabled = false; },
+    (data) => { delete (data as any).openingWait; },
     (data) => { data.waitSeconds = "-1"; },
     (data) => { data.waitSeconds = "1e2"; },
     (data) => { data.waitSeconds = "3600.01"; },
@@ -122,6 +178,9 @@ test("strict parser rejects dangling IDs, malformed sources, invalid timing and 
     (data) => { data.wavs[0].wav.source_identity = "bad"; },
     (data) => { data.wavs[0].wav.samples = 0; },
     (data) => { data.wavs[0].speakerId = "missing"; },
+    (data) => { (data.wavs[0] as any).speakerManual = "manual"; },
+    (data) => { data.wavs[0].waitSecondsOverride = "-1"; },
+    (data) => { data.wavs[1].waitSecondsOverride = "1"; },
     (data) => { data.wavs[0].waitAfter = false; },
     (data) => { data.characters[1].id = "alice"; },
     (data) => { data.characters[1].name = "あんこ e\u0301"; },
@@ -131,14 +190,14 @@ test("strict parser rejects dangling IDs, malformed sources, invalid timing and 
     (data) => { data.characters[0].animations[0].presetId = "missing"; },
     (data) => { data.characters[0].animations[0].presetChanges[0].sample = 48000; },
     (data) => { data.characters[0].animations[0].presetChanges[0].presetId = "missing"; },
-    (data) => { data.characters[1].animations[0].lipMode = "aiueo"; },
-    (data) => { data.characters[0].animations[1].lipMode = "open"; },
+    (data) => { (data.characters[1].animations[0] as any).lipModeOverride = "invalid"; },
+    (data) => { data.characters[0].openingWaitPresetId = "missing"; },
     (data) => { data.characters[0].waitOverrides[0].wavId = "speech-2"; },
     (data) => { data.characters[0].waitOverrides[0].presetId = "missing"; },
     (data) => { data.selectedWavId = "no-such-id"; },
     (data) => { data.characters[0].profile.collection.defaultId = "broken"; },
     (data) => { data.characters[0].profile.source.path = "relative.psd"; },
-    (data) => { data.naming.outputDir = "relative"; },
+    (data) => { (data.naming as any).outputDir = "/tmp/output"; },
     (data) => { data.unknown = true; },
     (data) => { (data.wavs[0] as any).unknown = true; },
     (data) => { (data.characters[0].animations[0] as any).unknown = true; },
