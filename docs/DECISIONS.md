@@ -38,6 +38,8 @@ These decisions are carried from product planning. Changes require an explicit p
 
 | D31 | **2026-11-22利用者承認、Issue #62 / A案**：内容・描画レシピと生成履歴の整合が確認できる未変更の公開MOVは、最初に公開されたファイル名・パスを変えずに再利用する。一覧並べ替えのみの場合は全体OTIOだけをWAVの新しい順序に更新し、MOVの再エンコード・改名・再公開は行わない。結果として既存MOVの名前の連番と現在の順序は一致しなくてもよい。初回生成・新規生成・再生成はD24の安全な命名／衝突規則に従い、既存の単一MOV名変更と手動名の契約は維持する。UIは自動名と再利用する実パスを区別する。 |
 
+| D32 | **2026-11-23利用者承認（新制作ワークフロー #66〜#74）**：セリフ後・末尾の待機は固定プリセットの透過静止画とし、旧D12/D13/D30の「待機MOV」方式をこの制作フローでは置き換える。待機秒数・FPSは制作プロジェクト共通。待機区間ごとにキャラ別プリセットを切替可能。聞き手の他キャラ発話中は静止画ではなく、口パクOFFでもアニメーションMOVとする。汎用ループ機能は対象外。待機PNGのOTIO表現・Resolve互換性・非整数フレーム丸めはIssue #66で検証してから決定。 |
+
 ## Unresolved decisions / validation
 
 - Public OSS license, attribution, trademark/project identity.
