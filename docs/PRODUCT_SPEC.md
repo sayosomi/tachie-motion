@@ -2,6 +2,8 @@
 
 Status: agreed product requirements updated 2026-11-21 (JST), including per-WAV preset changes (Issue #49) and fixed-preset idle motion. This is a product contract; unimplemented multi-character/combined-OTIO features remain planned.
 
+**2026-11-23に承認された新制作ワークフロー（Issue #66〜#74、旧待機MOV計画より優先）**：WAV発話の後（末尾を含む）に自動挿入する待機は、MOVでなく**固定プリセット由来の透過静止画**を使う。全体共通の待機秒数とFPSを持ち、区間ごとのフレーム長・FPS編集は不要。区間別／キャラ別に待機プリセットを切り替えられ、デフォルト連動と手動上書きを区別する。不要な待機は削除可能。発話中の聞き手は静止画にせず、口パクOFFでも瞬き・変更点のあるMOVを作る。従来の§4〜§6で「待機MOV」「ループMOV」と書かれた箇所はこの新制作フローでは**旧方針の履歴**であり、待機静止画に置き換える。汎用ループ機能は今回の範囲外。静止画OTIO/Resolveの実互換性と端数フレームの丸めはIssue #66で検証中・未決。プロジェクトJSONの新形式とv4の扱いはIssue #67で決定する。**PoCは新機能の実装済みを意味しない。**
+
 ## 1. 用途・利用環境
 
 - macOS/Windowsで使うローカルWebアプリ。Linuxは将来を見越してOS依存部分を分離する。
