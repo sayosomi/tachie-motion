@@ -109,11 +109,14 @@ function assertNaming(value: unknown): asserts value is ProductionNaming {
 }
 
 function assertProject(value: unknown): asserts value is NextProjectFile {
-  fields(value, ["format", "version", "fps", "waitSeconds", "wavs",
-    "characters", "selectedWavId", "naming"]);
-  if (value.format !== PROJECT_FORMAT || value.version !== NEXT_PROJECT_VERSION) {
+  // Check the discriminant before shape validation so actual legacy v4 files
+  // receive a clear unsupported-version error rather than a generic field error.
+  if (!record(value) || value.format !== PROJECT_FORMAT ||
+      value.version !== NEXT_PROJECT_VERSION) {
     throw new Error("未対応の制作プロジェクトJSON形式・バージョンです");
   }
+  fields(value, ["format", "version", "fps", "waitSeconds", "wavs",
+    "characters", "selectedWavId", "naming"]);
   if (value.fps !== 24 && value.fps !== 30 && value.fps !== 60) {
     throw new Error("プロジェクト共通FPSが不正です");
   }
