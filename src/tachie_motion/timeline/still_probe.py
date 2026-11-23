@@ -18,7 +18,7 @@ FRACTIONAL_WAIT = Fraction(51, 50)  # 1.02 seconds, noninteger frames at all rat
 
 def build_still_timeline(image: Path, fps: int, frames: tuple[int, ...]) -> dict:
     """Reference one unchanged RGBA PNG for one or more timed video clips."""
-    if fps not in SUPPORTED_FPS:
+    if type(fps) is not int or fps not in SUPPORTED_FPS:
         raise ValueError("Unsupported fps")
     if not frames or len(frames) > 16 or any(
         not isinstance(n, int) or isinstance(n, bool) or n <= 0 for n in frames
