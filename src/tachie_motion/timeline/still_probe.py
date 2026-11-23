@@ -10,6 +10,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from tachie_motion.timeline.otio_json import _range, _time, _track, write_otio
+from tachie_motion.timeline.still_timing import wait_frames
 
 SUPPORTED_FPS = (24, 30, 60)
 FRACTIONAL_WAIT = Fraction(51, 50)  # 1.02 seconds, noninteger frames at all rates.
@@ -115,6 +116,7 @@ def generate_probes(folder: Path, image: Path | None = None) -> list[tuple[Path,
             (f"still_{fps}fps_2s.otio", (2 * fps,)),
             (f"still_{fps}fps_1p02s_floor.otio", (floor_frames,)),
             (f"still_{fps}fps_1p02s_ceil.otio", (ceil_frames,)),
+            (f"still_{fps}fps_1p02s_nearest.otio", (wait_frames(FRACTIONAL_WAIT, fps),)),
         )
         for filename, frames in cases:
             document = build_still_timeline(image, fps, frames)
