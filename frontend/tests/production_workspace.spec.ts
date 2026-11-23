@@ -190,6 +190,66 @@ test("production UI saves and restores two characters with shared ordered WAVs a
   await expect(page.locator("[data-utterance-id]")).toHaveCount(0);
 });
 
+test("same-ID v5 restore replaces a previously edited character name without stale blur writes", async ({ page }) => {
+  await setup(page);
+  await start(page);
+  await addCharacter(page, firstPsd, "a", "あんこ");
+  await addWav(page);
+
+  const id = await page.locator("[data-production-character]").first()
+    .getAttribute("data-production-character");
+  expect(id).not.toBeNull();
+  const name = page.getByRole("textbox", { name: "キャラ名: " + id });
+  const original = await save(page);
+  expect(original.characters[0].name).toBe("あんこ");
+
+  await name.fill("画面で編集済み");
+  await name.press("Tab");
+  await expect(name).toHaveValue("画面で編集済み");
+  expect((await save(page)).characters[0].name).toBe("画面で編集済み");
+
+  // This changes the same character ID in the already-mounted React tree.
+  // Neither the committed name nor an uncommitted draft may survive the restore.
+  await name.fill("復元前の未確定下書き");
+  page.once("dialog", (dialog) => { void dialog.accept(); });
+  await load(page, original);
+  await expect(page.getByRole("status")
+    .filter({ hasText: "複数キャラ制作プロジェクトを読み込みました" })).toBeVisible();
+  await expect(name).toHaveValue("あんこ");
+  await name.focus();
+  await name.press("Tab");
+  await expect(name).toHaveValue("あんこ");
+  const restored = await save(page);
+  expect(restored.characters[0].id).toBe(id);
+  expect(restored.characters[0].name).toBe("あんこ");
+  expect(restored.characters).toEqual(original.characters);
+});
+
+test("invalid production character name reverts to the stored value and cannot leak into JSON", async ({ page }) => {
+  await setup(page);
+  await start(page);
+  await addCharacter(page, firstPsd, "a", "あんこ");
+  await addCharacter(page, secondPsd, "b", "ぼぶ");
+  const original = await save(page);
+  const id = original.characters[0].id;
+  const name = page.getByRole("textbox", { name: "キャラ名: " + id });
+
+  await name.fill("    ");
+  await name.press("Tab");
+  await expect(page.getByRole("alert").filter({ hasText: "キャラクターのID・名前・設定が不正" }))
+    .toBeVisible();
+  await expect(name).toHaveValue("あんこ");
+  expect((await save(page)).characters).toEqual(original.characters);
+
+  // A duplicate name is also rejected, including after an unrelated re-render.
+  await name.fill("ぼぶ");
+  await name.press("Tab");
+  await expect(page.getByRole("alert").filter({ hasText: "重複したキャラクター名" }))
+    .toBeVisible();
+  await expect(name).toHaveValue("あんこ");
+  expect((await save(page)).characters).toEqual(original.characters);
+});
+
 test("production import with a missing PSD keeps previous state until repaired or canceled", async ({ page }) => {
   const state = await setup(page);
   await start(page);
