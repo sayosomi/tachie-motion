@@ -11,6 +11,10 @@ type Props = {
   onSelectedMany?: (paths: string[]) => void | boolean | Promise<void | boolean>;
   onChange: (path: string) => void;
   onSelected: (path: string) => void | boolean | Promise<void | boolean>;
+  /** Optional synchronous lock acquired before the native Finder request. */
+  onPickStart?: () => boolean;
+  /** Release that lock on selection, cancel, error or callback failure. */
+  onPickFinish?: () => void;
   applyLabel?: string;
   onApply?: () => void | Promise<void>;
 };
@@ -41,7 +45,8 @@ const localEditor = (location.hostname === "127.0.0.1" || location.hostname === 
 
 export default function NativeFilePicker({
   id, kind, label, value, disabled = false, multiple = false,
-  onSelectedMany, onChange, onSelected, applyLabel, onApply,
+  onSelectedMany, onChange, onSelected, onPickStart, onPickFinish,
+  applyLabel, onApply,
 }: Props) {
   const [available, setAvailable] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -62,6 +67,9 @@ export default function NativeFilePicker({
 
   async function choose() {
     if (!localEditor || !available || disabled || picking) return;
+    // The owner must lock synchronously, before awaiting Finder. Otherwise
+    // another edit/import can replace the state captured by onSelected.
+    if (onPickStart && !onPickStart()) return;
     setPicking(true);
     setPickerError("");
     try {
@@ -98,6 +106,7 @@ export default function NativeFilePicker({
       setPickerError(err instanceof Error ? err.message : String(err));
     } finally {
       setPicking(false);
+      onPickFinish?.();
     }
   }
 
