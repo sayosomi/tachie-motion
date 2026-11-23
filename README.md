@@ -96,7 +96,7 @@ source .venv/bin/activate
 python -m tachie_motion.timeline.still_probe --output-dir "$HOME/Desktop/tachie-issue66-probe"
 ~~~
 
-合成RGBA PNGと、24/30/60fps・指定尺・分数フレーム比較・反復参照の10個のOTIOを作成します。元PSD/WAVを読み書きせず、既存の出力を上書きしません。既存のPNGを読み取り専用で指定する場合は --image "/path/to/example.png" を追加してください。Resolveでの表示・延長・透過は**Human未検証**。詳細は [検証手順](docs/ISSUE66_STILL_PROBE.md) に記録します。
+合成RGBA PNGと、24/30/60fps・指定尺・分数フレームfloor/ceil/四捨五入比較・反復参照の13個のOTIOを作成します。待機秒数は承認済みの四捨五入（同点切り上げ・正数最低1フレーム）で整数フレームへ変換します。元PSD/WAVを読み書きせず、既存の出力を上書きしません。既存のPNGを読み取り専用で指定する場合は --image "/path/to/example.png" を追加してください。Resolveでの表示・延長・透過は**Human未検証**。詳細は [検証手順](docs/ISSUE66_STILL_PROBE.md) に記録します。
 
 ## セットアップ（開発者向けCLI）
 
