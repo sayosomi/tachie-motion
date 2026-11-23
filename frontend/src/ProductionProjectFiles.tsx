@@ -178,6 +178,7 @@ export default function ProductionProjectFiles({
             kind={problem.kind}
             label="参照する元ファイル" value={path ?? ""}
             disabled={disabled || busy}
+            onPickStart={begin} onPickFinish={finish}
             onChange={(next) => isPsd ? updatePsd(problem.key, next) :
               updateWav(problem.key, next)}
             onSelected={(next) => {
