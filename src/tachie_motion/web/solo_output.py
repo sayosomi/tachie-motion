@@ -4,13 +4,16 @@ Distinct from the legacy pair publisher: no throwaway individual OTIO is written
 Keep original targets in an exclusive recovery directory until publication succeeds.
 """
 from pathlib import Path
+from collections.abc import Callable
 import os
 import re
 import secrets
 import stat
+import tempfile
 import unicodedata
 
 from tachie_motion.web.atomic_rename import rename_noreplace
+from tachie_motion.render.file_integrity import FileProof, require_file_proof
 
 
 def validate_media_basename(name: str) -> str:
@@ -71,7 +74,8 @@ def _recovery_paths(path: Path) -> tuple[Path, ...]:
     from tachie_motion.web.output_destinations import all_output_recovery
     from tachie_motion.web.batch_publish import recovery_directories
     return (all_output_recovery(path.with_suffix(".mov")) +
-            recovery_directories(path.parent))
+            recovery_directories(path.parent) +
+            tuple(sorted(path.parent.glob(".tachie-single-recovery-*"))))
 
 
 def _other_otio_may_reference(path: Path) -> bool:
@@ -123,6 +127,35 @@ def _recover_new_mov_collision(staged: Path, target: Path) -> None:
                        str(backup))
 
 
+def _recover_unverified_new_mov(target: Path, expected: FileProof,
+                                cause: BaseException) -> None:
+    """Quarantine without relying on an attacker-collidable fixed directory.
+
+    A unique private sibling is created *after* final link verification fails.
+    Even when the conventional recovery name is occupied by an outsider,
+    their content remains untouched and the invalid public name is vacated.
+    """
+    backup = None
+    try:
+        backup = Path(tempfile.mkdtemp(
+            prefix=".tachie-single-recovery-", dir=target.parent,
+        ))
+        quarantined = backup / target.name
+        rename_noreplace(target, quarantined)
+        moved = _identity(quarantined)
+        if moved is None or moved[:2] != (expected.dev, expected.ino):
+            raise RuntimeError("Published pathname changed during quarantine")
+    except BaseException as error:
+        raise RuntimeError("Unverified MOV recovery requires manual review: " +
+                           str(backup or target.parent)) from error
+    if not isinstance(cause, Exception):
+        # In particular do not turn KeyboardInterrupt/SystemExit into a
+        # RuntimeError after successful quarantine.
+        raise cause
+    raise RuntimeError("Unverified MOV quarantined for manual recovery: " +
+                       str(backup)) from cause
+
+
 def initial_single_identity(path: Path, policy: str, *,
                             protect_otio_references: bool = False):
     if policy not in ("error", "overwrite"):
@@ -169,7 +202,8 @@ def solo_destination_info(folder: Path, basename: str) -> dict:
     validate_media_basename(basename)
     from tachie_motion.web.batch_publish import recovery_directories
     # Recovery blocks the entire folder: no alternate basename can work.
-    if recovery_directories(folder):
+    if (recovery_directories(folder) or
+            any(folder.glob(".tachie-single-recovery-*"))):
         return {"state": "recovery_required", "suggested_basename": "",
                 "folder_recovery_required": True}
     state = single_destination(folder / (basename + ".mov"),
@@ -224,8 +258,21 @@ def _archive_owned_recovery(backup: Path, expected: dict[str, tuple]) -> Path:
 
 
 def publish_single(staged: Path, target: Path, *, policy: str, prior,
-                   protect_otio_references: bool = False) -> str | None:
+                   protect_otio_references: bool = False,
+                   verified_source: FileProof | None = None,
+                   prior_strict: tuple[int, int, int, int, int] | None = None,
+                   prior_verified: FileProof | None = None,
+                   verify_source: Callable[[], None] | None = None) -> str | None:
     """Exclusive publication; all displaced generations stay recoverable."""
+    if prior_strict is not None and (prior is None or
+            (prior_strict[0], prior_strict[1], prior_strict[3], prior_strict[4]) != prior):
+        raise ValueError("Invalid strict prior MOV identity")
+    if prior_verified is not None and (
+            prior_verified.dev, prior_verified.ino, prior_verified.ctime_ns,
+            prior_verified.size, prior_verified.mtime_ns) != prior_strict:
+        raise ValueError("Invalid verified prior MOV identity")
+    if verify_source is not None and verified_source is None:
+        raise ValueError("Source verification requires a verified staged MOV")
     if _recovery_paths(target):
         raise RuntimeError("Previous export needs recovery: " +
                            ", ".join(map(str, _recovery_paths(target))))
@@ -235,6 +282,12 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
         raise ValueError("Output is paired with another file; refusing single-file overwrite")
     if _identity(target) != prior:
         raise FileExistsError("Output changed while rendering; nothing published")
+    if prior_strict is not None and published_media_identity(target) != prior_strict:
+        raise FileExistsError("Output content changed while rendering; nothing published")
+    if prior_verified is not None:
+        require_file_proof(target, prior_verified)
+    if verify_source is not None:
+        verify_source()
     if prior is not None and protect_otio_references and _other_otio_may_reference(target):
         raise ValueError("Another OTIO appeared before publication; MOV was not overwritten")
     if prior is None:
@@ -242,7 +295,17 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
             raise ValueError("No existing output was approved for overwrite")
         if protect_otio_references:
             _refuse_equivalent_mov_name(target)
+        if verified_source is not None:
+            require_file_proof(staged, verified_source)
         os.link(staged, target)  # exclusive; cannot replace a competing file
+        if verified_source is not None or verify_source is not None:
+            try:
+                if verified_source is not None:
+                    require_file_proof(target, verified_source, linked=True)
+                if verify_source is not None:
+                    verify_source()
+            except BaseException as error:
+                _recover_unverified_new_mov(target, verified_source, error)
         if protect_otio_references and _has_equivalent_mov_name(target):
             _recover_new_mov_collision(staged, target)
         return None
@@ -258,14 +321,29 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
     published = False
     unexpected = False
     try:
+        if prior_verified is not None:
+            require_file_proof(target, prior_verified)
         os.link(target, saved)  # exclusive; retains original inode
         created["saved"] = prior
+        # Our hard link legitimately changes ctime; after this point compare
+        # against the new value, not the caller's pre-export ctime.
+        after_own_link = (published_media_identity(saved)
+                          if prior_strict is not None else None)
         if _identity(target) != prior:
             raise FileExistsError("Output changed before overwrite")
+        if after_own_link is not None and published_media_identity(target) != after_own_link:
+            raise FileExistsError("Output changed after backup creation")
+        if prior_verified is not None:
+            require_file_proof(saved, prior_verified, linked=True)
         if protect_otio_references:
             _refuse_equivalent_mov_name(target)
             if _other_otio_may_reference(target):
                 raise ValueError("Another OTIO appeared during export; MOV was not overwritten")
+
+        if after_own_link is not None and published_media_identity(target) != after_own_link:
+            raise FileExistsError("Output changed before old MOV relocation")
+        if prior_verified is not None:
+            require_file_proof(target, prior_verified, linked=True)
 
         # A native no-replace rename moves exactly the current source inode.
         # If an outsider swapped target, their MOV moves to removed untouched,
@@ -275,12 +353,22 @@ def publish_single(staged: Path, target: Path, *, policy: str, prior,
         if created["removed"] != prior:
             unexpected = True
             raise FileExistsError("Concurrent target change; moved file retained")
+        if prior_verified is not None:
+            require_file_proof(removed, prior_verified, linked=True)
         if protect_otio_references:
             _refuse_equivalent_mov_name(target)
             if _other_otio_may_reference(target):
                 raise ValueError("Another OTIO appeared during publication; restoring original MOV")
+        if verified_source is not None:
+            require_file_proof(staged, verified_source)
         os.link(staged, target)  # exclusive creation of new MOV
         published = True
+        if verified_source is not None:
+            require_file_proof(target, verified_source, linked=True)
+        if prior_verified is not None:
+            require_file_proof(saved, prior_verified, linked=True)
+        if verify_source is not None:
+            verify_source()
         if protect_otio_references:
             _refuse_equivalent_mov_name(target)
             if _other_otio_may_reference(target):
