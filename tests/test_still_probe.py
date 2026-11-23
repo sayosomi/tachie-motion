@@ -1,6 +1,7 @@
 """Synthetic PNG/OTIO probe tests; no PSD, WAV, or MOV are used."""
 
 import json
+from fractions import Fraction
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ from PIL import Image
 from tachie_motion.timeline.still_probe import (
     build_still_timeline, create_synthetic_png, generate_probes,
 )
+from tachie_motion.timeline.still_timing import wait_frames
 
 
 class StillProbeTests(unittest.TestCase):
@@ -17,17 +19,17 @@ class StillProbeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             results = generate_probes(root)
-            self.assertEqual(len(results), 10)
+            self.assertEqual(len(results), 13)
             image = root / "合成 立ち絵 e\u0301.png"
             original = image.read_bytes()
             expected = {
-                24: (48, 24, 25),
-                30: (60, 30, 31),
-                60: (120, 61, 62),
+                24: (48, 24, 25, 24),
+                30: (60, 30, 31, 31),
+                60: (120, 61, 62, 61),
             }
             for fps, durations in expected.items():
                 for label, frames in zip(
-                    ("2s", "1p02s_floor", "1p02s_ceil"), durations, strict=True
+                    ("2s", "1p02s_floor", "1p02s_ceil", "1p02s_nearest"), durations, strict=True
                 ):
                     document = json.loads(
                         (root / f"still_{fps}fps_{label}.otio").read_text("utf-8")
@@ -60,6 +62,34 @@ class StillProbeTests(unittest.TestCase):
                 ["duration"]["value"], 90,
             )
             self.assertEqual(image.read_bytes(), original)
+
+    def test_wait_frame_rounding_half_up_exact_and_minimum_one(self):
+        cases = (
+            (24, Fraction(51, 50), 24),
+            (30, Fraction(51, 50), 31),
+            (60, Fraction(51, 50), 61),
+            (24, Fraction(2), 48),
+            (30, Fraction(2), 60),
+            (60, Fraction(2), 120),
+            (24, Fraction(1, 48), 1),  # exactly half of one frame
+            (24, Fraction(3, 48), 2),  # 1.5 frames, round upward
+            (24, Fraction(5, 48), 3),  # 2.5 frames, round upward
+            (30, Fraction(1, 60), 1),
+            (60, Fraction(3, 120), 2),
+            (60, Fraction(1, 100000), 1),  # positive subframe wait
+            (24, Fraction(1, 48) - Fraction(1, 10**12), 1),
+            (24, Fraction(3, 48) - Fraction(1, 10**12), 1),
+            (24, Fraction(3, 48) + Fraction(1, 10**12), 2),
+        )
+        for fps, seconds, expected in cases:
+            with self.subTest(fps=fps, seconds=seconds):
+                self.assertEqual(wait_frames(seconds, fps), expected)
+        for seconds in (Fraction(0), Fraction(-1, 2), 0.5, "1.02", True):
+            with self.subTest(seconds=seconds), self.assertRaises(ValueError):
+                wait_frames(seconds, 30)
+        for fps in (0, -24, 25, 29.97, True, "30"):
+            with self.subTest(fps=fps), self.assertRaises(ValueError):
+                wait_frames(Fraction(1), fps)
 
     def test_existing_user_image_stays_unchanged_and_no_output_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:
