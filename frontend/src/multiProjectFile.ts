@@ -42,7 +42,6 @@ export type ProductionCharacter = {
   name: string;
   profile: CharacterProfile;
   animations: CharacterWavAnimation[];
-  /** Missing entry means follow the character's default preset live. */
   /** null inherits the character default for the independent opening interval. */
   openingWaitPresetId: string | null;
   waitOverrides: CharacterWaitOverride[];
@@ -116,7 +115,7 @@ function assertWaitSeconds(value: unknown): asserts value is string {
 }
 
 function assertNaming(value: unknown): asserts value is ProductionNaming {
-  fields(value, ["projectName", "movTemplate", "otioTemplate", "outputDir"]);
+  fields(value, ["projectName", "movTemplate", "otioTemplate"]);
   validateBatchNaming({ ...value, characterName: "character", outputDir: "" });
 }
 
@@ -179,7 +178,7 @@ function assertProject(value: unknown): asserts value is NextProjectFile {
       throw new Error("キャラクターのID・名前・設定が不正です");
     }
     // The exported filename's character token must be safe and unambiguous.
-    const naming = { ...(value.naming as ProductionNaming), characterName: raw.name };
+    const naming = { ...(value.naming as ProductionNaming), characterName: raw.name, outputDir: "" };
     validateBatchNaming(naming);
     const nameKey = raw.name.trim().normalize("NFC").toLocaleLowerCase();
     if (names.has(nameKey)) throw new Error("重複したキャラクター名があります");
