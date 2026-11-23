@@ -136,6 +136,7 @@ function assertProject(value: unknown): asserts value is NextProjectFile {
     wavIds.add(raw.id);
   }
 
+  const wavById = new Map((value.wavs as SharedProjectWav[]).map((wav) => [wav.id, wav]));
   const characterIds = new Set<string>();
   const names = new Set<string>();
   for (const raw of value.characters) {
@@ -155,6 +156,9 @@ function assertProject(value: unknown): asserts value is NextProjectFile {
     characterIds.add(raw.id);
 
     const profile = parseCharacterProfile(JSON.stringify(raw.profile));
+    if (!absolutePath(profile.source.path)) {
+      throw new Error("キャラクターのPSD参照パスが不正です");
+    }
     const presetIds = new Set(profile.collection.items.map((preset) => preset.id));
     if (raw.animations.length !== wavIds.size || raw.waitOverrides.length > wavIds.size) {
       throw new Error("キャラクターのWAV設定件数が不正です");
@@ -169,7 +173,7 @@ function assertProject(value: unknown): asserts value is NextProjectFile {
           !["none", "open", "aiueo"].includes(animation.lipMode as string)) {
         throw new Error("キャラクターのWAV設定・プリセット参照が不正です");
       }
-      const wav = (value.wavs as SharedProjectWav[]).find((entry) => entry.id === animation.wavId)!;
+      const wav = wavById.get(animation.wavId)!;
       if (wav.speakerId !== raw.id && animation.lipMode !== "none") {
         throw new Error("話者以外のキャラクターには口パクを設定できません");
       }
@@ -183,7 +187,7 @@ function assertProject(value: unknown): asserts value is NextProjectFile {
       if (!stableId(entry.wavId) || overrideWavs.has(entry.wavId) ||
           !wavIds.has(entry.wavId) || typeof entry.presetId !== "string" ||
           !presetIds.has(entry.presetId) ||
-          !(value.wavs as SharedProjectWav[]).some((wav) => wav.id === entry.wavId && wav.waitAfter)) {
+          !wavById.get(entry.wavId)?.waitAfter) {
         throw new Error("待機プリセットoverrideの参照が不正です");
       }
       overrideWavs.add(entry.wavId);
