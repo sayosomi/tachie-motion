@@ -88,7 +88,8 @@ export default function ProductionWorkspace({
       if (fromFinder && !isCurrentPicker()) return false;
       const entry = {
         id: crypto.randomUUID(), wavPath: path, wav: result,
-        speakerId: null, waitAfter: true,
+        speakerId: null, speakerManual: false,
+        waitAfter: true, waitSecondsOverride: null,
       };
       const next = addProductionWav(project, entry);
       setProject(next);
@@ -164,7 +165,7 @@ export default function ProductionWorkspace({
             <option value={60}>60</option>
           </select>
         </label>
-        <label>共通待機秒数
+        <label>基本セリフ間隔（秒）
           <input aria-label="共通待機秒数" disabled={busy}
             inputMode="decimal" value={project.waitSeconds}
             onChange={(event) => setProject((current) => ({
@@ -172,20 +173,21 @@ export default function ProductionWorkspace({
             }))} />
         </label>
       </div>
-      <NativeFilePicker id="production-output-dir" kind="output_dir"
-        label="出力先（後続の動画生成で使用）"
-        value={project.naming.outputDir} disabled={busy}
-        onPickStart={beginPicker} onPickFinish={finishPicker}
-        onChange={(path) => {
-          if (!locked.current) setProject((old) => ({
-            ...old, naming: { ...old.naming, outputDir: path },
-          }));
-        }}
-        onSelected={(path) => {
-          if (!isCurrentPicker()) return false;
-          setProject((old) => ({ ...old, naming: { ...old.naming, outputDir: path } }));
-          return true;
-        }} />
+      <div className="input-row">
+        <label>書き出し解像度
+          <select aria-label="書き出し解像度" disabled={busy}
+            value={project.exportResolution}
+            onChange={(event) => edit({
+              ...project,
+              exportResolution: event.target.value as NextProjectFile["exportResolution"],
+            })}>
+            <option value="original">原寸</option>
+            <option value="half">1/2</option>
+            <option value="quarter">1/4</option>
+          </select>
+        </label>
+        <span className="hint">透過MOVと待機PNGに適用します。出力先は書き出し時に指定します。</span>
+      </div>
     </section>
 
     <section className="project-edit-section" aria-label="キャラクター設定">
