@@ -207,7 +207,7 @@ function assertProject(value: unknown): asserts value is NextProjectFile {
           typeof animation.presetId !== "string" ||
           !presetIds.has(animation.presetId) ||
           (animation.lipModeOverride !== null &&
-            !["none", "open", "aiueo"].includes(animation.lipModeOverride as string)) {
+            !["none", "open", "aiueo"].includes(animation.lipModeOverride as string))) {
         throw new Error("キャラクターのWAV設定・プリセット参照が不正です");
       }
       const wav = wavById.get(animation.wavId)!;
