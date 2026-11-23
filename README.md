@@ -86,6 +86,18 @@ MOV/OTIO/ProRes書き出しでは縮小画像を使用しません。RGB/8bitの
 保証せず、縮小時の輪郭や色に若干の違いが出ることがあります。
 PR #56のPython・Web UI CIと独立コード監査はPASS。2026年11月3日にMac実PSDでレイヤー切替の体感速度改善をHuman確認しました。画質の厳密な比較と定量的なブラウザ描画時間計測は未実施です。
 
+### 検証専用：待機透過PNGのOTIO（Issue #66）
+
+新しい待機静止画方式の**互換性確認用PoC**です。製品Web UIへの待機自動挿入・複数キャラ出力は未実装です。
+
+~~~sh
+cd "$HOME/Code/tachie-motion"
+source .venv/bin/activate
+python -m tachie_motion.timeline.still_probe --output-dir "$HOME/Desktop/tachie-issue66-probe"
+~~~
+
+合成RGBA PNGと、24/30/60fps・指定尺・分数フレーム比較・反復参照の10個のOTIOを作成します。元PSD/WAVを読み書きせず、既存の出力を上書きしません。既存のPNGを読み取り専用で指定する場合は --image "/path/to/example.png" を追加してください。Resolveでの表示・延長・透過は**Human未検証**。詳細は [検証手順](docs/ISSUE66_STILL_PROBE.md) に記録します。
+
 ## セットアップ（開発者向けCLI）
 
 Python 3.11以降と、PATHから実行できる `ffmpeg` / `ffprobe` が必要です。Python依存パッケージは `pyproject.toml` を参照してください。
