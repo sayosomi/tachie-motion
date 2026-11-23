@@ -133,7 +133,7 @@ export default function ProductionWorkspace({
       <span className="brand-mark">t</span><span>tachie-motion</span>
     </div></header>
     <div className="intro"><h1>制作プロジェクト（試作）</h1></div>
-    <p className="hint">Issue #67の複数キャラ制作JSONを編集します。旧v4のセリフ画面・保存内容とは独立しています。
+    <p className="hint">複数キャラ制作JSONはv5専用です。旧v4の読込・変換には対応しません。
       この画面からMOV／OTIOはまだ書き出せません。</p>
 
     <ProductionProjectFiles project={project} disabled={busy}
