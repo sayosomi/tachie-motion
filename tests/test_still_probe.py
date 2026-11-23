@@ -110,7 +110,9 @@ class StillProbeTests(unittest.TestCase):
             root = Path(tmp)
             image = root / "alpha.png"
             create_synthetic_png(image)
-            for fps, frames in ((25, (25,)), (30, ()), (30, (0,)),
+            for fps, frames in ((25, (25,)), (30.0, (30,)),
+                                (Fraction(30, 1), (30,)), (True, (30,)),
+                                (30, ()), (30, (0,)),
                                 (30, (True,)), (30, (-1,))):
                 with self.subTest(fps=fps, frames=frames), self.assertRaises(ValueError):
                     build_still_timeline(image, fps, frames)
