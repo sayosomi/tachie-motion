@@ -5,9 +5,9 @@ import { PROJECT_FORMAT } from "./projectFile";
 import type { Fps, LipMode, WavData } from "./utteranceItems";
 
 /**
- * Candidate multi-character project data contract (Issue #67).
- * This does not change the active v4 editor import/export path.
- * The version and v4 migration policy remain pending product approval.
+ * Multi-character production project v5 data contract (Issue #67, D34).
+ * Legacy v4 is unsupported in this workflow; no import or migration path.
+ * The existing single-character editor remains a separate implementation.
  */
 export const NEXT_PROJECT_VERSION = 5;
 export const MAX_NEXT_PROJECT_BYTES = 16_000_000;
