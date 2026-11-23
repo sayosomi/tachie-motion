@@ -2,7 +2,7 @@
 
 **A local, cross-platform PSD character animation editor for synthetic speech (in development).**
 
-PSD立ち絵と合成音声から透過MOVとOTIOを生成するローカルツールです。**Phase 0／Phase 1のCLIに加え、統合プリセット編集（Openとaiueoの6口形の静止プレビュー・JSON保存）、Mac Finder選択、複数WAVの項目別「なし／open／aiueo」編集と個別／一括書き出し（上書き／別名）、単一キャラ全体OTIO、制作プロジェクトJSONの保存・読み込みが利用できます。** 単一キャラクターの瞬き付きセリフMOVはIssue #34 / PR #35で実装済みです。2026-11-18にMac実PSDで瞬きの視覚動作とDaVinci ResolveでのMOV／OTIO取り込み・透過・内包音声・二重再生なしをHuman PASS確認しました。最終HEADのCIと独立コード監査もそれぞれPASSしています。複数キャラクターおよびセリフ間への待機MOV自動挿入は未実装です。WAV変更点タイムラインと変更済みMOVの選択的再生成はIssue #49・#62で実装済みです。
+PSD立ち絵と合成音声から透過MOVとOTIOを生成するローカルツールです。**Phase 0／Phase 1のCLIに加え、統合プリセット編集（Openとaiueoの6口形の静止プレビュー・JSON保存）、Mac Finder選択、複数WAVの項目別「なし／open／aiueo」編集と個別／一括書き出し（上書き／別名）、単一キャラ全体OTIO、制作プロジェクトJSONの保存・読み込みが利用できます。** 単一キャラクターの瞬き付きセリフMOVはIssue #34 / PR #35で実装済みです。2026-11-18にMac実PSDで瞬きの視覚動作とDaVinci ResolveでのMOV／OTIO取り込み・透過・内包音声・二重再生なしをHuman PASS確認しました。最終HEADのCIと独立コード監査もそれぞれPASSしています。複数キャラクターおよびセリフ後の待機透過静止画の自動挿入は未実装です（旧待機MOV方針は置き換え済み）。WAV変更点タイムラインと変更済みMOVの選択的再生成はIssue #49・#62で実装済みです。
 
 ### 変更されたセリフMOVだけ再生成（Issue #62 / PR #63）
 
@@ -96,7 +96,7 @@ source .venv/bin/activate
 python -m tachie_motion.timeline.still_probe --output-dir "$HOME/Desktop/tachie-issue66-probe"
 ~~~
 
-合成RGBA PNGと、24/30/60fps・指定尺・分数フレームfloor/ceil/四捨五入比較・反復参照の13個のOTIOを作成します。待機秒数は承認済みの四捨五入（同点切り上げ・正数最低1フレーム）で整数フレームへ変換します。元PSD/WAVを読み書きせず、既存の出力を上書きしません。既存のPNGを読み取り専用で指定する場合は --image "/path/to/example.png" を追加してください。Resolveでの表示・延長・透過は**Human未検証**。詳細は [検証手順](docs/ISSUE66_STILL_PROBE.md) に記録します。
+合成RGBA PNGと、24/30/60fps・指定尺・分数フレームfloor/ceil/四捨五入比較・反復参照の13個のOTIOを作成します。待機秒数は承認済みの四捨五入（同点切り上げ・正数最低1フレーム）で整数フレームへ変換します。元PSD/WAVを読み書きせず、既存の出力を上書きしません。既存のPNGを読み取り専用で指定する場合は --image "/path/to/example.png" を追加してください。**2026-11-23 Mac Resolve Human部分PASS**：合成透過PNGの表示・透過、クリップ延長、同じPNGの2回参照、24/30/60fpsの指定尺とfloor/ceil。**未実施**：別名・別ディレクトリPNG参照と、実PSD由来の固定キャンバス・画質照合。詳細は [検証手順](docs/ISSUE66_STILL_PROBE.md) に記録します。
 
 ## セットアップ（開発者向けCLI）
 
