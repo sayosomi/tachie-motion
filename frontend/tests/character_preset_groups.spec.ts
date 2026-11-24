@@ -93,6 +93,70 @@ test("two named PSD groups preserve all presets, stable IDs and legacy draft acr
   expect(await page.evaluate((k) => localStorage.getItem(k), legacyKey)).toBe(legacy);
 });
 
+test("unconfirmed character names survive cancelled switching and require explicit discard", async ({ page }) => {
+  await mocks(page);
+  await page.goto("/");
+  await createGroup(page, "A");
+  await createGroup(page, "B");
+  const original = await catalog(page);
+  const group = page.getByRole("group", { name: "編集するキャラ" });
+  await page.getByRole("button", { name: "キャラ名変更", exact: true }).click();
+  await page.getByRole("textbox", { name: "キャラ管理の名前" }).fill("B編集中");
+
+  let discardAsked = false;
+  page.once("dialog", async (dialog) => {
+    discardAsked = true;
+    expect(dialog.type()).toBe("confirm");
+    expect(dialog.message()).toContain("破棄");
+    await dialog.dismiss();
+  });
+  await group.getByRole("button", { name: "A", exact: true }).click();
+  expect(discardAsked).toBe(true);
+  await expect(group.getByRole("button", { name: "B", exact: true }))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("textbox", { name: "キャラ管理の名前" })).toHaveValue("B編集中");
+  expect(await catalog(page)).toEqual(original);
+
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "＋ キャラ追加" }).click();
+  await expect(page.getByRole("textbox", { name: "キャラ管理の名前" })).toHaveValue("B編集中");
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await selectGroup(page, "A");
+  await expect(page.getByRole("textbox", { name: "キャラ管理の名前" })).toHaveCount(0);
+  expect((await catalog(page)).groups).toEqual(original.groups);
+  await selectGroup(page, "B");
+  expect((await catalog(page)).groups[1].name).toBe("B");
+});
+
+test("failed catalog writes do not navigate to nonexistent new or duplicated presets", async ({ page }) => {
+  await mocks(page);
+  await page.goto("/");
+  await createGroup(page, "A");
+  await loadPsd(page, aPath);
+  await expect(page.locator("[data-preset-id]")).toHaveCount(1);
+  const saved = await page.evaluate((key) => localStorage.getItem(key), key);
+  const initialUrl = page.url();
+  await page.evaluate((key) => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (name, value) {
+      if (name === key) throw new DOMException("quota exhausted", "QuotaExceededError");
+      return original.call(this, name, value);
+    };
+  }, key);
+
+  await page.getByRole("button", { name: "＋ 作成" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "自動保存できません" })).toBeVisible();
+  await expect(page.locator("[data-preset-id]")).toHaveCount(1);
+  expect(page.url()).toBe(initialUrl);
+  expect(await page.evaluate((key) => localStorage.getItem(key), key)).toBe(saved);
+
+  await page.locator("[data-preset-id]").first().getByRole("button", { name: "複製" }).click();
+  await expect(page.locator("[data-preset-id]")).toHaveCount(1);
+  expect(page.url()).toBe(initialUrl);
+  expect(await page.evaluate((key) => localStorage.getItem(key), key)).toBe(saved);
+});
+
 test("failed or late PSD loads do not replace other character drafts", async ({ page }) => {
   await mocks(page);
   await page.goto("/");

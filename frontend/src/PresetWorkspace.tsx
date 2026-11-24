@@ -438,7 +438,7 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending, 
   function add() {
     if (!psd) return;
     const preset = createPreset(availablePresetName(collection, "新しいプリセット"), psd.layers);
-    updatePresets(appendPreset(collection, preset));
+    if (!updatePresets(appendPreset(collection, preset))) return;
     if (preset.base.every((state, i) => state.visible === psd.layers[i].visible)) {
       setPreviews((old) => ({
         ...old, [preset.id]: { signature: signature(preset), image: psd.preview },
@@ -451,7 +451,7 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending, 
     const next = duplicatePreset(collection, id);
     const copy = next.items.find((preset) => !collection.items.some((old) => old.id === preset.id));
     if (!copy) return;
-    updatePresets(next);
+    if (!updatePresets(next)) return;
     const sourceCache = previews[id];
     if (sourceCache && sourceCache.signature === signature(copy)) {
       setPreviews((old) => ({ ...old, [copy.id]: { ...sourceCache } }));

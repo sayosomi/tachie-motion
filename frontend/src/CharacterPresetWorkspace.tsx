@@ -128,10 +128,26 @@ export default function CharacterPresetWorkspace(props: Props) {
     },
   } : undefined;
 
+  function confirmDiscardPendingName(): boolean {
+    if (!form) return true;
+    const committedName = form === "rename" ? selected?.name ?? "" : "";
+    return name === committedName ||
+      window.confirm("未確定のキャラ名を破棄して操作を続けますか？");
+  }
+
   function startForm(mode: "add" | "copy" | "rename") {
+    if (form === mode || !confirmDiscardPendingName()) return;
     setName(mode === "rename" ? selected?.name ?? "" : "");
     setForm(mode);
     setError("");
+  }
+
+  function switchGroup(id: string | null) {
+    if (snapshot?.catalog.selectedId === id || !confirmDiscardPendingName()) return;
+    if (change((catalog) => selectCharacterDraftGroup(catalog, id))) {
+      setName("");
+      setForm(null);
+    }
   }
 
   function submit() {
@@ -161,14 +177,10 @@ export default function CharacterPresetWorkspace(props: Props) {
       {access === "loading" && <p className="hint">キャラ別設定の編集ロックを確認中です。別タブで編集中の場合は、そのタブを閉じてください。</p>}
       {snapshot && <div className="input-row" role="group" aria-label="編集するキャラ">
         <button type="button" aria-pressed={!scope}
-          onClick={() => {
-            if (change((catalog) => selectCharacterDraftGroup(catalog, null))) setForm(null);
-          }}>従来の単一キャラ</button>
+          onClick={() => switchGroup(null)}>従来の単一キャラ</button>
         {snapshot.catalog.groups.map((group) => <button type="button" key={group.id}
           aria-pressed={group.id === scope}
-          onClick={() => {
-            if (change((catalog) => selectCharacterDraftGroup(catalog, group.id))) setForm(null);
-          }}>{group.name}</button>)}
+          onClick={() => switchGroup(group.id)}>{group.name}</button>)}
       </div>}
       {form && <form className="input-row" onSubmit={(event) => { event.preventDefault(); submit(); }}>
         <label>キャラ名
