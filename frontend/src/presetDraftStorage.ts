@@ -25,6 +25,11 @@ function object(value: unknown): value is Record<string, unknown> {
 export function readPresetDraft(): PresetDraft | null {
   const text = localStorage.getItem(KEY);
   if (text === null) return null;
+  return parsePresetDraft(text);
+}
+
+/** Validate a stored draft without reading or changing browser storage. */
+export function parsePresetDraft(text: string): PresetDraft {
   if (text.length > 2_000_000) throw new Error("保存済みプリセットのサイズが大きすぎます");
   let value: unknown;
   try { value = JSON.parse(text); }
