@@ -116,13 +116,16 @@ test("failed or late PSD loads do not replace other character drafts", async ({ 
   });
   await loadPsd(page, bPath);
   await pending;
+  const lateResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/api/psd") &&
+    (response.request().postDataJSON() as { path: string }).path === bPath);
   try {
     await selectGroup(page, "A");
     await expect(page.locator("[data-preset-id]")).toHaveCount(1);
   } finally {
     release();
   }
-  // Allow the stale request to finish, then verify the stored data.
+  await (await lateResponse).finished();
   await expect.poll(async () => (await catalog(page)).groups[0]).toEqual(a);
   await selectGroup(page, "B");
   await expect(page.locator("[data-preset-id]")).toHaveCount(0);
@@ -153,4 +156,82 @@ test("a second tab waits for the character catalog lock and opens the latest com
   } finally {
     await second.close();
   }
+});
+
+test("character profile exports feed the v5 project without mixing presets or linking later edits", async ({ page }) => {
+  await mocks(page);
+  await page.route("**/api/wav", (route) => route.fulfill({ json: {
+    samples: 48000, sample_rate: 48000, duration_seconds: 1, source_identity: "1:2:3:4:5",
+  } }));
+  await page.addInitScript(() => {
+    const written: string[] = [];
+    (window as Window & { __groupExports: string[] }).__groupExports = written;
+    Object.defineProperty(window, "showSaveFilePicker", { configurable: true,
+      value: async () => ({ name: "test.json", createWritable: async () => ({
+        write: async (text: string) => { written.push(text); },
+        close: async () => {},
+      }) }),
+    });
+  });
+  const lastSave = () => page.evaluate(() => JSON.parse(
+    (window as Window & { __groupExports: string[] }).__groupExports.at(-1)!));
+  await page.goto("/");
+  const profiles: any[] = [];
+  for (const [name, path, preset] of [["A", aPath, "笑顔A"], ["B", bPath, "笑顔B"]]) {
+    await createGroup(page, name);
+    await loadPsd(page, path);
+    await expect(page.locator("[data-preset-id]")).toHaveCount(1);
+    await page.getByRole("button", { name: "＋ 作成" }).click();
+    await page.locator("#preset-name").fill(preset);
+    await page.locator("#preset-name").press("Tab");
+    await page.getByRole("button", { name: "← 一覧へ" }).click();
+    await page.getByRole("button", { name: "JSONを保存", exact: true }).click();
+    await expect(page.locator(".character-profile-actions [role=status]")).toContainText("JSONを保存しました");
+    profiles.push(await lastSave());
+  }
+  expect(profiles[0].source.path).toBe(aPath);
+  expect(profiles[1].source.path).toBe(bPath);
+
+  await page.getByRole("button", { name: "制作（試作）" }).click();
+  for (const [i, name] of ["A", "B"].entries()) {
+    await page.getByRole("textbox", { name: "追加するキャラ名" }).fill(name);
+    await page.locator("#production-character-input").setInputFiles({
+      name: "profile.json", mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(profiles[i])),
+    });
+    await expect(page.locator("[data-production-character]")).toHaveCount(i + 1);
+  }
+  await page.locator("#production-wav-path-advanced").evaluate((el) => {
+    (el as HTMLDetailsElement).open = true;
+  });
+  await page.locator("#production-wav-path").fill("/tmp/音声.wav");
+  await page.getByRole("button", { name: "WAVを登録", exact: true }).click();
+  await expect(page.locator("[data-production-wav-id]")).toHaveCount(1);
+  const ids = await page.locator("[data-production-character]").evaluateAll((nodes) =>
+    nodes.map((node) => node.getAttribute("data-production-character")!));
+  const initialA = page.getByRole("combobox", { name: "初期プリセット: " + ids[0], exact: true });
+  const initialB = page.getByRole("combobox", { name: "初期プリセット: " + ids[1], exact: true });
+  await expect(initialA.locator("option")).toHaveText(["通常", "笑顔A"]);
+  await expect(initialB.locator("option")).toHaveText(["通常", "笑顔B"]);
+  await initialA.selectOption(profiles[0].collection.items[1].id);
+  await initialB.selectOption(profiles[1].collection.items[1].id);
+  await page.getByRole("button", { name: "制作JSONを保存", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "複数キャラ制作プロジェクトを保存しました" })).toBeVisible();
+  const project = await lastSave();
+  expect(project.characters.map((character: any) => character.profile)).toEqual(profiles);
+
+  // Editing a library character is not an implicit mutation of a saved v5 snapshot.
+  await page.getByRole("button", { name: "プリセット", exact: true }).click();
+  await selectGroup(page, "A");
+  await expect(page.getByText("笑顔A", { exact: true })).toBeVisible();
+  await page.locator("[data-preset-id]").nth(1).getByRole("button", { name: "詳細を編集" }).click();
+  await page.locator("#preset-name").fill("変更後A");
+  await page.locator("#preset-name").press("Tab");
+  await page.getByRole("button", { name: "← 一覧へ" }).click();
+  await expect(page.getByText("変更後A", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "制作（試作）" }).click();
+  await expect(initialA.locator("option")).toHaveText(["通常", "笑顔A"]);
+  await page.getByRole("button", { name: "制作JSONを保存", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "複数キャラ制作プロジェクトを保存しました" })).toBeVisible();
+  expect((await lastSave()).characters).toEqual(project.characters);
 });
