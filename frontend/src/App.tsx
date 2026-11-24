@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import PresetWorkspace from "./PresetWorkspace";
+import CharacterPresetWorkspace from "./CharacterPresetWorkspace";
 import UtteranceWorkspace from "./UtteranceWorkspace";
 import ProductionWorkspace from "./ProductionWorkspace";
 import type { UtteranceItem } from "./utteranceItems";
@@ -33,7 +33,7 @@ export default function App() {
         制作（試作）
       </button>
     </nav>
-    {screen === "presets" && <PresetWorkspace utterances={utterances}
+    {screen === "presets" && <CharacterPresetWorkspace utterances={utterances}
       isWavRegistrationPending={() => pendingWavRegistrations.current > 0} />}
     {speechVisited && <div hidden={screen !== "speech"}>
       <UtteranceWorkspace active={screen === "speech"}

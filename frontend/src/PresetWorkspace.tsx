@@ -13,7 +13,7 @@ import {
   type AiueoKey,
   type Presets, type UnifiedPreset, withDefaultBlinkTiming, setPresetThumbnail,
 } from "./presetModel";
-import { matchesSource, persistMissingBlinkTiming, PresetDraftChangedError, readPresetDraft, writePresetDraft, type PresetDraft } from "./presetDraftStorage";
+import { matchesSource, persistMissingBlinkTiming, PresetDraftChangedError, readPresetDraft, writePresetDraft, type PresetDraft, type PresetDraftStore } from "./presetDraftStorage";
 import {
   MAX_PROFILE_SIZE, matchesCharacterProfileSource, parseCharacterProfile,
   serializeCharacterProfile, validateCharacterProfileOpenTargets,
@@ -47,9 +47,10 @@ function signature(preset: UnifiedPreset): string {
 
 const empty: Presets = { items: [], defaultId: null };
 
-export default function PresetWorkspace({ utterances, isWavRegistrationPending }: {
+export default function PresetWorkspace({ utterances, isWavRegistrationPending, draftStore }: {
   utterances: readonly UtteranceItem[];
   isWavRegistrationPending: () => boolean;
+  draftStore?: PresetDraftStore;
 }) {
   const [psdPath, setPsdPath] = useState("");
   const [loadedPath, setLoadedPath] = useState("");
@@ -85,7 +86,7 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending }
   useEffect(() => {
     let cancelled = false;
     let saved: PresetDraft | null = null;
-    try { saved = readPresetDraft(); }
+    try { saved = draftStore ? draftStore.read() : readPresetDraft(); }
     catch (err) {
       setInvalidRecovery(true);
       setRestoreMessage((err instanceof Error ? err.message : String(err))
@@ -112,7 +113,7 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending }
         }
         // Never display the default as saved until its durable write succeeds.
         let restored: PresetDraft;
-        try { restored = persistMissingBlinkTiming(recovery, data.fingerprint, data.layers); }
+        try { restored = persistMissingBlinkTiming(recovery, data.fingerprint, data.layers, draftStore); }
         catch (err) {
           setRestoreMessage(err instanceof PresetDraftChangedError ? err.message :
             "初期の瞬き時間を保存できないため復元を中止しました。保存済みデータは保持しています。");
@@ -142,7 +143,7 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending }
     path: string = loadedPath, fingerprint: string | undefined = psd?.fingerprint): boolean {
     if (!path || !fingerprint) return false;
     try {
-      writePresetDraft({ version: 2, path, fingerprint, collection: next, nameDrafts: drafts });
+      (draftStore?.write ?? writePresetDraft)({ version: 2, path, fingerprint, collection: next, nameDrafts: drafts });
       return true;
     } catch {
       setError("ブラウザに自動保存できません。再読み込み前に空き容量・保存設定を確認してください。");
@@ -170,16 +171,30 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending }
     const requested = sourcePath ?? psdPath.trim();
     if (!requested || busy || checkingRecovery) return false;
     if (sourceChanged && !discardSaved) {
-      setError("元PSDが変更されています。旧レイヤー設定は自動適用しません。新規に読み込むには明示的に破棄を選んでください。");
+      setError(draftStore
+        ? "元PSDが変更されています。現在の設定は保持しています。変更後のPSDは新しいキャラとして追加してください。"
+        : "元PSDが変更されています。旧レイヤー設定は自動適用しません。新規に読み込むには明示的に破棄を選んでください。");
       return false;
     }
     if (invalidRecovery && !discardSaved) {
       setError("保存済みデータが不正です。「保存済みを破棄して新規」を選ぶまで上書きしません。");
       return false;
     }
-    const recovery = savedRecovery.current;
+    let recovery = savedRecovery.current;
+    if (draftStore) {
+      // An ordinary scoped reload must never replace this character's source.
+      try { recovery = draftStore.read(); }
+      catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        return false;
+      }
+      if (recovery && requested !== recovery.path) {
+        setError("別のPSDを使う場合は、新しいキャラを追加してください。現在の設定は保持しています。");
+        return false;
+      }
+    }
     const recoveringSameSource = !!recovery && !discardSaved && requested === recovery.path;
-    if (discardSaved || (psd && (hasUnsavedChanges || requested !== loadedPath))
+    if (discardSaved || (!draftStore && psd && (hasUnsavedChanges || requested !== loadedPath))
         || (recovery && !recoveringSameSource)) {
       if (!window.confirm("保存済みのプリセットを破棄してPSDを読み込みますか？")) return false;
     }
@@ -200,7 +215,7 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending }
               ? "保存済みの口・目の動作対象グループが競合、または不正です。保存データは保持しています。"
               : "PSDのレイヤー構造、口形参照、または*・!の保存状態が一致しません。保存データは保持しています。");
         }
-        const restored = persistMissingBlinkTiming(recovery, data.fingerprint, data.layers);
+        const restored = persistMissingBlinkTiming(recovery, data.fingerprint, data.layers, draftStore);
         setPsd(data);
         setLoadedPath(requested);
         setPsdPath(requested);
@@ -288,6 +303,13 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending }
       if (editVersion.current !== startVersion) {
         throw new Error("読込み中に編集内容が変更されたため、JSONの反映を中止しました。");
       }
+      if (draftStore) {
+        const current = draftStore.read();
+        if (current && (current.path !== profile.source.path ||
+            current.fingerprint !== profile.source.fingerprint)) {
+          throw new Error("別のPSDの設定JSONは新しいキャラとして追加してください。");
+        }
+      }
       if ((psd || savedRecovery.current || invalidRecovery) &&
           !window.confirm("現在のプリセット編集内容を、選択したキャラクター設定JSONで置き換えますか？")) {
         return;
@@ -297,7 +319,7 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending }
       }
       // Durable recovery write first: on storage failure keep the current UI.
       const importedCollection = withDefaultBlinkTiming(profile.collection);
-      writePresetDraft({
+      (draftStore?.write ?? writePresetDraft)({
         version: 2, path: profile.source.path, fingerprint: profile.source.fingerprint,
         collection: importedCollection, nameDrafts: {},
       });
@@ -357,8 +379,8 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending }
   function changeNameDraft(id: string, name: string) {
     editVersion.current += 1;
     const drafts = { ...nameDrafts, [id]: name };
-    persist(collection, drafts);
-    setNameDrafts(drafts);
+    const saved = persist(collection, drafts);
+    if (saved || !draftStore) setNameDrafts(drafts);
   }
 
   const pending = psd && collection.items.find((preset) => {
@@ -416,7 +438,7 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending }
   function add() {
     if (!psd) return;
     const preset = createPreset(availablePresetName(collection, "新しいプリセット"), psd.layers);
-    updatePresets(appendPreset(collection, preset));
+    if (!updatePresets(appendPreset(collection, preset))) return;
     if (preset.base.every((state, i) => state.visible === psd.layers[i].visible)) {
       setPreviews((old) => ({
         ...old, [preset.id]: { signature: signature(preset), image: psd.preview },
@@ -429,7 +451,7 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending }
     const next = duplicatePreset(collection, id);
     const copy = next.items.find((preset) => !collection.items.some((old) => old.id === preset.id));
     if (!copy) return;
-    updatePresets(next);
+    if (!updatePresets(next)) return;
     const sourceCache = previews[id];
     if (sourceCache && sourceCache.signature === signature(copy)) {
       setPreviews((old) => ({ ...old, [copy.id]: { ...sourceCache } }));
@@ -477,7 +499,7 @@ export default function PresetWorkspace({ utterances, isWavRegistrationPending }
     <p className="notice session-notice" role="note">このブラウザに自動保存します。PSD原本は変更しません。</p>
     {checkingRecovery && <p role="status" className="hint">前回の編集を確認中…</p>}
     {restoreMessage && <p role="status" className="hint">{restoreMessage}</p>}
-    {(invalidRecovery || savedRecovery.current || sourceChanged) && !busy && <button
+    {!draftStore && (invalidRecovery || savedRecovery.current || sourceChanged) && !busy && <button
       type="button" className="secondary" onClick={() => { void loadPsd(true); }}>
       保存済みを破棄して新規
     </button>}
