@@ -98,9 +98,9 @@ export function addCharacterDraftGroup(
 }
 
 export function selectCharacterDraftGroup(
-  catalog: CharacterDraftCatalog, id: string,
+  catalog: CharacterDraftCatalog, id: string | null,
 ): CharacterDraftCatalog {
-  groupById(catalog, id);
+  if (id !== null) groupById(catalog, id);
   return checked({ ...catalog, selectedId: id });
 }
 
