@@ -18,6 +18,12 @@ export type PresetDraft = {
   nameDrafts: Record<string, string>;
 };
 
+/** Optional isolated recovery store; the old single-character path uses the default. */
+export type PresetDraftStore = {
+  read: () => PresetDraft | null;
+  write: (draft: PresetDraft) => void;
+};
+
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -184,9 +190,9 @@ function sameWithoutBlinkTiming(a: PresetDraft, b: PresetDraft): boolean {
  * localStorage is not an atomic compare-and-swap across browser tabs.
  */
 export function persistMissingBlinkTiming(
-  draft: PresetDraft, fingerprint: string, layers: Layer[],
+  draft: PresetDraft, fingerprint: string, layers: Layer[], store?: PresetDraftStore,
 ): PresetDraft {
-  const latest = readPresetDraft();
+  const latest = store ? store.read() : readPresetDraft();
   if (!latest || latest.path !== draft.path ||
       !matchesSource(latest, fingerprint, layers) ||
       !sameWithoutBlinkTiming(draft, latest)) {
@@ -200,8 +206,13 @@ export function persistMissingBlinkTiming(
   const upgraded: PresetDraft = { ...latest, collection };
   // Verify that nothing changed between parsing and the final storage write.
   const expected = JSON.stringify(latest);
-  if (localStorage.getItem(KEY) !== expected) throw new PresetDraftChangedError();
-  writePresetDraft(upgraded);
+  if (store) {
+    // The isolated store verifies its catalog generation before publishing.
+    store.write(upgraded);
+  } else {
+    if (localStorage.getItem(KEY) !== expected) throw new PresetDraftChangedError();
+    writePresetDraft(upgraded);
+  }
   return upgraded;
 }
 
