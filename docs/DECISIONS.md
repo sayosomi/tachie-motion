@@ -41,6 +41,8 @@ These decisions are carried from product planning. Changes require an explicit p
 | D32 | **2026-11-23利用者承認（新制作ワークフロー #66〜#74）**：セリフ後・末尾の待機は固定プリセットの透過静止画とし、旧D12/D13/D30の「待機MOV」方式をこの制作フローでは置き換える。待機秒数・FPSは制作プロジェクト共通。待機区間ごとにキャラ別プリセットを切替可能。聞き手の他キャラ発話中は静止画ではなく、口パクOFFでもアニメーションMOVとする。汎用ループ機能は対象外。待機PNGのOTIO表現・Resolve互換性はIssue #66の合成PNG PoCで部分Human PASS（24/30/60fps、指定尺、複数回参照、延長）。別名パスと実PSD由来の品質は継続検証。 |
 
 | D33 | **2026-11-23利用者承認、Issue #66**：全体共通の待機秒数は、FPSを掛けた値を**四捨五入（0.5フレーム以上切り上げ）**して整数フレームに変換し、正の秒数は最低1フレームとする。計算はFraction等の有理数・整数演算で行い、浮動小数点の誤差で境界を変えない。変更ごとの別FPSや秒数を保存しない。24/30/60fpsのfloor/ceil双方のResolve表示はHuman PASS。製品への正式統合は別Issue。 |
+| D34 | **2026-11-23 利用者承認、Issue #67**：新しい共通WAV・複数キャラクター制作プロジェクトJSONの正式形式は **v5** とする。**旧v4との互換性は要求しない**。新制作画面でv4を読み込まず、自動・手動変換機能も設けない。旧v4のデータや保存ファイルを勝手に書き換えない。既存の単一キャラ「セリフ」画面は新制作画面からのMOV/OTIO生成が未実装のため当面別経路として存在するが、そのv4サポートを新フローの互換契約とはしない。廃止は新しい制作・書き出し機能が揃ってから別途切り分ける。待機プリセットは未指定ならキャラ既定に連動、個別指定時のみoverrideを保存する。 |
+| D35 | **2026-11-24利用者承認、Issue #67 / #77 / #78**：新制作v5はFPS初期30、基本セリフ間隔初期1秒、書き出し解像度「原寸／1/2／1/4」（初期原寸）を共有し、MOVと待機PNGの双方に同倍率を使用。出力先は書き出し時に指定しv5制作JSONには固定保存しない。冒頭と各WAV後（最終が末尾）の間隔は個別秒数overrideがnullなら基本値に連動、個別設定とキャラ別待機プリセットはWAV安定IDで保持。話者手動指定は後続の自動判定から保護する。口パク手動指定は聞き手中も保持し、実効noneのみ適用して、話者へ戻れば復元する。autoなら有効LABでaiueo、他はopen。D33の「変更ごとの別FPSや秒数なし」はWAV内部の変更点の意味であり、**WAV間の区間秒数overrideを禁止するものではない**。UI導線は#77、一覧ソート・一括変更は#78、LAB・本番MOV/OTIOは後続Issue。 |
 
 ## Unresolved decisions / validation
 
@@ -54,5 +56,7 @@ These decisions are carried from product planning. Changes require an explicit p
 - Exact idle looping rules with blinking and whether loopable motion must be periodic by construction.
 - Default output pixel scaling, future preset migration rules, and schema-version changes beyond the approved project JSON v4.
 
+
+- **Issue #67（2026-11-23、D34で決定済み）**：共通WAV・複数キャラ制作JSONはv5のみ。旧v4の読み込み・自動変換・手動変換は提供せず、互換性を保持する必要はない。現在の「セリフ」v4経路は既存書き出し機能を維持するため当面残るが、新v5制作の互換契約ではない。旧ユーザーデータを勝手に書き換えず、機能置換時には従来のMOV名・出力先・競合選択など必要な現行機能を個別に検討する。Mac実PSD/WAV・Finder Humanは未実施。
 
 Do not silently resolve any of these as if already user-approved.

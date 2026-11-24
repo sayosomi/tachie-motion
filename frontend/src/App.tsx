@@ -1,11 +1,13 @@
 import { useRef, useState } from "react";
 import PresetWorkspace from "./PresetWorkspace";
 import UtteranceWorkspace from "./UtteranceWorkspace";
+import ProductionWorkspace from "./ProductionWorkspace";
 import type { UtteranceItem } from "./utteranceItems";
 
 export default function App() {
-  const [screen, setScreen] = useState<"presets" | "speech">("presets");
+  const [screen, setScreen] = useState<"presets" | "speech" | "production">("presets");
   const [speechVisited, setSpeechVisited] = useState(false);
+  const [productionVisited, setProductionVisited] = useState(false);
   const [projectBusy, setProjectBusy] = useState(false);
   // Keep the WAV references alive while the preset screen is mounted so a
   // preset cannot be deleted out from under an existing utterance or point.
@@ -26,6 +28,10 @@ export default function App() {
           setSpeechVisited(true);
           setScreen("speech");
         }}>セリフ</button>
+      <button type="button" disabled={projectBusy} aria-pressed={screen === "production"}
+        onClick={() => { setProductionVisited(true); setScreen("production"); }}>
+        制作（試作）
+      </button>
     </nav>
     {screen === "presets" && <PresetWorkspace utterances={utterances}
       isWavRegistrationPending={() => pendingWavRegistrations.current > 0} />}
@@ -34,6 +40,9 @@ export default function App() {
         items={utterances} setItems={setUtterances}
         onWavRegistrationPendingChange={changePendingWavRegistrations}
         onProjectBusyChange={setProjectBusy} />
+    </div>}
+    {productionVisited && <div hidden={screen !== "production"}>
+      <ProductionWorkspace onProjectBusyChange={setProjectBusy} />
     </div>}
   </>;
 }
