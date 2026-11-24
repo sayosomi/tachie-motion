@@ -223,12 +223,12 @@ test("character profile exports feed the v5 project without mixing presets or li
   // Editing a library character is not an implicit mutation of a saved v5 snapshot.
   await page.getByRole("button", { name: "プリセット", exact: true }).click();
   await selectGroup(page, "A");
-  await expect(page.getByText("笑顔A", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-preset-id]").nth(1).getByText("笑顔A", { exact: true })).toBeVisible();
   await page.locator("[data-preset-id]").nth(1).getByRole("button", { name: "詳細を編集" }).click();
   await page.locator("#preset-name").fill("変更後A");
   await page.locator("#preset-name").press("Tab");
   await page.getByRole("button", { name: "← 一覧へ" }).click();
-  await expect(page.getByText("変更後A", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-preset-id]").nth(1).getByText("変更後A", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "制作（試作）" }).click();
   await expect(initialA.locator("option")).toHaveText(["通常", "笑顔A"]);
   await page.getByRole("button", { name: "制作JSONを保存", exact: true }).click();
